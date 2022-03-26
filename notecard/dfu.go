@@ -7,9 +7,12 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -30,7 +33,7 @@ import (
 var NotecardFirmwareSignature = []byte{0x82, 0x1c, 0x6e, 0xb7, 0x18, 0xec, 0x4e, 0x6f, 0xb3, 0x9e, 0xc1, 0xe9, 0x8f, 0x22, 0xe9, 0xf6}
 
 // Side-loads a file to the DFU area of the notecard, to avoid download
-func dfuLoad(filename string, verbose bool) (err error) {
+func dfuSideload(filename string, verbose bool) (err error) {
 	var req notecard.Request
 
 	// Read the file up-front so we can handle this common failure
@@ -43,11 +46,55 @@ func dfuLoad(filename string, verbose bool) (err error) {
 
 	// Turn off trace mode, which interferes with large transfers due to trace responses
 	// from the card occurring during the process of transfer
-	req = notecard.Request{Req: "card.trace"}
-	req.Mode = "off"
-	_, err = card.TransactionRequest(req)
+	_, err = card.TransactionRequest(notecard.Request{Req: "card.trace", Mode: "off"})
 	if err != nil {
 		return
+	}
+
+	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
+	// in order to sideload, the Notecard might normally need a ProductUID configured and would
+	// need to talk to the cloud.  Since this would also mean that the SIM would be provisioned,
+	// we clearly could not do this at point of manufacture.  As such, this code uses a feature
+	// whereby the Notecard's time can be set if and only if it hasn't yet been set.  We don't
+	// trust the time of the local PC, so instead we fetch it from Notehub.
+	var webreq *http.Request
+	var webrsp *http.Response
+	webreq, err = http.NewRequest("GET", "https://api.notefile.net/ping", nil)
+	if err != nil {
+		return
+	}
+	httpclient := &http.Client{
+		Timeout: time.Second * time.Duration(15),
+	}
+	webrsp, err = httpclient.Do(webreq)
+	if err != nil {
+		return
+	}
+	var webrspJSON []byte
+	webrspJSON, err = io.ReadAll(webrsp.Body)
+	webrsp.Body.Close()
+	if err != nil {
+		return
+	}
+	var pingrsp map[string]interface{}
+	err = json.Unmarshal(webrspJSON, &pingrsp)
+	if err != nil {
+		return
+	}
+	body, exists := pingrsp["body"].(map[string]interface{})
+	if exists {
+		timestr, exists := body["time"].(string)
+		if exists {
+			var t time.Time
+			t, err = time.Parse("2006-01-02T15:04:05Z", timestr)
+			if err != nil {
+				return
+			}
+			_, err = card.TransactionRequest(notecard.Request{Req: "card.time", Time: t.Unix()})
+			if err != nil {
+				return
+			}
+		}
 	}
 
 	// Place the card into dfu mode

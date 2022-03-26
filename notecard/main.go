@@ -91,8 +91,8 @@ func main() {
 	flag.StringVar(&actionDFUPackage, "binpack", "", "package multiple .bin's for DFU into a single .bins package")
 	var actionFast bool
 	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to notecard knowing that {io} errors are to be expected")
-	var actionDFULoad string
-	flag.StringVar(&actionDFULoad, "sideload", "", "side-load a .bin or .bins into the notecard's storage")
+	var actionSideload string
+	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the notecard's storage")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -541,8 +541,8 @@ func main() {
 		lib.ConfigSetHub(actionHub)
 	}
 
-	if err == nil && actionDFULoad != "" {
-		err = dfuLoad(actionDFULoad, actionVerbose)
+	if err == nil && actionSideload != "" {
+		err = dfuSideload(actionSideload, actionVerbose)
 	}
 
 	if err == nil && actionDFUPackage != "" {
