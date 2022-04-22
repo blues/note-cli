@@ -93,6 +93,8 @@ func main() {
 	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to notecard knowing that {io} errors are to be expected")
 	var actionSideload string
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the notecard's storage")
+	var actionEcho int
+	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the notecard")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -633,6 +635,10 @@ func main() {
 				break
 			}
 		}
+	}
+
+	if err == nil && actionEcho != 0 {
+		err = echo(actionEcho)
 	}
 
 	if err == nil && actionExplore {
