@@ -6,7 +6,7 @@ This repository contains command-line tools for working with the Notecard and No
 ## To learn more about Blues Wireless, the Notecard and Notehub, see:
 
 * [blues.com](https://blues.io)
-* [notehub.io][Notehub]
+* [notehub.io](https://notehub.io)
 * [wireless.dev](https://wireless.dev)
 
 ## License
