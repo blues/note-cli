@@ -18,7 +18,6 @@ jobs:
       - name: Run tests
         run: go test -v -p=1 -timeout=0 ./...
       - uses: wangyoucao577/go-release-action@v1.16
-      - name: Create Notecard binaries
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
@@ -27,8 +26,8 @@ jobs:
           binary_name: "notecard"
           ldflags: "-s -w"
           extra_files: LICENSE README.md
+      - name: Create Notecard binaries
       - uses: wangyoucao577/go-release-action@v1.16
-      - name: Create Notehub binaries
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
@@ -37,3 +36,5 @@ jobs:
           binary_name: "notehub"
           ldflags: "-s -w"
           extra_files: LICENSE README.md
+      - name: Create Notehub binaries
+      
