@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Create Notecard binaries
-      - uses: wangyoucao577/go-release-action@v1.16
+        uses: wangyoucao577/go-release-action@v1.16
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
@@ -26,7 +26,7 @@ jobs:
           ldflags: "-s -w"
           extra_files: LICENSE README.md
       - name: Create Notehub binaries
-      - uses: wangyoucao577/go-release-action@v1.16
+        uses: wangyoucao577/go-release-action@v1.16
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
