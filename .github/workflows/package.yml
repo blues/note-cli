@@ -21,7 +21,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
           goarch: ${{ matrix.goarch }}
-          goversion: "1.17"
+          goversion: "https://dl.google.com/go/go1.18.1.linux-amd64.tar.gz"
           project_path: "./notecard"
           binary_name: "notecard"
           ldflags: "-s -w"
@@ -32,7 +32,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           goos: ${{ matrix.goos }}
           goarch: ${{ matrix.goarch }}
-          goversion: "1.17"
+          goversion: "https://dl.google.com/go/go1.18.1.linux-amd64.tar.gz"
           project_path: "./notehub"
           binary_name: "notehub"
           ldflags: "-s -w"
