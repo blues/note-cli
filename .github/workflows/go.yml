@@ -6,13 +6,13 @@ on:
 
 jobs:
   releases-matrix:
-    name: Release Go Binary
+    name: Release Go Binary (linux, windows, darwin amd64)
     runs-on: ubuntu-latest
     strategy:
       matrix:
         # build and publish in parallel: linux/amd64
         goos: [linux, darwin, windows]
-        goarch: [amd64]
+        goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v2
       - name: Create Notecard binaries
