@@ -10,7 +10,7 @@ builds:
   -
     # ID of the build.
     # Defaults to the project name.
-    id: "notecard"
+    id: "notecard-linux"
 
     # Path to project's (sub)directory containing Go code.
     # This is the working directory for the Go build command(s).
@@ -27,8 +27,6 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
-      - windows
-      - darwin
     goarch:
       - amd64
       - arm
@@ -39,11 +37,62 @@ builds:
       - goos: windows
         goarch: arm
         goarm: 6
-      - goos: darwin
-        goarch: arm64
-      - goos: darwin
-        goarch: amd64
 
+  -
+    # ID of the build.
+    # Defaults to the project name.
+    id: "notehub-linux"
+
+    # Path to project's (sub)directory containing Go code.
+    # This is the working directory for the Go build command(s).
+    # Default is `.`.
+    dir: notehub
+
+
+    # Binary name.
+    # Can be a path (e.g. `bin/app`) to wrap the binary in a directory.
+    # Default is the name of the project directory.
+    binary: notehub
+
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm
+      - arm64
+  -
+    # ID of the build.
+    # Defaults to the project name.
+    id: "notecard"
+
+    # Path to project's (sub)directory containing Go code.
+    # This is the working directory for the Go build command(s).
+    # Default is `.`.
+    dir: notecard
+
+
+    # Binary name.
+    # Can be a path (e.g. `bin/app`) to wrap the binary in a directory.
+    # Default is the name of the project directory.
+    binary: notecard
+
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm
+        goarm: 6
+      - goos: windows
+        goarch: arm64
 
   -
     # ID of the build.
@@ -62,9 +111,8 @@ builds:
     binary: notehub
 
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
-      - linux
       - windows
       - darwin
     goarch:
@@ -73,14 +121,10 @@ builds:
       - arm64
     ignore:
       - goos: windows
-        goarch: arm64
-      - goos: windows
         goarch: arm
         goarm: 6
-      - goos: darwin
+      - goos: windows
         goarch: arm64
-      - goos: darwin
-        goarch: amd64
 
 archives:
   - replacements:
