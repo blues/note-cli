@@ -6,12 +6,12 @@ on:
 
 jobs:
   releases-matrix:
-    name: Release Go Binary (linux, windows, darwin amd64)
+    name: Release Go Binary (linux, windows)
     runs-on: ubuntu-latest
     strategy:
       matrix:
         # build and publish in parallel: linux/amd64
-        goos: [linux, darwin, windows]
+        goos: [linux, windows]
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v2
