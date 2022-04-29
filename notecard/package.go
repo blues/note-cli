@@ -94,7 +94,7 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	prefix += "HOST: " + hostProcessorType + "\n"
 	for i := range addresses {
 		cleanFn := strings.ReplaceAll(filenames[i], ",", "")
-		prefix += fmt.Sprintf("LOAD: %s,%d,%d,%d,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), md5.Sum(files[i]))
+		prefix += fmt.Sprintf("LOAD: %s,0x%08x,0x%x,0x%x,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), md5.Sum(files[i]))
 	}
 	prefix += "/// BINPACK ///\n"
 
