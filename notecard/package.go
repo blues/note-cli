@@ -92,10 +92,13 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	prefix := "/// BINPACK ///\n"
 	prefix += "WHEN: " + now.Format("2006-01-02 15:04:05 UTC") + "\n"
 	prefix += "HOST: " + hostProcessorType + "\n"
+	hprefix := prefix
 	for i := range addresses {
 		cleanFn := strings.ReplaceAll(filenames[i], ",", "")
 		prefix += fmt.Sprintf("LOAD: %s,%d,%d,%d,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), md5.Sum(files[i]))
+		hprefix += fmt.Sprintf("LOAD: %s,0x%08x,0x%x,0x%x,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), md5.Sum(files[i]))
 	}
+	hprefix += "/// BINPACK ///\n"
 	prefix += "/// BINPACK ///\n"
 
 	// Create the output file
@@ -141,7 +144,7 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	}
 
 	// Done
-	fmt.Printf("%s now incorporates %d files and is %d bytes:\n\n%s\n", outfile, len(addresses), fi.Size(), prefix)
+	fmt.Printf("%s now incorporates %d files and is %d bytes:\n\n%s\n", outfile, len(addresses), fi.Size(), hprefix)
 	return nil
 
 }
