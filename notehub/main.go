@@ -23,6 +23,9 @@ var flagApp string
 var flagProduct string
 var flagDevice string
 
+// CLI Version - Set by ldflags during build/release
+var version = "development"
+
 // Main entry point
 func main() {
 
@@ -62,6 +65,8 @@ func main() {
 	flag.StringVar(&flagApp, "project", "", "projectUID")
 	flag.StringVar(&flagProduct, "product", "", "productUID")
 	flag.StringVar(&flagDevice, "device", "", "deviceUID")
+	var actionVersion bool
+	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
@@ -163,6 +168,10 @@ func main() {
 	// Enter trace mode
 	if err == nil && flagTrace {
 		err = trace()
+	}
+
+	if err == nil && actionVersion {
+		fmt.Printf("Notehub CLI Version: %s\n", version)
 	}
 
 	// Success
