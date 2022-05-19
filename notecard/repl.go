@@ -65,7 +65,7 @@ https://dev.blues.io/reference/notecard-api/introduction/
 
 Other commands:
 
-watch             Print real time notecard activity
+watch             Print real time notecard activity (CTRL-C to stop)
 watch [on|off]    If enabled, Notecard activity will be collected in the
                   background.  It can be viewed with the 'watch' command
                   (default: off)
