@@ -5,18 +5,23 @@ go 1.17
 replace github.com/blues/note-cli/lib => ./lib
 
 require (
-	github.com/blues/note-cli/lib v0.0.0-20220501205150-3248716e86af
+	github.com/blues/note-cli/lib v0.0.0-20220511182447-c8bb8628cd1f
 	github.com/blues/note-go v1.5.0
-	golang.org/x/term v0.0.0-20220411215600-e5f449aeb171
+	github.com/fatih/color v1.13.0
+	github.com/peterh/liner v1.2.2
+	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
 )
 
 require (
-	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/creack/goselect v0.1.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20220326011226-f1430873d8db // indirect
+	github.com/mattn/go-colorable v0.1.12 // indirect
+	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/mattn/go-runewidth v0.0.13 // indirect
 	github.com/power-devops/perfstat v0.0.0-20220216144756-c35f1ee13d7c // indirect
+	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.22.4 // indirect
 	github.com/tklauser/go-sysconf v0.3.10 // indirect
 	github.com/tklauser/numcpus v0.4.0 // indirect

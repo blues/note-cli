@@ -632,14 +632,7 @@ func main() {
 	}
 
 	if err == nil && actionPlayground {
-		fmt.Printf("You may now enter Notecard JSON requests interactively.\nType w to toggle Sync Watch, or q to quit.\n")
-		for {
-			card.DebugOutput(false, false)
-			err = card.Interactive(false, actionWatchLevel, true, "w", "q")
-			if !note.ErrorContains(err, note.ErrCardIo) || !notecard.IoErrorIsRecoverable {
-				break
-			}
-		}
+		os.Exit(NewREPL(card).Start())
 	}
 
 	if err == nil && actionEcho != 0 {
