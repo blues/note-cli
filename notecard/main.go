@@ -26,6 +26,9 @@ const exitFail = 1
 // The open notecard
 var card *notecard.Context
 
+// CLI Version - Set by ldflags during build/release
+var version = "development"
+
 // Main entry
 func main() {
 
@@ -95,6 +98,8 @@ func main() {
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the notecard's storage")
 	var actionEcho int
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the notecard")
+	var actionVersion bool
+	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -627,18 +632,15 @@ func main() {
 	}
 
 	if err == nil && actionPlayground {
-		fmt.Printf("You may now enter Notecard JSON requests interactively.\nType w to toggle Sync Watch, or q to quit.\n")
-		for {
-			card.DebugOutput(false, false)
-			err = card.Interactive(false, actionWatchLevel, true, "w", "q")
-			if !note.ErrorContains(err, note.ErrCardIo) || !notecard.IoErrorIsRecoverable {
-				break
-			}
-		}
+		os.Exit(NewREPL(card).Start())
 	}
 
 	if err == nil && actionEcho != 0 {
 		err = echo(actionEcho)
+	}
+
+	if err == nil && actionVersion {
+		fmt.Printf("Notecard CLI Version: %s\n", version)
 	}
 
 	if err == nil && actionExplore {
