@@ -19,7 +19,6 @@ import (
 
 // Side-loads a file to the DFU area of the notecard, to avoid download
 func dfuSideload(filename string, verbose bool) (err error) {
-	var req notecard.Request
 
 	// Read the file up-front so we can handle this common failure
 	// before we go into dfu mode
@@ -45,15 +44,6 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	}
 
 	// Place the card into dfu mode
-	fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
-	req = notecard.Request{Req: "hub.set"}
-	req.Mode = "dfu"
-	_, err = card.TransactionRequest(req)
-	if err != nil {
-		return
-	}
-
-	// Set the current mode to DFU mode
 	fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
 	_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu"})
 	if err != nil {
@@ -125,13 +115,24 @@ func loadBin(filename string, bin []byte) (err error) {
 	}
 
 	// Issue the first request, which is to initiate the DFU put
-	req = notecard.Request{Req: "dfu.put"}
-	req.Body = &body
-	rsp, err = card.TransactionRequest(req)
-	if err != nil {
-		return
+	chunkLen := 0
+	for {
+		req = notecard.Request{Req: "dfu.put"}
+		req.Body = &body
+		rsp, err = card.TransactionRequest(req)
+		if err != nil {
+			return
+		}
+		chunkLen = int(rsp.Length)
+		// Occasionally because of comms being out-of-sync (because of killing
+		// the command line utility) we get a response that doesn't have the appropriate
+		// fields because we are out of sync.  This is defensive
+		// coding that ensures that we don't proceed until we get in sync.
+		if chunkLen > 0 {
+			break
+		}
+		time.Sleep(750)
 	}
-	chunkLen := int(rsp.Length)
 
 	// Send the chunk to sideload
 	offset := 0
