@@ -3,6 +3,7 @@ module github.com/note-cli
 go 1.17
 
 replace github.com/blues/note-cli/lib => ./lib
+replace github.com/blues/note-go => ./note-go
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20220511182447-c8bb8628cd1f
