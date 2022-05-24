@@ -553,7 +553,7 @@ func main() {
 	}
 
 	if err == nil && actionDFUPackage != "" {
-		err = dfuPackage(actionOutput, actionDFUPackage, flag.Args())
+		err = dfuPackage(actionVerbose, actionOutput, actionDFUPackage, flag.Args())
 		actionRequest = ""
 	}
 

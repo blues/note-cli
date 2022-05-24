@@ -15,10 +15,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang/snappy"
 )
 
+// Chunk size of uncompressed frames within the binpack, which determines how much
+// memory is used when unpacking.
+const uncompressedFrameMax = 8192
+
 // Collects multiple .bin files into a single multi-bin file for composite sideloads/downloads
-func dfuPackage(outfile string, hostProcessorType string, args []string) (err error) {
+func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []string) (err error) {
 
 	// Preset error
 	badFmtErr := fmt.Errorf("MCU type must be followed addr:bin list such as '0x0:bootloader.bin 0x10000:user.bin'")
@@ -28,6 +34,7 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 		return badFmtErr
 	}
 
+	// Read the contents of the files
 	addresses := []int{}
 	regions := []int{}
 	filenames := []string{}
@@ -87,6 +94,63 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 
 	}
 
+	// Generate the compressed form of the binaries
+	// Concatenate the binaries
+	compressionSavings := 0
+	filesCompressed := [][]byte{}
+	for i := range files {
+
+		// Emit snappy-compressed frames
+		uncompressedBin := files[i]
+		uncompressedBinOffset := 0
+		uncompressedBinLeft := len(uncompressedBin)
+		compressedBin := []byte{}
+		for uncompressedBinLeft > 0 {
+
+			uncompressedFrameLen := uncompressedFrameMax
+			if uncompressedBinLeft < uncompressedFrameMax {
+				uncompressedFrameLen = uncompressedBinLeft
+			}
+			uncompressedFrame := uncompressedBin[uncompressedBinOffset : uncompressedBinOffset+uncompressedFrameLen]
+			compressedFrame := snappy.Encode(nil, uncompressedFrame)
+			compressedFrameLen := len(compressedFrame)
+
+			if compressedFrameLen >= uncompressedFrameLen {
+				frameHeader := []byte{
+					byte(uncompressedFrameLen & 0xff),
+					byte((uncompressedFrameLen >> 8) & 0xff),
+					byte((uncompressedFrameLen >> 16) & 0xff),
+					byte((uncompressedFrameLen>>24)&0x7f) | 0x80}
+				compressedBin = append(compressedBin, frameHeader...)
+				compressedBin = append(compressedBin, uncompressedFrame...)
+				if verbose {
+					fmt.Printf("binpack %s frame len %d (uncompressed)\n", filenames[i], uncompressedFrameLen)
+				}
+			} else {
+				frameHeader := []byte{
+					byte(compressedFrameLen & 0xff),
+					byte((compressedFrameLen >> 8) & 0xff),
+					byte((compressedFrameLen >> 16) & 0xff),
+					byte((compressedFrameLen >> 24) & 0x7f)}
+				compressedBin = append(compressedBin, frameHeader...)
+				compressedBin = append(compressedBin, compressedFrame...)
+				compressionSavings += uncompressedFrameLen - compressedFrameLen
+				if verbose {
+					fmt.Printf("binpack %s frame len %d -> %d\n", filenames[i], uncompressedFrameLen, compressedFrameLen)
+				}
+			}
+
+			compressionSavings -= 4 // frame header
+
+			uncompressedBinLeft -= uncompressedFrameLen
+			uncompressedBinOffset += uncompressedFrameLen
+
+		}
+
+		filesCompressed = append(filesCompressed, compressedBin)
+
+	}
+
 	// Build the prefix string
 	now := time.Now().UTC()
 	prefix := "/// BINPACK ///\n"
@@ -94,9 +158,10 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	line := "HOST: " + hostProcessorType + "\n"
 	prefix += line
 	hprefix := line
+	prefix += fmt.Sprintf("SNAP: %d\n", uncompressedFrameMax)
 	for i := range addresses {
 		cleanFn := strings.ReplaceAll(filenames[i], ",", "")
-		prefix += fmt.Sprintf("LOAD: %s,%d,%d,%d,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), md5.Sum(files[i]))
+		prefix += fmt.Sprintf("LOAD: %s,%d,%d,%d,%d,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), len(filesCompressed[i]), md5.Sum(files[i]))
 		hprefix += fmt.Sprintf("LOAD: %s,0x%08x,0x%x,0x%x\n", cleanFn, addresses[i], regions[i], len(files[i]))
 	}
 	prefix += "/// BINPACK ///\n"
@@ -129,9 +194,9 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	fd.Write([]byte(prefix))
 	fd.Write([]byte{0})
 
-	// Concatenate the binaries
-	for i := range files {
-		fd.Write(files[i])
+	// Write the compressed binary
+	for i := range filesCompressed {
+		fd.Write(filesCompressed[i])
 	}
 
 	// Don't need file anymore
@@ -144,7 +209,7 @@ func dfuPackage(outfile string, hostProcessorType string, args []string) (err er
 	}
 
 	// Done
-	fmt.Printf("%s now incorporates %d files and is %d bytes:\n\n%s\n", outfile, len(addresses), fi.Size(), hprefix)
+	fmt.Printf("%s now incorporates %d files and is %d bytes (%d%% saved because of compression):\n\n%s\n", outfile, len(addresses), fi.Size(), int64(compressionSavings*100)/fi.Size(), hprefix)
 	return nil
 
 }
