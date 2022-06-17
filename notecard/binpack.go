@@ -5,6 +5,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/md5"
 	"fmt"
@@ -41,55 +42,95 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 	files := [][]byte{}
 	for _, pair := range args {
 
+		// Parse the arg
+		var fnArg string
+		var loadAddrArg string
+		var addressArg int
+		var regionArg int
 		pairSplit := strings.Split(pair, ":")
-		if len(pairSplit) < 2 || pairSplit[0] == "" || pairSplit[1] == "" {
+		if len(pairSplit) == 1 {
+			loadAddrArg = "0"
+			fnArg = pairSplit[0]
+		} else if pairSplit[0] == "" || pairSplit[1] == "" {
 			return badFmtErr
-		}
-
-		fn := pairSplit[1]
-		filenames = append(filenames, filepath.Base(fn))
-
-		if strings.HasPrefix(fn, "~/") {
-			usr, _ := user.Current()
-			fn = filepath.Join(usr.HomeDir, fn[2:])
-		}
-		bin, err := ioutil.ReadFile(fn)
-		if err != nil {
-			return fmt.Errorf("%s: %s", fn, err)
-		}
-
-		// Round the length to a multiple of 4 bytes by
-		// padding it with zero's
-		if len(bin)%4 != 0 {
-			padBytes := 4 - (len(bin) % 4)
-			buf := make([]byte, padBytes)
-			bin = append(bin, buf...)
-		}
-
-		// Append the the list of files
-		files = append(files, bin)
-
-		var num int
-		numstr := pairSplit[0]
-		numsplit := strings.Split(numstr, ",")
-		if len(numsplit) == 1 {
-			num, err = parseNumber(numstr)
-			if err != nil {
-				return err
-			}
-			addresses = append(addresses, num)
-			regions = append(regions, len(bin))
 		} else {
-			num, err = parseNumber(numsplit[0])
-			if err != nil {
-				return err
+			loadAddrArg = pairSplit[0]
+			fnArg = pairSplit[1]
+			numsplit := strings.Split(loadAddrArg, ",")
+			if len(numsplit) == 1 {
+				addressArg, err = parseNumber(loadAddrArg)
+				if err != nil {
+					return err
+				}
+				regionArg = -1
+			} else {
+				addressArg, err = parseNumber(numsplit[0])
+				if err != nil {
+					return err
+				}
+				regionArg, err = parseNumber(numsplit[1])
+				if err != nil {
+					return err
+				}
 			}
-			addresses = append(addresses, num)
-			num, err = parseNumber(numsplit[1])
+		}
+
+		// Form an actual file path
+		if strings.HasPrefix(fnArg, "~/") {
+			usr, _ := user.Current()
+			fnArg = filepath.Join(usr.HomeDir, fnArg[2:])
+		}
+
+		// Handle ZIP files
+		fnArray := []string{}
+		binArray := [][]byte{}
+		addressArray := []int{}
+		regionArray := []int{}
+		if !strings.HasSuffix(fnArg, ".zip") {
+			fnArray = append(fnArray, filepath.Base(fnArg))
+			bin, err := ioutil.ReadFile(fnArg)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s: %s", fnArg, err)
 			}
-			regions = append(regions, num)
+			binArray = append(binArray, bin)
+			addressArray = append(addressArray, addressArg)
+			regionArray = append(regionArray, regionArg)
+		} else {
+			addressArray, regionArray, fnArray, binArray, err = readZip(hostProcessorType, fnArg)
+			if err != nil {
+				return fmt.Errorf("%s: %s", fnArg, err)
+			}
+		}
+
+		// Loop, appending the files
+		for i := range fnArray {
+			fn := fnArray[i]
+			bin := binArray[i]
+			address := addressArray[i]
+			region := regionArray[i]
+
+			// LEGACY before the DFU drivers did their own padding
+			if false {
+				// Round the length to a multiple of 4 bytes by
+				// padding it with zero's
+				if strings.HasSuffix(fn, ".bin") {
+					if len(bin)%4 != 0 {
+						padBytes := 4 - (len(bin) % 4)
+						buf := make([]byte, padBytes)
+						bin = append(bin, buf...)
+					}
+				}
+			}
+
+			// Append to the lists
+			filenames = append(filenames, fn)
+			files = append(files, bin)
+			addresses = append(addresses, address)
+			if region == -1 {
+				region = len(bin)
+			}
+			regions = append(regions, region)
+
 		}
 
 	}
@@ -243,5 +284,102 @@ func dfuIsNotecardFirmware(bin *[]byte) (isNotecardImage bool) {
 	var NotecardFirmwareSignature = []byte{0x82, 0x1c, 0x6e, 0xb7, 0x18, 0xec, 0x4e, 0x6f, 0xb3, 0x9e, 0xc1, 0xe9, 0x8f, 0x22, 0xe9, 0xf6}
 
 	return bytes.Contains(*bin, NotecardFirmwareSignature)
+
+}
+
+// Read a nordic ZIP file
+func readZip(hostProcessorType string, path string) (addressArray []int, regionArray []int,
+	filenameArray []string, binArray [][]byte, err error) {
+
+	// If this isn't a nordic zip file, it's not supported
+	if !strings.HasPrefix(hostProcessorType, "nrf") {
+		err = fmt.Errorf("only nordic zip files supported")
+		return
+	}
+
+	// Read the ZIP contents
+	var zipContents []byte
+	zipContents, err = ioutil.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	// Prepare to sort through the files in the ZIP
+	namesJSON := []string{}
+	filesJSON := [][]byte{}
+	namesDAT := []string{}
+	filesDAT := [][]byte{}
+	namesBIN := []string{}
+	filesBIN := [][]byte{}
+	namesOTHER := []string{}
+	filesOTHER := [][]byte{}
+
+	// Unzip the files within the zip
+	archive, err2 := zip.NewReader(bytes.NewReader(zipContents), int64(len(zipContents)))
+	if err2 != nil {
+		err = err2
+		return
+	}
+	for _, zf := range archive.File {
+		f, err2 := zf.Open()
+		if err != nil {
+			err = err2
+			return
+		}
+		contents, err2 := ioutil.ReadAll(f)
+		f.Close()
+		if err != nil {
+			err = err2
+			return
+		}
+		if strings.HasSuffix(zf.Name, ".json") {
+			namesJSON = append(namesJSON, zf.Name)
+			filesJSON = append(filesJSON, contents)
+		} else if strings.HasSuffix(zf.Name, ".dat") {
+			namesDAT = append(namesDAT, zf.Name)
+			filesDAT = append(filesDAT, contents)
+		} else if strings.HasSuffix(zf.Name, ".bin") {
+			namesBIN = append(namesBIN, zf.Name)
+			filesBIN = append(filesBIN, contents)
+		} else {
+			namesOTHER = append(namesOTHER, zf.Name)
+			filesOTHER = append(filesOTHER, contents)
+		}
+	}
+
+	// Append to results
+	for i := range namesJSON {
+		addressArray = append(addressArray, 0)
+		regionArray = append(regionArray, 1) // Region: 1 for JSON
+		filenameArray = append(filenameArray, namesJSON[i])
+		binArray = append(binArray, filesJSON[i])
+	}
+	for i := range namesDAT {
+		addressArray = append(addressArray, 0)
+		regionArray = append(regionArray, 2) // Region: 2 for DAT
+		filenameArray = append(filenameArray, namesDAT[i])
+		binArray = append(binArray, filesDAT[i])
+	}
+	for i := range namesBIN {
+		addressArray = append(addressArray, 0)
+		regionArray = append(regionArray, 3) // Region: 3 for BIN
+		filenameArray = append(filenameArray, namesBIN[i])
+		binArray = append(binArray, filesBIN[i])
+	}
+	for i := range namesOTHER {
+		addressArray = append(addressArray, 0)
+		regionArray = append(regionArray, 0) // Region: 0 for anything else
+		filenameArray = append(filenameArray, namesOTHER[i])
+		binArray = append(binArray, filesOTHER[i])
+	}
+
+	// If no files, error
+	if len(filenameArray) == 0 {
+		err = fmt.Errorf("no files in ZIP")
+		return
+	}
+
+	// Done
+	return
 
 }
