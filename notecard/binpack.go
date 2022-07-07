@@ -314,6 +314,8 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 	namesOTHER := []string{}
 	filesOTHER := [][]byte{}
 
+	var totalBinLen int
+
 	// Unzip the files within the zip
 	archive, err2 := zip.NewReader(bytes.NewReader(zipContents), int64(len(zipContents)))
 	if err2 != nil {
@@ -341,6 +343,7 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 		} else if strings.HasSuffix(zf.Name, ".bin") {
 			namesBIN = append(namesBIN, zf.Name)
 			filesBIN = append(filesBIN, contents)
+			totalBinLen += len(contents)
 		} else {
 			namesOTHER = append(namesOTHER, zf.Name)
 			filesOTHER = append(filesOTHER, contents)
@@ -349,7 +352,11 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 
 	// Append to results
 	for i := range namesJSON {
-		addressArray = append(addressArray, 0)
+
+		// Place total binary length in the JSON manifest address field
+		// because the Adafruit bootloader needs to know the binary length
+		// in order to send the DFU_START_PACKET - the first of the transaction
+		addressArray = append(addressArray, totalBinLen)
 		regionArray = append(regionArray, 1) // Region: 1 for JSON
 		filenameArray = append(filenameArray, namesJSON[i])
 		binArray = append(binArray, filesJSON[i])
