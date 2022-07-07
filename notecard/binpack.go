@@ -24,6 +24,12 @@ import (
 // memory is used when unpacking.
 const uncompressedFrameMax = 8192
 
+// For nrf52 DFU the region indicates the use of the binary data in each binpack LOAD section
+const nrfRegionJSONManifest int = 1 // JSON manifest from .zip DFU file
+const nrfRegionMetadata int = 2     // .dat metadata from .zip DFU file
+const nrfRegionBinary int = 3       // Binary from .zip DFU file containing application, bootloader & softdevice executable
+const nrfRegionQSPIFlash int = 4    // Circuit python disc image for nRF external QSPI flash
+
 // Collects multiple .bin files into a single multi-bin file for composite sideloads/downloads
 func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []string) (err error) {
 
@@ -51,6 +57,14 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 		if len(pairSplit) == 1 {
 			loadAddrArg = "0"
 			fnArg = pairSplit[0]
+
+			// nRF52 Cct Python disc image are assigned region 4 to tell the Notecard to
+			// use the external QSPI flash programming commands.  Note that keying from the
+			// file extension here is just to simplify the binpack process for customers who
+			// generate the cct python disc image using Blues tools.
+			if strings.HasPrefix(hostProcessorType, "nrf") && strings.HasSuffix(fnArg, "cpy") {
+				regionArg = nrfRegionQSPIFlash
+			}
 		} else if pairSplit[0] == "" || pairSplit[1] == "" {
 			return badFmtErr
 		} else {
@@ -348,24 +362,31 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 	}
 
 	// Append to results
+
+	// JSON manifest content from .zip DFU file
 	for i := range namesJSON {
 		addressArray = append(addressArray, 0)
-		regionArray = append(regionArray, 1) // Region: 1 for JSON
+		regionArray = append(regionArray, nrfRegionJSONManifest)
 		filenameArray = append(filenameArray, namesJSON[i])
 		binArray = append(binArray, filesJSON[i])
 	}
+
+	// Metadata content from .zip DFU file
 	for i := range namesDAT {
 		addressArray = append(addressArray, 0)
-		regionArray = append(regionArray, 2) // Region: 2 for DAT
+		regionArray = append(regionArray, nrfRegionMetadata)
 		filenameArray = append(filenameArray, namesDAT[i])
 		binArray = append(binArray, filesDAT[i])
 	}
+
+	// Binary data from .zip DFU file containing application, bootloader & softdevice executable
 	for i := range namesBIN {
 		addressArray = append(addressArray, 0)
-		regionArray = append(regionArray, 3) // Region: 3 for BIN
+		regionArray = append(regionArray, nrfRegionBinary)
 		filenameArray = append(filenameArray, namesBIN[i])
 		binArray = append(binArray, filesBIN[i])
 	}
+
 	for i := range namesOTHER {
 		addressArray = append(addressArray, 0)
 		regionArray = append(regionArray, 0) // Region: 0 for anything else
