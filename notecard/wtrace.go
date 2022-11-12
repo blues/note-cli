@@ -31,6 +31,7 @@ const wtSyncFilePull = 16       // byte: number of notefile pulls (pinned at 255
 const wtSyncFilePush = 17       // byte: number of notefile pushes (pinned at 255)
 const wtSyncNotePull = 18       // byte: number of note pulls (pinned at 255)
 const wtSyncNotePush = 19       // byte: number of note pushes (pinned at 255)
+const wtAbort = 20              // string: abort reason
 
 // Dump a single trace buffer
 func wtraceDump(encoded string) error {
@@ -136,6 +137,10 @@ func wtraceDump(encoded string) error {
 
 		case wtSyncNotePush:
 			fmt.Printf("sync uploaded %d notes\n", wtExtract8(buf, &bufoff, &buflen))
+
+		case wtAbort:
+			s := wtExtractString(buf, &bufoff, &buflen)
+			fmt.Printf("connection aborted: %s\n", s)
 
 		default:
 			buflen = 0
