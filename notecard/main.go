@@ -99,8 +99,6 @@ func main() {
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the notecard")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
-	var actionWireless string
-	flag.StringVar(&actionWireless, "wireless", "", "decode a b64 wireless trace log")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -534,10 +532,6 @@ func main() {
 		fmt.Printf("                     Env: %v\n", cardEnv)
 
 		err = infoErr
-	}
-
-	if err == nil && actionWireless != "" {
-		err = wtraceDump(actionWireless)
 	}
 
 	if err == nil && actionProduct != "" {
