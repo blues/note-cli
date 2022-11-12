@@ -7,7 +7,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -100,6 +99,8 @@ func main() {
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the notecard")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
+	var actionWireless string
+	flag.StringVar(&actionWireless, "wireless", "", "decode a b64 wireless trace log")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -535,6 +536,10 @@ func main() {
 		err = infoErr
 	}
 
+	if err == nil && actionWireless != "" {
+		err = wtraceDump(actionWireless)
+	}
+
 	if err == nil && actionProduct != "" {
 		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", ProductUID: actionProduct})
 	}
@@ -566,14 +571,14 @@ func main() {
 				rsp, err = card.TransactionRequest(req)
 			} else {
 				var contents []byte
-				contents, err = ioutil.ReadFile(actionInput)
+				contents, err = os.ReadFile(actionInput)
 				if err == nil {
 					req.Payload = &contents
 					rsp, err = card.TransactionRequest(req)
 				}
 			}
 			if err == nil && actionOutput != "" && rsp.Payload != nil {
-				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
 			}
 		}
 	}
