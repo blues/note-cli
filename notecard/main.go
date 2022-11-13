@@ -7,7 +7,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -566,14 +565,14 @@ func main() {
 				rsp, err = card.TransactionRequest(req)
 			} else {
 				var contents []byte
-				contents, err = ioutil.ReadFile(actionInput)
+				contents, err = os.ReadFile(actionInput)
 				if err == nil {
 					req.Payload = &contents
 					rsp, err = card.TransactionRequest(req)
 				}
 			}
 			if err == nil && actionOutput != "" && rsp.Payload != nil {
-				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
 			}
 		}
 	}

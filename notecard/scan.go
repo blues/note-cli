@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -88,7 +87,7 @@ func scan(debugEnabled bool, init bool, fnSetup string, fnSetupSKU string, carri
 	// Read the file into an array that we'll keep ordered
 	var contents []byte
 	var scannedDevices []ScannedDevice
-	contents, err = ioutil.ReadFile(outfile)
+	contents, err = os.ReadFile(outfile)
 	if err != nil {
 		fmt.Printf("*** new file: %s\n", outfile)
 	} else {
@@ -109,7 +108,7 @@ func scan(debugEnabled bool, init bool, fnSetup string, fnSetupSKU string, carri
 
 	// Read the SIM file into an array that we'll keep ordered
 	var scannedSIMs []ScannedSIM
-	contents, err = ioutil.ReadFile(simfile)
+	contents, err = os.ReadFile(simfile)
 	if err != nil {
 		fmt.Printf("*** new file: %s\n", simfile)
 	} else {
@@ -388,7 +387,7 @@ func loadRequests(filename string) (requests []map[string]interface{}, err error
 
 	// Read the file into an array of requests
 	var contents []byte
-	contents, err = ioutil.ReadFile(filename)
+	contents, err = os.ReadFile(filename)
 	if err != nil {
 		return
 	}
