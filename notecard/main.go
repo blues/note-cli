@@ -178,9 +178,13 @@ func main() {
 	// capacitance and resistance, and where there may be arbitrary activity
 	// on the Notecard. This switch uses a larger buffer and shorter inter-segment
 	// delays under the assumption that perhaps this is being done using USB.
+	// NOTE: the comment above was from before USB flow control was implemented
+	// in the Notecard, in build 15741 Jan 26 2023.  At that time, this was
+	// 1024/30, but is no longer relevant as we can pound the Notecard on the
+	// USB port because of hardware flow control.
 	if err == nil && actionFast {
 		notecard.RequestSegmentMaxLen = 1024
-		notecard.RequestSegmentDelayMs = 30
+		notecard.RequestSegmentDelayMs = 5
 	}
 
 	// Wait until disconnected
