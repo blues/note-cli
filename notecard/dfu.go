@@ -15,6 +15,7 @@ import (
 	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notecard"
 	"github.com/blues/note-go/notehub"
+	"github.com/golang/snappy"
 )
 
 // Side-loads a file to the DFU area of the notecard, to avoid download
@@ -26,6 +27,12 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	bin, err = os.ReadFile(filename)
 	if err != nil {
 		return
+	}
+
+	// Determine the file type
+	filetype := notehub.HubFileTypeUserFirmware
+	if dfuIsNotecardFirmware(&bin) {
+		filetype = notehub.HubFileTypeCardFirmware
 	}
 
 	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
@@ -43,35 +50,40 @@ func dfuSideload(filename string, verbose bool) (err error) {
 		return
 	}
 
-	// Place the card into dfu mode
-	fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
-	_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu"})
-	if err != nil {
-		return
-	}
+	// If not a notecard DFU operation, place the card into dfu mode to access external storage
+	if filetype != notehub.HubFileTypeCardFirmware {
 
-	// Now that we're in DFU mode, make sure we restore the mode on exit
-	defer func() {
-		fmt.Printf("restoring notecard so that it is no longer in DFU mode\n")
-		card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu-completed"})
-	}()
+		fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
 
-	// Wait until dfu status says that we're in DFU mode
-	for {
-		fmt.Printf("waiting for notecard to power-up the external flash storage\n")
-		_, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
-		if err != nil && !note.ErrorContains(err, note.ErrDFUNotReady) && !note.ErrorContains(err, note.ErrCardIo) {
+		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu"})
+		if err != nil {
 			return
 		}
-		if err == nil {
-			break
+
+		// Make sure we restore the mode on exit
+		defer func() {
+			fmt.Printf("restoring notecard so that it is no longer in DFU mode\n")
+			card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu-completed"})
+		}()
+
+		// Wait until dfu status says that we're in DFU mode
+		for {
+			fmt.Printf("waiting for notecard to power-up the external storage\n")
+			_, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
+			if err != nil && !note.ErrorContains(err, note.ErrDFUNotReady) && !note.ErrorContains(err, note.ErrCardIo) {
+				return
+			}
+			if err == nil {
+				break
+			}
+			time.Sleep(1500 * time.Millisecond)
 		}
-		time.Sleep(1500 * time.Millisecond)
+
 	}
 
 	// Do the write
 	fmt.Printf("sending DFU binary to notecard\n")
-	err = loadBin(filename, bin)
+	err = loadBin(filetype, filename, bin)
 	if err != nil {
 		return
 	}
@@ -79,10 +91,11 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	// Done
 	fmt.Printf("sideload completed\n")
 	return
+
 }
 
 // Side-load a binary image
-func loadBin(filename string, bin []byte) (err error) {
+func loadBin(filetype string, filename string, bin []byte) (err error) {
 	var req, rsp notecard.Request
 	totalLen := len(bin)
 
@@ -104,10 +117,7 @@ func loadBin(filename string, bin []byte) (err error) {
 	dbu.CRC32 = crc32.ChecksumIEEE(bin)
 	dbu.Length = totalLen
 	dbu.Name = filename
-	dbu.FileType = notehub.HubFileTypeUserFirmware
-	if dfuIsNotecardFirmware(&bin) {
-		dbu.FileType = notehub.HubFileTypeCardFirmware
-	}
+	dbu.FileType = filetype
 	var body map[string]interface{}
 	body, err = note.ObjectToBody(dbu)
 	if err != nil {
@@ -116,6 +126,7 @@ func loadBin(filename string, bin []byte) (err error) {
 
 	// Issue the first request, which is to initiate the DFU put
 	chunkLen := 0
+	compressionMode := ""
 	for {
 		req = notecard.Request{Req: "dfu.put"}
 		req.Body = &body
@@ -123,6 +134,7 @@ func loadBin(filename string, bin []byte) (err error) {
 		if err != nil {
 			return
 		}
+		compressionMode = rsp.Mode
 		chunkLen = int(rsp.Length)
 		// Occasionally because of comms being out-of-sync (because of killing
 		// the command line utility) we get a response that doesn't have the appropriate
@@ -137,6 +149,7 @@ func loadBin(filename string, bin []byte) (err error) {
 	// Send the chunk to sideload
 	offset := 0
 	lenRemaining := totalLen
+	beganSecs := time.Now().UTC().Unix()
 	for lenRemaining > 0 {
 
 		// Determine how much to send
@@ -146,16 +159,24 @@ func loadBin(filename string, bin []byte) (err error) {
 		}
 
 		// Send the chunk
-		fmt.Printf("side-loading %d bytes (%d remaining)\n", thisLen, lenRemaining-thisLen)
+		fmt.Printf("side-loading %d bytes (%.0f%% %d remaining)\n", thisLen, float64(lenRemaining*100)/float64(totalLen), lenRemaining)
 		req = notecard.Request{Req: "dfu.put"}
-		payload := bin[offset : offset+thisLen]
-		req.Payload = &payload
 		req.Offset = int32(offset)
 		req.Length = int32(thisLen)
+		payload := bin[offset : offset+thisLen]
+		if compressionMode == "snappy" {
+			compressedPayload := snappy.Encode(nil, payload)
+			req.Payload = &compressedPayload
+		} else {
+			req.Payload = &payload
+		}
+		req.Status = fmt.Sprintf("%x", md5.Sum(*req.Payload))
+
 		rsp, err = card.TransactionRequest(req)
 		if err != nil {
 			if note.ErrorContains(err, note.ErrCardIo) {
 				// Just silently retry {io} errors
+				fmt.Printf("retrying after error: %s\n", err)
 				continue
 			}
 			fmt.Printf("aborting after side-loading error: %s\n", err)
@@ -181,6 +202,8 @@ func loadBin(filename string, bin []byte) (err error) {
 		}
 
 	}
+	elapsedSecs := (time.Now().UTC().Unix() - beganSecs) + 1
+	fmt.Printf("%d seconds (%.0f Bps)\n", elapsedSecs, float64(totalLen)/float64(elapsedSecs))
 
 	// Done
 	return
