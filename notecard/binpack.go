@@ -46,6 +46,7 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 	regions := []int{}
 	filenames := []string{}
 	files := [][]byte{}
+	firmwareinfo := ""
 	for _, pair := range args {
 
 		// Parse the arg
@@ -122,18 +123,8 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 			bin := binArray[i]
 			address := addressArray[i]
 			region := regionArray[i]
-
-			// LEGACY before the DFU drivers did their own padding
-			if false {
-				// Round the length to a multiple of 4 bytes by
-				// padding it with zero's
-				if strings.HasSuffix(fn, ".bin") {
-					if len(bin)%4 != 0 {
-						padBytes := 4 - (len(bin) % 4)
-						buf := make([]byte, padBytes)
-						bin = append(bin, buf...)
-					}
-				}
+			if firmwareinfo == "" {
+				firmwareinfo = extractLine(&bin, "firmware::info:")
 			}
 
 			// Append to the lists
@@ -218,6 +209,10 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 		cleanFn := strings.ReplaceAll(filenames[i], ",", "")
 		prefix += fmt.Sprintf("LOAD: %s,%d,%d,%d,%d,%x\n", cleanFn, addresses[i], regions[i], len(files[i]), len(filesCompressed[i]), md5.Sum(files[i]))
 		hprefix += fmt.Sprintf("LOAD: %s,0x%08x,0x%x,0x%x\n", cleanFn, addresses[i], regions[i], len(files[i]))
+	}
+	if firmwareinfo != "" {
+		prefix += "INFO: " + firmwareinfo + "\n"
+		hprefix += "INFO: " + firmwareinfo + "\n"
 	}
 	prefix += "/// BINPACK ///\n"
 
@@ -403,4 +398,19 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 	// Done
 	return
 
+}
+
+// extractLine explores the contents of a bin to find a string with the specified prefix
+func extractLine(payloadOriginal *[]byte, contains string) (found string) {
+	payload := *payloadOriginal
+	components := bytes.SplitAfterN(payload, []byte(contains), 2)
+	if len(components) > 1 {
+		length := bytes.IndexRune(components[1], 0)
+		if length != -1 {
+			str := components[1][0:length]
+			str = bytes.TrimRight(str, "\r\n")
+			found = contains + string(str)
+		}
+	}
+	return
 }
