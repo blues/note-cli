@@ -4,8 +4,6 @@ go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
 
-replace github.com/blues/note-go => ./note-go
-
 require (
 	github.com/blues/note-cli/lib v0.0.0-20220511182447-c8bb8628cd1f
 	github.com/blues/note-go v1.5.0
@@ -18,7 +16,7 @@ require (
 	github.com/creack/goselect v0.1.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
+	github.com/golang/snappy v0.0.4
 	github.com/lufia/plan9stats v0.0.0-20220326011226-f1430873d8db // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
