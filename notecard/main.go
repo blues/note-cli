@@ -576,6 +576,10 @@ func main() {
 					rsp, err = card.TransactionRequest(req)
 				}
 			}
+			if err == nil && !actionVerbose {
+			    rspJSON, _ := note.JSONMarshal(rsp)
+			    fmt.Printf("%s\n", rspJSON)
+			}
 			if err == nil && actionOutput != "" && rsp.Payload != nil {
 				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
 			}
