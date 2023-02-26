@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"io/ioutil"
 	"strings"
 	"syscall"
@@ -164,14 +165,8 @@ func main() {
 	}
 	notecard.InitialDebugMode = actionVerbose
 	card, err = notecard.Open(lib.Config.Interface, lib.Config.Port, configVal)
-	if err != nil {
-		fmt.Printf("%s\n", err)
-		os.Exit(exitFail)
-
-	}
 
 	// Process non-config commands
-	err = nil
 	var rsp notecard.Request
 
 	// The timouts in the note-go library are set under the assumption that
@@ -576,9 +571,11 @@ func main() {
 					rsp, err = card.TransactionRequest(req)
 				}
 			}
-			if err == nil && !actionVerbose {
-			    rspJSON, _ := note.JSONMarshal(rsp)
-			    fmt.Printf("%s\n", rspJSON)
+			if !actionVerbose {
+			    if err == nil {
+			        rspJSON, _ := note.JSONMarshal(rsp)
+			        fmt.Printf("%s\n", rspJSON)
+			    }
 			}
 			if err == nil && actionOutput != "" && rsp.Payload != nil {
 				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
@@ -657,8 +654,12 @@ func main() {
 
 	// Process errors
 	if err != nil {
+	    if actionRequest != "" && !actionVerbose {
+	        fmt.Printf("{\"err\":%s}\n", strconv.Quote(err.Error()))
+	    } else {
 		fmt.Printf("%s\n", err)
 		os.Exit(exitFail)
+	    }
 	}
 
 	// Success
