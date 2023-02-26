@@ -1,6 +1,6 @@
 module github.com/note-cli
 
-go 1.17
+go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
 
