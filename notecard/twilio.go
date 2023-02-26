@@ -7,7 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,7 +40,7 @@ func twilioProvision(creds string, iccid string, key string) (err error) {
 		return
 	}
 	if httpRsp.StatusCode == http.StatusOK {
-		rspJSON, err = io.ReadAll(httpRsp.Body)
+		rspJSON, err = ioutil.ReadAll(httpRsp.Body)
 		if err == nil {
 			rsp := map[string]interface{}{}
 			err = json.Unmarshal(rspJSON, &rsp)
@@ -82,7 +82,7 @@ func twilioProvision(creds string, iccid string, key string) (err error) {
 	}
 	if httpRsp.StatusCode != http.StatusOK && httpRsp.StatusCode != http.StatusCreated {
 		fmt.Printf("status: %d %s\n", httpRsp.StatusCode, httpRsp.Status)
-		rspJSON, _ = io.ReadAll(httpRsp.Body)
+		rspJSON, _ = ioutil.ReadAll(httpRsp.Body)
 		fmt.Printf("%s\n", rspJSON)
 		rsp := map[string]interface{}{}
 		err = json.Unmarshal(rspJSON, &rsp)

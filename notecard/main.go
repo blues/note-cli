@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"io/ioutil"
 	"strings"
 	"syscall"
 	"time"
@@ -569,14 +570,14 @@ func main() {
 				rsp, err = card.TransactionRequest(req)
 			} else {
 				var contents []byte
-				contents, err = os.ReadFile(actionInput)
+				contents, err = ioutil.ReadFile(actionInput)
 				if err == nil {
 					req.Payload = &contents
 					rsp, err = card.TransactionRequest(req)
 				}
 			}
 			if err == nil && actionOutput != "" && rsp.Payload != nil {
-				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
 			}
 		}
 	}

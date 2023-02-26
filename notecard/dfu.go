@@ -8,7 +8,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"hash/crc32"
-	"os"
+	"io/ioutil"
 	"strings"
 	"time"
 
@@ -24,7 +24,7 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	// Read the file up-front so we can handle this common failure
 	// before we go into dfu mode
 	var bin []byte
-	bin, err = os.ReadFile(filename)
+	bin, err = ioutil.ReadFile(filename)
 	if err != nil {
 		return
 	}
