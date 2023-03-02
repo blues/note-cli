@@ -16,13 +16,11 @@ If you want to build the latest, follow the directions below.
 
 ```bash
 $ cd notecard
-$ go get -u .
 $ go build .
 ```
 
 ```bash
 $ cd notehub
-$ go get -u .
 $ go build .
 ```
 
