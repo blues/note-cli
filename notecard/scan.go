@@ -8,8 +8,8 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"os"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 

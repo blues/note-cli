@@ -7,10 +7,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"strconv"
-	"io/ioutil"
 	"strings"
 	"syscall"
 	"time"
@@ -557,28 +557,41 @@ func main() {
 	}
 
 	if err == nil && actionRequest != "" {
-		var req notecard.Request
-		err = note.JSONUnmarshal([]byte(actionRequest), &req)
 		if err == nil {
 			var rsp notecard.Request
 			if actionInput == "" {
-				rsp, err = card.TransactionRequest(req)
+				var rspJSON []byte
+				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				if !actionVerbose {
+					if err == nil {
+						fmt.Printf("%s\n", rspJSON)
+					}
+				}
+				if err == nil && actionOutput != "" {
+					var rsp notecard.Request
+					note.JSONUnmarshal(rspJSON, &rsp)
+					if rsp.Payload != nil {
+						err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+					}
+				}
 			} else {
+				var req notecard.Request
+				note.JSONUnmarshal([]byte(actionRequest), &req)
 				var contents []byte
 				contents, err = ioutil.ReadFile(actionInput)
 				if err == nil {
 					req.Payload = &contents
 					rsp, err = card.TransactionRequest(req)
 				}
-			}
-			if !actionVerbose {
-			    if err == nil {
-			        rspJSON, _ := note.JSONMarshal(rsp)
-			        fmt.Printf("%s\n", rspJSON)
-			    }
-			}
-			if err == nil && actionOutput != "" && rsp.Payload != nil {
-				err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+				if !actionVerbose {
+					if err == nil {
+						rspJSON, _ := note.JSONMarshal(rsp)
+						fmt.Printf("%s\n", rspJSON)
+					}
+				}
+				if err == nil && actionOutput != "" && rsp.Payload != nil {
+					err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+				}
 			}
 		}
 	}
@@ -654,12 +667,12 @@ func main() {
 
 	// Process errors
 	if err != nil {
-	    if actionRequest != "" && !actionVerbose {
-	        fmt.Printf("{\"err\":%s}\n", strconv.Quote(err.Error()))
-	    } else {
-		fmt.Printf("%s\n", err)
-		os.Exit(exitFail)
-	    }
+		if actionRequest != "" && !actionVerbose {
+			fmt.Printf("{\"err\":%s}\n", strconv.Quote(err.Error()))
+		} else {
+			fmt.Printf("%s\n", err)
+			os.Exit(exitFail)
+		}
 	}
 
 	// Success
