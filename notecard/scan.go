@@ -7,9 +7,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
-	"os"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
@@ -448,7 +449,7 @@ func loadRequestsString(filename string) (requests string, err error) {
 func processRequests(init bool, requests []map[string]interface{}) (err error) {
 	repeat := false
 	repeatForever := false
-	countLeft := uint32(0)
+	countLeft := int(0)
 	done := false
 	for !done {
 		if init {
@@ -461,15 +462,29 @@ func processRequests(init bool, requests []map[string]interface{}) (err error) {
 		}
 		for _, req := range requests {
 			if req["req"] == "delay" {
-				time.Sleep(time.Duration(req["seconds"].(int)) * time.Second)
+				n1, present := req["seconds"]
+				if present {
+					n2, err := n1.(json.Number).Int64()
+					if err == nil {
+						time.Sleep(time.Duration(n2) * time.Second)
+					}
+				}
 				continue
 			}
 			if req["req"] == "repeat" {
 				if !repeat {
 					repeat = true
-					countLeft = req["count"].(uint32)
-					if countLeft == 0 {
+					n1, present := req["count"]
+					if !present {
 						repeatForever = true
+					} else {
+						n2, err := n1.(json.Number).Int64()
+						if err == nil {
+							countLeft = int(n2)
+							if countLeft == 0 {
+								repeatForever = true
+							}
+						}
 					}
 				} else {
 					if countLeft > 0 {
@@ -491,13 +506,10 @@ func processRequests(init bool, requests []map[string]interface{}) (err error) {
 				break
 			}
 		}
-		_, err = card.TransactionRequest(notecard.Request{Req: "card.checkpoint"})
-		if err != nil {
-			break
-		}
 		if !repeat {
 			break
 		}
 	}
+	card.TransactionRequest(notecard.Request{Req: "card.checkpoint"})
 	return
 }
