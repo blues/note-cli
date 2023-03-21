@@ -469,6 +469,13 @@ func processRequests(init bool, requests []map[string]interface{}) (err error) {
 						time.Sleep(time.Duration(n2) * time.Second)
 					}
 				}
+				n1, present = req["ms"]
+				if present {
+					n2, err := n1.(json.Number).Int64()
+					if err == nil {
+						time.Sleep(time.Duration(n2) * time.Millisecond)
+					}
+				}
 				continue
 			}
 			if req["req"] == "repeat" {
@@ -495,6 +502,14 @@ func processRequests(init bool, requests []map[string]interface{}) (err error) {
 					}
 				}
 				continue
+			}
+			body, present := req["body"]
+			if present {
+				b := body.(map[string]interface{})
+				_, present := b["time"]
+				if present {
+					b["time"] = float64(time.Now().UTC().UnixNano()/1000000) / 1000
+				}
 			}
 			var reqJSON []byte
 			reqJSON, err = note.JSONMarshal(req)
