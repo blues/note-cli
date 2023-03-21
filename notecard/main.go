@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -668,11 +667,14 @@ func main() {
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {
-			fmt.Printf("{\"err\":%s}\n", strconv.Quote(err.Error()))
+		   	jerr := map[string]interface{}{}
+			jerr["err"] = err.Error()
+			jj, _ := note.JSONMarshal(jerr)
+			fmt.Printf("%s\n", string(jj))
 		} else {
 			fmt.Printf("%s\n", err)
-			os.Exit(exitFail)
 		}
+		os.Exit(exitFail)
 	}
 
 	// Success
