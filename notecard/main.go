@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -561,14 +562,30 @@ func main() {
 			if actionInput == "" {
 				var rspJSON []byte
 				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				var rsp notecard.Request
+				note.JSONUnmarshal(rspJSON, &rsp)
+				if err == nil && rsp.Cobs > 0 {
+					var rspBytes []byte
+					rspBytes, err = card.ReceiveBytes()
+					if err == nil {
+						rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
+						for i := range rspBytes {
+							rspBytes[i] ^= '\n'
+						}
+						rspBytes, err = CobsDecode(rspBytes)
+						if err == nil {
+							rsp.Payload = &rspBytes
+							rsp.Cobs = 0
+							rspJSON, _ = note.JSONMarshal(rsp)
+						}
+					}
+				}
 				if !actionVerbose {
 					if err == nil {
 						fmt.Printf("%s\n", rspJSON)
 					}
 				}
 				if err == nil && actionOutput != "" {
-					var rsp notecard.Request
-					note.JSONUnmarshal(rspJSON, &rsp)
 					if rsp.Payload != nil {
 						err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
 					}
@@ -667,7 +684,7 @@ func main() {
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {
-		   	jerr := map[string]interface{}{}
+			jerr := map[string]interface{}{}
 			jerr["err"] = err.Error()
 			jj, _ := note.JSONMarshal(jerr)
 			fmt.Printf("%s\n", string(jj))
