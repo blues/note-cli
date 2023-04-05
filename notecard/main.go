@@ -569,7 +569,7 @@ func main() {
 					rspBytes, err = card.ReceiveBytes()
 					if err == nil {
 						rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
-						rspBytes, err = CobsDecode(rspBytes, byte('\n'))
+						rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
 						if err == nil {
 							rsp.Payload = &rspBytes
 							rsp.Cobs = 0
