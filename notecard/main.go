@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -179,8 +180,8 @@ func main() {
 	// 1024/30, but is no longer relevant as we can pound the Notecard on the
 	// USB port because of hardware flow control.
 	if err == nil && actionFast {
-		notecard.RequestSegmentMaxLen = 1024
-		notecard.RequestSegmentDelayMs = 5
+		notecard.RequestSegmentMaxLen = 2048
+		notecard.RequestSegmentDelayMs = 0
 	}
 
 	// Wait until disconnected
@@ -558,12 +559,22 @@ func main() {
 
 	if err == nil && actionRequest != "" {
 		if err == nil {
-			var rsp notecard.Request
-			if actionInput == "" {
-				var rspJSON []byte
-				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
-				var rsp notecard.Request
-				note.JSONUnmarshal(rspJSON, &rsp)
+			var rspJSON []byte
+			var req, rsp notecard.Request
+			note.JSONUnmarshal([]byte(actionRequest), &req)
+
+			// If we want to read the payload from a file, do so
+			if actionInput != "" {
+				var contents []byte
+				contents, err = ioutil.ReadFile(actionInput)
+				if err == nil {
+					req.Payload = &contents
+				}
+			}
+
+			// Perform the transaction and do special handling for binary
+			if req.Req == "card.binary.get" {
+				rsp, err = card.TransactionRequest(req)
 				if err == nil && rsp.Cobs > 0 {
 					var rspBytes []byte
 					rspBytes, err = card.ReceiveBytes()
@@ -573,37 +584,46 @@ func main() {
 						if err == nil {
 							rsp.Payload = &rspBytes
 							rsp.Cobs = 0
-							rspJSON, _ = note.JSONMarshal(rsp)
 						}
 					}
 				}
-				if !actionVerbose {
+			} else if req.Req == "card.binary.put" {
+				payload := *req.Payload
+				actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
+				if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
+					err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
+				} else {
+					req.Status = actualMD5
+					payload, err = notecard.CobsEncode(payload, byte('\n'))
 					if err == nil {
-						fmt.Printf("%s\n", rspJSON)
-					}
-				}
-				if err == nil && actionOutput != "" {
-					if rsp.Payload != nil {
-						err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+						req.Payload = nil
+						req.Cobs = int32(len(payload))
+						rsp, err = card.TransactionRequest(req)
+						if err == nil {
+							payload = append(payload, byte('\n'))
+							err = card.SendBytes(payload)
+						}
 					}
 				}
 			} else {
-				var req notecard.Request
-				note.JSONUnmarshal([]byte(actionRequest), &req)
-				var contents []byte
-				contents, err = ioutil.ReadFile(actionInput)
-				if err == nil {
-					req.Payload = &contents
-					rsp, err = card.TransactionRequest(req)
-				}
-				if !actionVerbose {
-					if err == nil {
-						rspJSON, _ := note.JSONMarshal(rsp)
-						fmt.Printf("%s\n", rspJSON)
+				rsp, err = card.TransactionRequest(req)
+			}
+
+			// Write the payload to an output file if appropriate
+			if err == nil && actionOutput != "" {
+				if rsp.Payload != nil {
+					err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+					if err != nil {
+						rsp.Payload = nil
 					}
 				}
-				if err == nil && actionOutput != "" && rsp.Payload != nil {
-					err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+			}
+
+			// Output the response to the console
+			if !actionVerbose {
+				if err == nil {
+					rspJSON, _ = note.JSONMarshal(rsp)
+					fmt.Printf("%s\n", rspJSON)
 				}
 			}
 		}
