@@ -180,8 +180,8 @@ func main() {
 	// 1024/30, but is no longer relevant as we can pound the Notecard on the
 	// USB port because of hardware flow control.
 	if err == nil && actionFast {
-		notecard.RequestSegmentMaxLen = 2048
-		notecard.RequestSegmentDelayMs = 0
+		notecard.RequestSegmentMaxLen = 1024
+		notecard.RequestSegmentDelayMs = 5
 	}
 
 	// Wait until disconnected
