@@ -21,6 +21,22 @@ import (
 // Side-loads a file to the DFU area of the notecard, to avoid download
 func dfuSideload(filename string, verbose bool) (err error) {
 
+	// Do a card.binary transaction to see if the notecard is capable of
+	// doing binary sideloads, and if so, how large.
+	binaryMax := 0
+	var rsp notecard.Request
+	rsp, err = card.TransactionRequest(notecard.Request{Req: "card.binary"})
+	if err == nil {
+
+		// Get the maximum size that the notecard can handle
+		binaryMax = int(rsp.Max)
+
+		// Use shorter delays when sending to Notecard, for performance
+		notecard.RequestSegmentMaxLen = 1024
+		notecard.RequestSegmentDelayMs = 5
+
+	}
+
 	// Read the file up-front so we can handle this common failure
 	// before we go into dfu mode
 	var bin []byte
@@ -33,6 +49,12 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	filetype := notehub.HubFileTypeUserFirmware
 	if dfuIsNotecardFirmware(&bin) {
 		filetype = notehub.HubFileTypeCardFirmware
+
+		// Don't allow notecard firmware to be uploaded unless we can do it with binary
+		if binaryMax == 0 {
+			return fmt.Errorf("notecard is running firmware that is too old to use sideload")
+		}
+
 	}
 
 	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
@@ -83,7 +105,7 @@ func dfuSideload(filename string, verbose bool) (err error) {
 
 	// Do the write
 	fmt.Printf("sending DFU binary to notecard\n")
-	err = loadBin(filetype, filename, bin)
+	err = loadBin(filetype, filename, bin, binaryMax)
 	if err != nil {
 		return
 	}
@@ -95,7 +117,7 @@ func dfuSideload(filename string, verbose bool) (err error) {
 }
 
 // Side-load a binary image
-func loadBin(filetype string, filename string, bin []byte) (err error) {
+func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err error) {
 	var req, rsp notecard.Request
 	totalLen := len(bin)
 
@@ -134,8 +156,18 @@ func loadBin(filetype string, filename string, bin []byte) (err error) {
 		if err != nil {
 			return
 		}
+
+		// By default, use the chunk length being supplied to us by the notecard
 		compressionMode = rsp.Mode
 		chunkLen = int(rsp.Length)
+
+		// If we support binary, use the binary maximum for performance & reliability.
+		// Note that we are guaranteed that if we support large binaries that the
+		// notecard will tell us not to use compression.
+		if binaryMax > 0 {
+			chunkLen = binaryMax
+		}
+
 		// Occasionally because of comms being out-of-sync (because of killing
 		// the command line utility) we get a response that doesn't have the appropriate
 		// fields because we are out of sync.  This is defensive
@@ -172,6 +204,47 @@ func loadBin(filetype string, filename string, bin []byte) (err error) {
 		}
 		req.Status = fmt.Sprintf("%x", md5.Sum(*req.Payload))
 
+		// If we're doing binary, do the transaction
+		if binaryMax > 0 {
+
+			// Encode COBS
+			var payloadEncoded []byte
+			payloadEncoded, err = notecard.CobsEncode(payload, byte('\n'))
+			if err != nil {
+				return
+			}
+
+			// Send the COBS data to the notecard
+			req2 := notecard.Request{Req: "card.binary.put"}
+			req2.Cobs = int32(len(payloadEncoded))
+			rsp, err = card.TransactionRequest(req2)
+			if err != nil {
+				return
+			}
+			payloadEncoded = append(payloadEncoded, byte('\n'))
+			err = card.SendBytes(payloadEncoded)
+			if err != nil {
+				return
+			}
+
+			// Verify that the binary made it to the notecard
+			var rsp2 notecard.Request
+			rsp2, err = card.TransactionRequest(notecard.Request{Req: "card.binary"})
+			if err != nil {
+				return
+			}
+			if int(rsp2.Length) != len(payload) {
+				return fmt.Errorf("notecard payload is insufficient (%d sent, %d received)", len(payload), rsp2.Length)
+			}
+
+			// Now that it's been received successfully, remove the payload and
+			// tell the notecard to fetch the payload from the large binary area.
+			req.Payload = nil
+			req.Binary = true
+
+		}
+
+		// Perform the request
 		rsp, err = card.TransactionRequest(req)
 		if err != nil {
 			if note.ErrorContains(err, note.ErrCardIo) {
