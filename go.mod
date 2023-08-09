@@ -2,6 +2,8 @@ module github.com/note-cli
 
 go 1.15
 
+replace github.com/blues/note-go => ./note-go
+
 replace github.com/blues/note-cli/lib => ./lib
 
 require (
