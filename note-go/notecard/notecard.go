@@ -136,9 +136,10 @@ type Context struct {
 	i2cMultiport bool
 
 	// Lease state
-	leaseScope   string
-	leaseExpires int64
-	leaseHandle  string
+	leaseScope     string
+	leaseExpires   int64
+	leaseLessor    string
+	leaseDeviceUID string
 
 	// Remote instance state
 	farmURL             string
