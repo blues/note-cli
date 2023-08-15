@@ -113,15 +113,20 @@ type Context struct {
 	ResetFn        func(context *Context, portConfig int) (err error)
 	TransactionFn  func(context *Context, portConfig int, noResponse bool, reqJSON []byte) (rspJSON []byte, err error)
 
+	// Trace functions
+	traceOpenFn  func(context *Context) (err error)
+	traceReadFn  func(context *Context) (data []byte, err error)
+	traceWriteFn func(context *Context, data []byte)
+
 	// Port data
 	iface      string
 	isLocal    bool
 	port       string
 	portConfig int
+	portIsOpen bool
 
 	// Serial instance state
 	isSerial         bool
-	serialPortIsOpen bool
 	serialPort       serial.Port
 	serialUseDefault bool
 	serialName       string
@@ -140,6 +145,7 @@ type Context struct {
 	leaseExpires   int64
 	leaseLessor    string
 	leaseDeviceUID string
+	leaseTraceConn net.Conn
 
 	// Remote instance state
 	farmURL             string
@@ -231,7 +237,7 @@ func Open(moduleInterface string, port string, portConfig int) (context *Context
 // Reset serial to a known state
 func cardResetSerial(context *Context, portConfig int) (err error) {
 	// Exit if not open
-	if !context.serialPortIsOpen {
+	if !context.portIsOpen {
 		err = fmt.Errorf("port not open " + note.ErrCardIo)
 		cardReportError(context, err)
 		return
@@ -326,7 +332,7 @@ func serialIOBegin(context *Context) {
 	timeoutMs := SerialTimeoutMs
 	context.ioStartSignal <- timeoutMs
 	if debugSerialIO {
-		if !context.serialPortIsOpen {
+		if !context.portIsOpen {
 			fmt.Printf("serialIoBegin: WARNING: PORT NOT OPEN\n")
 		}
 		fmt.Printf("serialIOBegin: begin timeout of %d ms\n", timeoutMs)
@@ -369,6 +375,9 @@ func OpenSerial(port string, portConfig int) (context *Context, err error) {
 	context.ReopenFn = cardReopenSerial
 	context.ResetFn = cardResetSerial
 	context.TransactionFn = cardTransactionSerial
+	context.traceOpenFn = serialTraceOpen
+	context.traceReadFn = serialTraceRead
+	context.traceWriteFn = serialTraceWrite
 
 	// Record serial configuration, and whether or not we are using the default
 	context.isSerial = true
@@ -428,6 +437,10 @@ func cardResetI2C(context *Context, portConfig int) (err error) {
 
 // OpenI2C opens the card on I2C
 func OpenI2C(port string, portConfig int) (context *Context, err error) {
+
+	// Open
+	context.portIsOpen = false
+
 	// Create the context structure
 	context = &Context{}
 	context.Debug = InitialDebugMode
@@ -447,9 +460,6 @@ func OpenI2C(port string, portConfig int) (context *Context, err error) {
 	context.ResetFn = cardResetI2C
 	context.TransactionFn = cardTransactionI2C
 
-	// Record I2C configuration
-	context.isSerial = false
-
 	// Open the I2C port
 	err = i2cOpen(port, portConfig)
 	if err != nil {
@@ -460,6 +470,9 @@ func OpenI2C(port string, portConfig int) (context *Context, err error) {
 		err = fmt.Errorf("i2c init error: %s", err)
 		return
 	}
+
+	// Open
+	context.portIsOpen = true
 
 	// Done
 	return
@@ -481,7 +494,7 @@ func (context *Context) Close() {
 
 // Close serial
 func cardCloseSerial(context *Context) {
-	if !context.serialPortIsOpen {
+	if !context.portIsOpen {
 		if debugSerialIO {
 			fmt.Printf("cardCloseSerial: port not open\n")
 		}
@@ -490,13 +503,14 @@ func cardCloseSerial(context *Context) {
 			fmt.Printf("cardCloseSerial: closed\n")
 		}
 		context.serialPort.Close()
-		context.serialPortIsOpen = false
+		context.portIsOpen = false
 	}
 }
 
 // Close I2C
 func cardCloseI2C(context *Context) {
 	i2cClose()
+	context.portIsOpen = false
 }
 
 // ReopenIfRequired reopens the port but only if required
@@ -516,6 +530,10 @@ func (context *Context) Reopen(portConfig int) (err error) {
 
 // Reopen serial
 func cardReopenSerial(context *Context, portConfig int) (err error) {
+
+	// Open
+	context.portIsOpen = false
+
 	// Close if open
 	cardCloseSerial(context)
 
@@ -538,7 +556,8 @@ func cardReopenSerial(context *Context, portConfig int) (err error) {
 	if err != nil {
 		return fmt.Errorf("error opening serial port %s at %d: %s %s", context.serialName, context.serialConfig.BaudRate, err, note.ErrCardIo)
 	}
-	context.serialPortIsOpen = true
+
+	context.portIsOpen = true
 
 	// Done with the reopen
 	context.reopenRequired = false
@@ -923,7 +942,7 @@ func (context *Context) transactionJSON(reqJSON []byte, multiport bool, portConf
 // Perform a card transaction over serial under the assumption that request already has '\n' terminator
 func cardTransactionSerial(context *Context, portConfig int, noResponse bool, reqJSON []byte) (rspJSON []byte, err error) {
 	// Exit if not open
-	if !context.serialPortIsOpen {
+	if !context.portIsOpen {
 		err = fmt.Errorf("port not open " + note.ErrCardIo)
 		cardReportError(context, err)
 		return
@@ -1207,6 +1226,7 @@ func OpenRemote(farmURL string, farmCheckoutMins int) (context *Context, err err
 
 // OpenLease opens a remote card with a lease
 func OpenLease(leaseScope string, leaseMins int) (context *Context, err error) {
+
 	// Create the context structure
 	context = &Context{}
 	context.Debug = InitialDebugMode
@@ -1223,6 +1243,9 @@ func OpenLease(leaseScope string, leaseMins int) (context *Context, err error) {
 	context.CloseFn = leaseClose
 	context.ReopenFn = leaseReopen
 	context.TransactionFn = leaseTransaction
+	context.traceOpenFn = leaseTraceOpen
+	context.traceReadFn = leaseTraceRead
+	context.traceWriteFn = leaseTraceWrite
 
 	// Record serial configuration
 	context.leaseScope = leaseScope
@@ -1235,7 +1258,7 @@ func OpenLease(leaseScope string, leaseMins int) (context *Context, err error) {
 	// Open the port
 	err = context.ReopenFn(context, context.portConfig)
 	if err != nil {
-		err = fmt.Errorf("error taking out lease %s: %s %s", leaseScope, err, note.ErrCardIo)
+		err = fmt.Errorf("error taking out lease: %s %s", err, note.ErrCardIo)
 		return
 	}
 
@@ -1288,4 +1311,51 @@ func callerID() (id string) {
 	id += fmt.Sprintf(":%d", os.Getppid())
 
 	return
+}
+
+// Serial trace open
+func serialTraceOpen(context *Context) (err error) {
+	return
+}
+
+// Serial trace read function
+func serialTraceRead(context *Context) (data []byte, err error) {
+
+	// Exit if not open
+	if !context.portIsOpen {
+		return data, fmt.Errorf("port not open " + note.ErrCardIo)
+	}
+
+	// Do the read
+	var length int
+	buf := make([]byte, 2048)
+	readBeganMs = int(time.Now().UnixNano() / 1000000)
+	length, err = context.serialPort.Read(buf)
+	readElapsedMs := int(time.Now().UnixNano()/1000000) - readBeganMs
+	if false {
+		fmt.Printf("mon: elapsed:%d len:%d err:%s '%s'\n", readElapsedMs, length, err, string(buf[:length]))
+	}
+	if readElapsedMs == 0 && length == 0 && err == io.EOF {
+		// On Linux, hardware port failures come back simply as immediate EOF
+		err = fmt.Errorf("hardware failure")
+	}
+	if readElapsedMs == 0 && length == 0 {
+		// On Linux, sudden unplug comes back simply as immediate ''
+		err = fmt.Errorf("hardware unplugged or rebooted probably")
+	}
+	if err != nil {
+		if err == io.EOF {
+			// Just a read timeout
+			return data, nil
+		}
+		return data, fmt.Errorf("%s %s", err, note.ErrCardIo)
+	}
+
+	return buf[:length], nil
+
+}
+
+// Serial trace write function
+func serialTraceWrite(context *Context, data []byte) {
+	context.serialPort.Write(data)
 }

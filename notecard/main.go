@@ -119,7 +119,7 @@ func main() {
 		nInterface, nPort, _ := notecard.Defaults()
 		if lib.Config.Interface != "" {
 			nInterface = lib.Config.Interface
-			nPort = lib.Config.Port
+			nPort = lib.Config.IPort[lib.Config.Interface].Port
 		}
 		var ports []string
 		if nInterface == notecard.NotecardInterfaceSerial {
@@ -159,13 +159,13 @@ func main() {
 	}
 
 	// Open the card, just to make sure errors are reported early
-	configVal := lib.Config.PortConfig
+	configVal := lib.Config.IPort[lib.Config.Interface].PortConfig
 	if actionPlaytime != 0 {
 		configVal = actionPlaytime
 		actionPlayground = true
 	}
 	notecard.InitialDebugMode = actionVerbose
-	card, err = notecard.Open(lib.Config.Interface, lib.Config.Port, configVal)
+	card, err = notecard.Open(lib.Config.Interface, lib.Config.IPort[lib.Config.Interface].Port, configVal)
 
 	// Process non-config commands
 	var rsp notecard.Request
@@ -263,7 +263,9 @@ func main() {
 	}
 
 	// Turn on Notecard library debug output
-	card.DebugOutput(actionVerbose, false)
+	if card != nil {
+		card.DebugOutput(actionVerbose, false)
+	}
 
 	// Do SKU setup before anything else, particularly because if we are going
 	// to do a factory reset it needs to be done after we set up the SKU

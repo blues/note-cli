@@ -44,6 +44,7 @@ type RemoteCards struct {
 // Close a remote notecard
 func remoteClose(context *Context) {
 	// Reset the remote card to release the reservation
+
 	// 'https://DirectURL&reset=true'
 	var req *http.Request
 	resetURL := context.farmCard.DirectURL + `&reset=true`
@@ -64,6 +65,9 @@ func remoteClose(context *Context) {
 			fmt.Printf("notefarm: remoteClose http.Do Fail %v", err)
 		}
 	}
+
+	context.portIsOpen = false
+
 }
 
 // Get the caller ID with expiration
@@ -145,6 +149,9 @@ func cardList(context *Context) (cards []RemoteCard, err error) {
 // machine from stepping on eachother's toes. Doesn't prevent us from stepping
 // on the toes of processes running on different machines.
 func remoteReopen(context *Context, portConfig int) (err error) {
+
+	context.portIsOpen = false
+
 	// Get Mutex file lock to prevent a race with other processes on this machine.
 	fileLock := flock.New(filepath.Join(os.TempDir(), "notefarm.lock"))
 	err = fileLock.Lock()
@@ -159,6 +166,10 @@ func remoteReopen(context *Context, portConfig int) (err error) {
 	if err2 != nil {
 		err = fmt.Errorf("notefarm reservation error: can not unlock [%v]: %s; inner error: %w",
 			fileLock.Path(), err2, err)
+	}
+
+	if err == nil {
+		context.portIsOpen = true
 	}
 
 	return
