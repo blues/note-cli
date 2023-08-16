@@ -25,19 +25,27 @@ type ConfigCreds struct {
 	Token string `json:"token,omitempty"`
 }
 
+// Port/PortConfig on a per-interface basis
+type ConfigPort struct {
+	Port       string `json:"port,omitempty"`
+	PortConfig int    `json:"port_config,omitempty"`
+}
+
 // ConfigSettings defines the config file that maintains the command processor's state
 type ConfigSettings struct {
-	When       string                 `json:"when,omitempty"`
-	Hub        string                 `json:"hub,omitempty"`
-	HubCreds   map[string]ConfigCreds `json:"creds,omitempty"`
-	Interface  string                 `json:"interface,omitempty"`
-	Port       string                 `json:"port,omitempty"`
-	PortConfig int                    `json:"port_config,omitempty"`
+	When      string                 `json:"when,omitempty"`
+	Hub       string                 `json:"hub,omitempty"`
+	HubCreds  map[string]ConfigCreds `json:"creds,omitempty"`
+	Interface string                 `json:"interface,omitempty"`
+	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
 }
 
 // Config are the master config settings
 var Config ConfigSettings
-var configFlags ConfigSettings
+var configFlagHub string
+var configFlagInterface string
+var configFlagPort string
+var configFlagPortConfig int
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -87,6 +95,8 @@ func ConfigWrite() error {
 // Reset the comms to default
 func configResetInterface() {
 	Config = ConfigSettings{}
+	Config.HubCreds = map[string]ConfigCreds{}
+	Config.IPort = map[string]ConfigPort{}
 }
 
 // ConfigReset updates the file with the default info
@@ -104,6 +114,9 @@ func ConfigShow() error {
 	if Config.Hub != "" {
 		fmt.Printf("       hub: %s\n", Config.Hub)
 	}
+	if Config.IPort == nil {
+		Config.IPort = map[string]ConfigPort{}
+	}
 	if Config.HubCreds == nil {
 		Config.HubCreds = map[string]ConfigCreds{}
 	}
@@ -115,12 +128,12 @@ func ConfigShow() error {
 	}
 	if Config.Interface != "" {
 		fmt.Printf("   -interface %s\n", Config.Interface)
-		if Config.Port == "" {
+		if Config.IPort[Config.Interface].Port == "" {
 			fmt.Printf("   -port -\n")
 			fmt.Printf("   -portconfig -\n")
 		} else {
-			fmt.Printf("   -port %s\n", Config.Port)
-			fmt.Printf("   -portconfig %d\n", Config.PortConfig)
+			fmt.Printf("   -port %s\n", Config.IPort[Config.Interface].Port)
+			fmt.Printf("   -portconfig %d\n", Config.IPort[Config.Interface].PortConfig)
 		}
 	}
 
@@ -131,6 +144,14 @@ func ConfigShow() error {
 // ConfigFlagsProcess processes the registered config flags
 func ConfigFlagsProcess() (err error) {
 
+	// Create maps if they don't exist
+	if Config.IPort == nil {
+		Config.IPort = map[string]ConfigPort{}
+	}
+	if Config.HubCreds == nil {
+		Config.HubCreds = map[string]ConfigCreds{}
+	}
+
 	// Read if not yet read
 	if Config.When == "" {
 		err = ConfigRead()
@@ -140,27 +161,35 @@ func ConfigFlagsProcess() (err error) {
 	}
 
 	// Set or reset the flags as desired
-	if configFlags.Hub != "" {
-		ConfigSetHub(configFlags.Hub)
+	if configFlagHub != "" {
+		ConfigSetHub(configFlagHub)
 	}
-	if configFlags.Interface == "-" {
+	if configFlagInterface == "-" {
 		configResetInterface()
-	} else if configFlags.Interface != "" {
-		Config.Interface = configFlags.Interface
+	} else if configFlagInterface != "" {
+		Config.Interface = configFlagInterface
 	}
-	if configFlags.Port == "-" {
-		Config.Port = ""
-	} else if configFlags.Port != "" {
-		Config.Port = configFlags.Port
+	if configFlagPort == "-" {
+		temp := Config.IPort[Config.Interface]
+		temp.Port = ""
+		Config.IPort[Config.Interface] = temp
+	} else if configFlagPort != "" {
+		temp := Config.IPort[Config.Interface]
+		temp.Port = configFlagPort
+		Config.IPort[Config.Interface] = temp
 	}
-	if configFlags.PortConfig < 0 {
-		Config.PortConfig = 0
-	} else if configFlags.PortConfig != 0 {
-		Config.PortConfig = configFlags.PortConfig
+	if configFlagPortConfig < 0 {
+		temp := Config.IPort[Config.Interface]
+		temp.PortConfig = 0
+		Config.IPort[Config.Interface] = temp
+	} else if configFlagPortConfig != 0 {
+		temp := Config.IPort[Config.Interface]
+		temp.PortConfig = configFlagPortConfig
+		Config.IPort[Config.Interface] = temp
 	}
 	if Config.Interface == "" {
-		configFlags.Port = ""
-		configFlags.PortConfig = 0
+		configFlagPort = ""
+		configFlagPortConfig = 0
 	}
 
 	// Done
@@ -173,12 +202,12 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 
 	// Process the commands
 	if notecardFlags {
-		flag.StringVar(&configFlags.Interface, "interface", "", "select 'serial' or 'i2c' interface for notecard")
-		flag.StringVar(&configFlags.Port, "port", "", "select serial or i2c port for notecard")
-		flag.IntVar(&configFlags.PortConfig, "portconfig", 0, "set serial device speed or i2c address for notecard")
+		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for notecard")
+		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for notecard")
+		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for notecard")
 	}
 	if notehubFlags {
-		flag.StringVar(&configFlags.Hub, "hub", "", "set notehub domain")
+		flag.StringVar(&configFlagHub, "hub", "", "set notehub domain")
 	}
 
 }
@@ -218,7 +247,7 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 			}
 		}
 	}
-	if configOnly {
+	if configOnly && Config.Interface != "lease" {
 		fmt.Printf("*** saving configuration ***")
 		ConfigWrite()
 		ConfigShow()
@@ -233,13 +262,17 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	// Override via env vars if specified
 	str = os.Getenv("NOTE_PORT")
 	if str != "" {
-		Config.Port = str
+		temp := Config.IPort[Config.Interface]
+		temp.Port = str
+		Config.IPort[Config.Interface] = temp
 		str := os.Getenv("NOTE_PORT_CONFIG")
 		strint, err2 := strconv.Atoi(str)
 		if err2 != nil {
-			strint = Config.PortConfig
+			strint = Config.IPort[Config.Interface].PortConfig
 		}
-		Config.PortConfig = strint
+		temp = Config.IPort[Config.Interface]
+		temp.PortConfig = strint
+		Config.IPort[Config.Interface] = temp
 	}
 
 	// Done
@@ -249,6 +282,9 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 
 // ConfigSignedIn returns info about whether or not we're signed in
 func ConfigSignedIn() (username string, token string, authenticated bool) {
+	if Config.IPort == nil {
+		Config.IPort = map[string]ConfigPort{}
+	}
 	if Config.HubCreds == nil {
 		Config.HubCreds = map[string]ConfigCreds{}
 	}
