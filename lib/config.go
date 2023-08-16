@@ -247,7 +247,7 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 			}
 		}
 	}
-	if configOnly {
+	if configOnly && Config.Interface != "lease" {
 		fmt.Printf("*** saving configuration ***")
 		ConfigWrite()
 		ConfigShow()

@@ -2,13 +2,11 @@ module github.com/note-cli
 
 go 1.15
 
-replace github.com/blues/note-go => ./note-go
-
 replace github.com/blues/note-cli/lib => ./lib
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20220511182447-c8bb8628cd1f
-	github.com/blues/note-go v1.6.10
+	github.com/blues/note-go v1.6.11
 	github.com/fatih/color v1.13.0
 	github.com/peterh/liner v1.2.2
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
