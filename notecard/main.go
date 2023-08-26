@@ -577,7 +577,7 @@ func main() {
 			// Perform the transaction and do special handling for binary
 			if req.Req == "card.binary.get" {
 				rsp, err = card.TransactionRequest(req)
-				if err == nil && rsp.Cobs > 0 {
+				if err == nil {
 					var rspBytes []byte
 					rspBytes, err = card.ReceiveBytes()
 					if err == nil {
