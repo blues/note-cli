@@ -576,6 +576,7 @@ func main() {
 
 			// Perform the transaction and do special handling for binary
 			if req.Req == "card.binary.get" {
+				expectedMD5 := req.Status
 				rsp, err = card.TransactionRequest(req)
 				if err == nil {
 					var rspBytes []byte
@@ -584,8 +585,13 @@ func main() {
 						rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
 						rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
 						if err == nil {
-							rsp.Payload = &rspBytes
-							rsp.Cobs = 0
+							actualMD5 := fmt.Sprintf("%x", md5.Sum(rspBytes))
+							if expectedMD5 != actualMD5 {
+								err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, expectedMD5)
+							} else {
+								rsp.Payload = &rspBytes
+								rsp.Cobs = 0
+							}
 						}
 					}
 				}
