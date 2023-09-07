@@ -26,6 +26,10 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	binaryMax := 0
 	var rsp notecard.Request
 	rsp, err = card.TransactionRequest(notecard.Request{Req: "card.binary"})
+	if note.ErrorContains(err, note.ErrCardIo) {
+		return err
+	}
+
 	if err == nil {
 
 		// Get the maximum size that the notecard can handle
