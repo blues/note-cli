@@ -74,7 +74,6 @@ builds:
         goarch: arm64
 
 archives:
-  id: "archive"
   name_template: >-
     {{- .ProjectName }}_
     {{- title .Os }}_
