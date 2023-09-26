@@ -10,7 +10,7 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       -
@@ -23,10 +23,10 @@ jobs:
           go-version: 1.18
       -
         name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v5.0.0
         with:
           distribution: goreleaser
           version: latest
-          args: release -f .goreleaser.yaml --rm-dist
+          args: release -f .goreleaser.yaml --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
