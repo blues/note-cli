@@ -165,6 +165,7 @@ func main() {
 		actionPlayground = true
 	}
 	notecard.InitialDebugMode = actionVerbose
+	notecard.InitialTraceMode = actionTrace
 	card, err = notecard.Open(lib.Config.Interface, lib.Config.IPort[lib.Config.Interface].Port, configVal)
 
 	// Process non-config commands
@@ -684,9 +685,6 @@ func main() {
 	}
 
 	if err == nil && actionTrace {
-		req := notecard.Request{Req: "card.trace"}
-		req.Mode = "on"
-		card.TransactionRequest(req)
 		err = card.Trace()
 	}
 
