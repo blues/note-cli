@@ -3,6 +3,7 @@ module github.com/note-cli
 go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
+
 replace github.com/blues/note-go => ./note-go
 
 require (
@@ -14,7 +15,6 @@ require (
 )
 
 require (
-	github.com/creack/goselect v0.1.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/golang/snappy v0.0.4
@@ -24,7 +24,7 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20221212215047-62379fc7944b // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.8 // indirect
-	golang.org/x/sys v0.12.0 // indirect
+	go.bug.st/serial v1.6.1 // indirect
+	golang.org/x/sys v0.15.0 // indirect
 	periph.io/x/host/v3 v3.8.2 // indirect
-	periph.io/x/periph v3.6.8+incompatible // indirect
 )

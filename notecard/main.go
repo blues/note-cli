@@ -615,7 +615,11 @@ func main() {
 					}
 				}
 			} else {
-				rsp, err = card.TransactionRequest(req)
+				actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
+				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				if err == nil {
+					_ = note.JSONUnmarshal(rspJSON, &rsp)
+				}
 			}
 
 			// Write the payload to an output file if appropriate

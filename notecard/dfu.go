@@ -53,12 +53,6 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	filetype := notehub.HubFileTypeUserFirmware
 	if dfuIsNotecardFirmware(&bin) {
 		filetype = notehub.HubFileTypeCardFirmware
-
-		// Don't allow notecard firmware to be uploaded unless we can do it with binary
-		if binaryMax == 0 {
-			return fmt.Errorf("notecard is running firmware that is too old to use sideload")
-		}
-
 	}
 
 	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
