@@ -188,9 +188,13 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 			thisLen = chunkLen
 		}
 
-		// Send the chunk
+		// Send the chunk.  On the last chunk, don't wait for a reply
 		fmt.Printf("side-loading %d bytes (%.0f%% %d remaining)\n", thisLen, float64(lenRemaining*100)/float64(totalLen), lenRemaining)
-		req = notecard.Request{Req: "dfu.put"}
+		if thisLen == lenRemaining {
+			req = notecard.Request{Cmd: "dfu.put"}
+		} else {
+			req = notecard.Request{Req: "dfu.put"}
+		}
 		req.Offset = int32(offset)
 		req.Length = int32(thisLen)
 		payload := bin[offset : offset+thisLen]
