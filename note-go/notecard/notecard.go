@@ -90,8 +90,6 @@ var DoNotReterminateJSON = false
 // Transaction retry logic
 const requestRetriesAllowed = 5
 
-var lastRequestSeqno = 0
-
 // IoErrorIsRecoverable is a configuration parameter describing library capabilities.
 // Set this to true if the error recovery of the implementation supports re-open.  On all implementations
 // tested to date, I can't yet get the close/reopen working the way it does on microcontrollers.  For
@@ -115,6 +113,9 @@ type Context struct {
 	resetRequired       bool
 	reopenRequired      bool
 	reopenBecauseOfOpen bool
+
+	// Sequence number
+	lastRequestSeqno int
 
 	// Class functions
 	PortEnumFn     func() (allports []string, usbports []string, notecardports []string, err error)
@@ -378,6 +379,7 @@ func OpenSerial(port string, portConfig int) (context *Context, err error) {
 	context.Debug = InitialDebugMode
 	context.port = port
 	context.portConfig = portConfig
+	context.lastRequestSeqno = 0
 
 	// Set up class functions
 	context.PortEnumFn = serialPortEnum
@@ -449,12 +451,13 @@ func cardResetI2C(context *Context, portConfig int) (err error) {
 // OpenI2C opens the card on I2C
 func OpenI2C(port string, portConfig int) (context *Context, err error) {
 
-	// Open
-	context.portIsOpen = false
-
 	// Create the context structure
 	context = &Context{}
 	context.Debug = InitialDebugMode
+	context.lastRequestSeqno = 0
+
+	// Open
+	context.portIsOpen = false
 
 	// Use default if not specified
 	if port == "" {
@@ -863,7 +866,7 @@ func (context *Context) transactionJSON(reqJSON []byte, multiport bool, portConf
 	lastRequestRetries := 0
 	lastRequestCrcAdded := false
 	if !noResponseRequested {
-		reqJSON = crcAdd(reqJSON, lastRequestSeqno)
+		reqJSON = crcAdd(reqJSON, context.lastRequestSeqno)
 		lastRequestCrcAdded = true
 	}
 
@@ -940,7 +943,7 @@ func (context *Context) transactionJSON(reqJSON []byte, multiport bool, portConf
 		}
 
 		// If an I/O error, retry
-		if note.ErrorContains(err, note.ErrCardIo) {
+		if note.ErrorContains(err, note.ErrCardIo) && !note.ErrorContains(err, note.ErrReqNotSupported) {
 			// We can defer the error if a single port, but we need to reset it NOW if multiport
 			if multiport {
 				if context.ResetFn != nil {
@@ -966,7 +969,7 @@ func (context *Context) transactionJSON(reqJSON []byte, multiport bool, portConf
 		// it has a CRC error.  Note that the CRC is stripped from the
 		// rspJSON as a side-effect of this method.
 		if lastRequestCrcAdded {
-			rspJSON, err = crcError(rspJSON, lastRequestSeqno)
+			rspJSON, err = crcError(rspJSON, context.lastRequestSeqno)
 			if err != nil {
 				lastRequestRetries++
 				if context.Debug {
@@ -984,7 +987,7 @@ func (context *Context) transactionJSON(reqJSON []byte, multiport bool, portConf
 	}
 
 	// Bump the request sequence number now that we've processed this request, success or error
-	lastRequestSeqno++
+	context.lastRequestSeqno++
 
 	// If this was a card restore, we want to hold everyone back if we reset the card if it
 	// isn't a multiport case.  But in multiport, we only want to hold this caller back.
@@ -1284,6 +1287,7 @@ func OpenRemote(farmURL string, farmCheckoutMins int) (context *Context, err err
 	context.Debug = InitialDebugMode
 	context.port = farmURL
 	context.portConfig = 0
+	context.lastRequestSeqno = 0
 
 	// Prevent accidental reservation for excessive durations e.g. 115200 minutes
 	if farmCheckoutMins > 120 {
@@ -1324,6 +1328,7 @@ func OpenLease(leaseScope string, leaseMins int) (context *Context, err error) {
 	context.Debug = InitialDebugMode
 	context.port = leaseScope
 	context.portConfig = 0
+	context.lastRequestSeqno = 0
 
 	// Prevent accidental reservation for excessive durations e.g. 115200 minutes
 	if leaseMins > 120 {

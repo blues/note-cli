@@ -316,7 +316,9 @@ func main() {
 	if err == nil && actionInfo {
 
 		var infoErr error
-		card.DebugOutput(false, false)
+		if !actionVerbose {
+			card.DebugOutput(false, false)
+		}
 
 		cardDeviceUID := ""
 		cardName := ""
@@ -345,8 +347,9 @@ func main() {
 			cardICCID = rsp.Net.Iccid
 			cardIMSIX = rsp.Net.ImsiExternal
 			cardICCIDX = rsp.Net.IccidExternal
+		} else if !strings.Contains(err.Error(), "{not-supported}") {
+			infoErr = accumulateInfoErr(infoErr, err)
 		}
-		infoErr = accumulateInfoErr(infoErr, err)
 
 		cardSN := ""
 		cardHost := ""
