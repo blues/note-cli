@@ -35,8 +35,10 @@ var InitialResetMode = true
 
 // Protect against multiple concurrent callers, because across different operating systems it is
 // not at all clear that concurrency is allowed on a single I/O device.  An exception is made
-// for I2C because of Notefarm, where we only serialize transactions destined for a single I2C
-// device.  Note that for I2C there is a deeper mutex protecting the physical device.
+// for the I2C 'multiport' case (exposed by TransactionRequestToPort) where we allow multiple
+// concurrent I2C transactions on a single device.  (This capability was needed for the
+// Notefarm, but it's unclear if anyone uses this multi-notecard concurrency capability anymore
+// now that it's deprecated.)
 var (
 	transLock          sync.RWMutex
 	multiportTransLock [128]sync.RWMutex
@@ -52,7 +54,6 @@ var IgnoreWindowsHWErrSecs = 2
 const (
 	NotecardInterfaceSerial = "serial"
 	NotecardInterfaceI2C    = "i2c"
-	NotecardInterfaceRemote = "remote"
 	NotecardInterfaceLease  = "lease"
 )
 
@@ -158,12 +159,6 @@ type Context struct {
 	leaseLessor    string
 	leaseDeviceUID string
 	leaseTraceConn net.Conn
-
-	// Remote instance state
-	farmURL             string
-	farmCheckoutMins    int
-	farmCheckoutExpires int64
-	farmCard            RemoteCard
 }
 
 // Report a critical card error
@@ -230,8 +225,6 @@ func Open(moduleInterface string, port string, portConfig int) (context *Context
 	case NotecardInterfaceI2C:
 		context, err = OpenI2C(port, portConfig)
 		context.isLocal = true
-	case NotecardInterfaceRemote:
-		context, err = OpenRemote(port, portConfig)
 	case NotecardInterfaceLease:
 		context, err = OpenLease(port, portConfig)
 	default:
@@ -554,6 +547,11 @@ func cardReopenSerial(context *Context, portConfig int) (err error) {
 	}
 	if context.serialName == "" {
 		return fmt.Errorf("error opening serial port: serial device not available %s", note.ErrCardIo)
+	}
+
+	// Set default speed if not set
+	if context.serialConfig.BaudRate == 0 {
+		_, context.serialConfig.BaudRate = serialDefault()
 	}
 
 	// Open the serial port
@@ -1277,46 +1275,6 @@ func cardTransactionI2C(context *Context, portConfig int, noResponse bool, reqJS
 	}
 
 	// Done
-	return
-}
-
-// OpenRemote opens a remote card
-func OpenRemote(farmURL string, farmCheckoutMins int) (context *Context, err error) {
-	// Create the context structure
-	context = &Context{}
-	context.Debug = InitialDebugMode
-	context.port = farmURL
-	context.portConfig = 0
-	context.lastRequestSeqno = 0
-
-	// Prevent accidental reservation for excessive durations e.g. 115200 minutes
-	if farmCheckoutMins > 120 {
-		err = fmt.Errorf("error, 120 minute limit on notefarm reservations")
-		return
-	}
-
-	// Set up class functions
-	context.CloseFn = remoteClose
-	context.ReopenFn = remoteReopen
-	context.TransactionFn = remoteTransaction
-
-	// Record serial configuration
-	context.farmURL = farmURL
-	if farmCheckoutMins == 0 {
-		farmCheckoutMins = 1
-	}
-	farmCheckoutMins = (((farmCheckoutMins - 1) / reservationModulusMinutes) + 1) * reservationModulusMinutes
-	context.farmCheckoutMins = farmCheckoutMins
-	context.farmCheckoutExpires = time.Now().Unix() + int64(context.farmCheckoutMins*60)
-
-	// Open the port
-	err = context.ReopenFn(context, context.portConfig)
-	if err != nil {
-		err = fmt.Errorf("error opening remote %s: %s %s", farmURL, err, note.ErrCardIo)
-		return
-	}
-
-	// All set
 	return
 }
 
