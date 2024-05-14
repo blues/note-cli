@@ -14,7 +14,7 @@ import (
 )
 
 // Explore the contents of this device
-func explore(includeReserved bool, verbose bool) (err error) {
+func explore(includeReserved bool, verbose bool, pretty bool) (err error) {
 
 	// Get the list of notefiles
 	req := notehub.HubRequest{}
@@ -68,9 +68,15 @@ func explore(includeReserved bool, verbose bool) (err error) {
 			}
 			fmt.Printf("\n")
 			if n.Body != nil {
-				bodyJSON, err := note.JSONMarshal(*n.Body)
+				prefix := "            "
+				var bodyJSON []byte
+				if pretty {
+					bodyJSON, err = note.JSONMarshalIndent(*n.Body, prefix, "    ")
+				} else {
+					bodyJSON, err = note.JSONMarshal(*n.Body)
+				}
 				if err == nil {
-					fmt.Printf("            %s\n", string(bodyJSON))
+					fmt.Printf("%s%s\n", prefix, string(bodyJSON))
 				}
 			}
 			if n.Payload != nil {

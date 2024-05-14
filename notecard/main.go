@@ -38,6 +38,8 @@ func main() {
 	go signalHandler()
 
 	// Process actions
+	var actionPretty bool
+	flag.BoolVar(&actionPretty, "pretty", false, "format JSON output indented")
 	var actionRequest string
 	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
 	var actionWhenConnected bool
@@ -638,7 +640,11 @@ func main() {
 			// Output the response to the console
 			if !actionVerbose {
 				if err == nil {
-					rspJSON, _ = note.JSONMarshal(rsp)
+					if actionPretty {
+						rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+					} else {
+						rspJSON, _ = note.JSONMarshal(rsp)
+					}
 					fmt.Printf("%s\n", rspJSON)
 				}
 			}
@@ -708,7 +714,7 @@ func main() {
 	}
 
 	if err == nil && actionExplore {
-		err = explore(actionReserved)
+		err = explore(actionReserved, actionPretty)
 	}
 
 	// Process errors

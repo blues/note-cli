@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-go/note"
 )
 
 // Exit codes
@@ -32,10 +33,10 @@ func main() {
 	// Process command line
 	var flagReq string
 	flag.StringVar(&flagReq, "req", "", "{json for device-like request}")
-	var flagJq bool
-	flag.BoolVar(&flagJq, "jq", false, "strip all non json lines from output so that jq can be used")
-	var flagIn string
-	flag.StringVar(&flagIn, "in", "", "input filename, enabling request to be contained in a file")
+	var flagPretty bool
+	flag.BoolVar(&flagPretty, "pretty", false, "pretty print json output")
+	var flagJson bool
+	flag.BoolVar(&flagJson, "json", false, "strip all non json lines from output")
 	var flagUpload string
 	flag.StringVar(&flagUpload, "upload", "", "filename to upload")
 	var flagType string
@@ -65,8 +66,14 @@ func main() {
 	flag.StringVar(&flagApp, "project", "", "projectUID")
 	flag.StringVar(&flagProduct, "product", "", "productUID")
 	flag.StringVar(&flagDevice, "device", "", "deviceUID")
-	var actionVersion bool
-	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
+	var flagVersion bool
+	flag.BoolVar(&flagVersion, "version", false, "print the current version of the CLI")
+	var flagScope string
+	flag.StringVar(&flagScope, "scope", "", "dev:xx or @fleet:xx or fleet:xx or @filename")
+	var flagVarsGet bool
+	flag.BoolVar(&flagVarsGet, "get-vars", false, "get environment vars")
+	var flagVarsSet string
+	flag.StringVar(&flagVarsSet, "set-vars", "", "set environment vars using a json template")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
@@ -98,6 +105,11 @@ func main() {
 			os.Exit(exitFail)
 		}
 	}
+
+	// See if we did something
+	didSomething := false
+
+	// Display the token
 	if flagToken {
 		var token, username string
 		username, token, err = authToken()
@@ -106,6 +118,7 @@ func main() {
 		} else {
 			fmt.Printf("To issue HTTP API requests on behalf of %s set header field X-Session-Token to:\n%s\n", username, token)
 		}
+		didSomething = true
 	}
 
 	// Create an output function that will be used during -req processing
@@ -126,15 +139,12 @@ func main() {
 		os.Exit(exitFail)
 	}
 
-	// Process input filename as a -req
-	if flagIn != "" {
-		if flagReq != "" {
-			fmt.Printf("It's redundant to specify both -in as well as a request. Do one or the other.\n")
-			os.Exit(exitFail)
-		}
-		contents, err := ioutil.ReadFile(flagIn)
+	// Process request starting with @ as a filename containing the request
+	if strings.HasPrefix(flagReq, "@") {
+		fn := strings.TrimPrefix(flagReq, "@")
+		contents, err := ioutil.ReadFile(fn)
 		if err != nil {
-			fmt.Printf("Can't read input file: %s\n", err)
+			fmt.Printf("Can't read request file '%s': %s\n", fn, err)
 			os.Exit(exitFail)
 		}
 		flagReq = string(contents)
@@ -142,36 +152,137 @@ func main() {
 
 	// Process requests
 	if flagReq != "" || flagUpload != "" {
-		rsp, err := reqHubJSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJq, nil)
-		if err != nil {
-			fmt.Printf("Error processing request: %s\n", err)
-			os.Exit(exitFail)
-		}
-		if flagOut == "" {
-			fmt.Printf("%s", rsp)
-		} else {
-			outfile, err2 := os.Create(flagOut)
-			if err2 != nil {
-				fmt.Printf("Can't create output file: %s\n", err)
-				os.Exit(exitFail)
+		var rsp []byte
+		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
+		if err == nil {
+			if flagOut == "" {
+				if flagPretty {
+					var rspo map[string]interface{}
+					err = note.JSONUnmarshal(rsp, &rspo)
+					if err != nil {
+						fmt.Printf("%s", rsp)
+					} else {
+						rsp, _ = note.JSONMarshalIndent(rspo, "", "    ")
+						fmt.Printf("%s", rsp)
+					}
+				} else {
+					fmt.Printf("%s", rsp)
+				}
+			} else {
+				outfile, err2 := os.Create(flagOut)
+				if err2 != nil {
+					fmt.Printf("Can't create output file: %s\n", err)
+					os.Exit(exitFail)
+				}
+				outfile.Write(rsp)
+				outfile.Close()
 			}
-			outfile.Write(rsp)
-			outfile.Close()
+			didSomething = true
 		}
 	}
 
 	// Explore the contents of the device
 	if err == nil && flagExplore {
-		err = explore(flagReserved, flagVerbose)
+		err = explore(flagReserved, flagVerbose, flagPretty)
+		didSomething = true
 	}
 
 	// Enter trace mode
 	if err == nil && flagTrace {
 		err = trace()
+		didSomething = true
 	}
 
-	if err == nil && actionVersion {
+	if err == nil && flagVersion {
 		fmt.Printf("Notehub CLI Version: %s\n", version)
+		didSomething = true
+	}
+
+	// Determine the scope of a later request
+	var scopeDevices, scopeFleets []string
+	var appMetadata AppMetadata
+	if err == nil && flagScope != "" {
+		appMetadata, scopeDevices, scopeFleets, err = appGetScope(flagScope, flagVerbose)
+		didSomething = true
+		if err == nil {
+			if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
+				err = fmt.Errorf("'from' scope may include devices or fleets but not both")
+				fmt.Printf("%d devices and %d fleets\n%v\n%v\n", len(scopeDevices), len(scopeFleets), scopeDevices, scopeFleets)
+			}
+			if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
+				err = fmt.Errorf("no devices or fleets found within the specified scope")
+			}
+		}
+	}
+
+	// Perform actions based on scope
+	if err == nil && flagScope != "" && flagVarsGet {
+		var vars map[string]Vars
+		var varsJSON []byte
+		if len(scopeDevices) != 0 {
+			vars, err = varsGetFromDevices(appMetadata, scopeDevices, flagVerbose)
+		} else if len(scopeFleets) != 0 {
+			vars, err = varsGetFromFleets(appMetadata, scopeFleets, flagVerbose)
+		}
+		if err == nil {
+			if flagPretty {
+				varsJSON, err = note.JSONMarshalIndent(vars, "", "    ")
+			} else {
+				varsJSON, err = note.JSONMarshal(vars)
+			}
+			if err == nil {
+				fmt.Printf("%s\n", varsJSON)
+			}
+		}
+	}
+
+	// Perform actions based on scope
+	if err == nil && flagScope != "" && flagVarsSet != "" {
+		template := Vars{}
+		if strings.HasPrefix(flagVarsSet, "@") {
+			var templateJSON []byte
+			templateJSON, err = ioutil.ReadFile(strings.TrimPrefix(flagVarsSet, "@"))
+			if err == nil {
+				err = note.JSONUnmarshal(templateJSON, &template)
+			}
+		} else {
+			err = note.JSONUnmarshal([]byte(flagVarsSet), &template)
+		}
+		if err == nil {
+			var vars map[string]Vars
+			var varsJSON []byte
+			if len(scopeDevices) != 0 {
+				vars, err = varsSetFromDevices(appMetadata, scopeDevices, template, flagVerbose)
+			} else if len(scopeFleets) != 0 {
+				vars, err = varsSetFromFleets(appMetadata, scopeFleets, template, flagVerbose)
+			}
+			if err == nil {
+				if flagPretty {
+					varsJSON, err = note.JSONMarshalIndent(vars, "", "    ")
+				} else {
+					varsJSON, err = note.JSONMarshal(vars)
+				}
+				if err == nil {
+					fmt.Printf("%s\n", varsJSON)
+				}
+			}
+		}
+	}
+
+	// If we didn't do anything and we're just asking about an app, do it
+	if err == nil && !didSomething && (flagApp != "" || flagProduct != "") {
+		appMetadata, err = appGetMetadata(flagVerbose)
+		if err == nil {
+			var metaJSON []byte
+			if flagPretty {
+				metaJSON, err = note.JSONMarshalIndent(appMetadata, "", "    ")
+			} else {
+				metaJSON, err = note.JSONMarshal(appMetadata)
+			}
+			if err == nil {
+				fmt.Printf("%s\n", metaJSON)
+			}
+		}
 	}
 
 	// Success

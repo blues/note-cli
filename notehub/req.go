@@ -35,41 +35,35 @@ func addQuery(in string, key string, value string) (out string) {
 	return
 }
 
-// Perform a hub transaction
+// Perform a hub transaction, and promote the returned err response to an error to this method
 func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehub.HubRequest, err error) {
-	return reqHub(verbose, lib.ConfigAPIHub(), request, "", "", "", "", false, false, nil)
-}
-
-// Perform an HTTP requet, but do so using structs rather than bytes
-func reqHub(verbose bool, hub string, request notehub.HubRequest, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string) (response notehub.HubRequest, err error) {
-
-	reqJSON, err2 := note.JSONMarshal(request)
-	if err2 != nil {
-		err = err2
-		return
-	}
-
-	rspJSON, err2 := reqHubJSON(verbose, hub, reqJSON, requestFile, filetype, filetags, filenotes, overwrite, dropNonJSON, outq)
-	if err2 != nil {
-		err = err2
-		return
-	}
-
-	err = note.JSONUnmarshal(rspJSON, &response)
+	var reqJSON []byte
+	reqJSON, err = note.JSONMarshal(request)
 	if err != nil {
 		return
 	}
-
-	if response.Err != "" {
-		err = fmt.Errorf("%s", response.Err)
+	err = reqHubV0(verbose, lib.ConfigAPIHub(), reqJSON, "", "", "", "", false, false, nil, &rsp)
+	if err != nil {
+		return
 	}
-
+	if rsp.Err != "" {
+		err = fmt.Errorf("%s", rsp.Err)
+	}
 	return
-
 }
 
-// Perform an HTTP request
-func reqHubJSON(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string) (response []byte, err error) {
+// Process a V0 HTTPS request and unmarshal into an object
+func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
+	var response []byte
+	response, err = reqHubV0JSON(verbose, hub, request, requestFile, filetype, filetags, filenotes, overwrite, dropNonJSON, outq)
+	if err != nil {
+		return
+	}
+	return note.JSONUnmarshal(response, object)
+}
+
+// Perform a V0 HTTP request
+func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string) (response []byte, err error) {
 
 	fn := ""
 	path := strings.Split(requestFile, "/")
@@ -194,6 +188,72 @@ func reqHubJSON(verbose bool, hub string, request []byte, requestFile string, fi
 	}
 
 	if verbose {
+		fmt.Printf("%s\n", string(response))
+	}
+
+	return
+
+}
+
+// Process a V1 HTTPS request and unmarshal into an object
+func reqHubV1(verbose bool, hub string, verb string, url string, body []byte, object interface{}) (err error) {
+	var response []byte
+	response, err = reqHubV1JSON(verbose, hub, verb, url, body)
+	if err != nil {
+		return
+	}
+	return note.JSONUnmarshal(response, object)
+}
+
+// Process an HTTPS request
+func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte) (response []byte, err error) {
+
+	verb = strings.ToUpper(verb)
+
+	httpurl := fmt.Sprintf("https://%s%s", hub, url)
+	buffer := &bytes.Buffer{}
+	if body != nil {
+		buffer = bytes.NewBuffer(body)
+	}
+	httpReq, err := http.NewRequest(verb, httpurl, buffer)
+	if err != nil {
+		return
+	}
+	httpReq.Header.Set("User-Agent", "notehub-client")
+	httpReq.Header.Set("Content-Type", "application/json")
+	err = lib.ConfigAuthenticationHeader(httpReq)
+	if err != nil {
+		return
+	}
+
+	if verbose {
+		fmt.Printf("%s %s\n", verb, httpurl)
+		if len(body) != 0 {
+			fmt.Printf("%s\n", string(body))
+		}
+	}
+
+	httpClient := &http.Client{}
+	httpRsp, err2 := httpClient.Do(httpReq)
+	if err2 != nil {
+		err = err2
+		return
+	}
+	if httpRsp.StatusCode == http.StatusUnauthorized {
+		err = fmt.Errorf("please use -signin to authenticate")
+		return
+	}
+
+	if verbose {
+		fmt.Printf("STATUS %d\n", httpRsp.StatusCode)
+	}
+
+	response, err = ioutil.ReadAll(httpRsp.Body)
+	if err != nil {
+		return
+	}
+
+	if verbose && len(response) != 0 {
 		fmt.Printf("%s\n", string(response))
 	}
 

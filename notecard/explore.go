@@ -13,7 +13,7 @@ import (
 )
 
 // Explore the contents of this device
-func explore(includeReserved bool) (err error) {
+func explore(includeReserved bool, pretty bool) (err error) {
 
 	// Get the list of notefiles
 	req := notecard.Request{Req: notecard.ReqFileChanges}
@@ -65,9 +65,15 @@ func explore(includeReserved bool) (err error) {
 			}
 			fmt.Printf("\n")
 			if n.Body != nil {
-				bodyJSON, err := note.JSONMarshal(*n.Body)
+				var bodyJSON []byte
+				prefix := "            "
+				if pretty {
+					bodyJSON, err = note.JSONMarshalIndent(*n.Body, prefix, "    ")
+				} else {
+					bodyJSON, err = note.JSONMarshal(*n.Body)
+				}
 				if err == nil {
-					fmt.Printf("            %s\n", string(bodyJSON))
+					fmt.Printf("%s%s\n", prefix, string(bodyJSON))
 				}
 			}
 			if n.Payload != nil {
