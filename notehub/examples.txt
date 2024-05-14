@@ -1,77 +1,52 @@
-notehub '{"req":"hub.app.get"}'
 
-notehub '{"req":"hub.device.get"}'
+// General note-related
+notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
+notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.payload;.body","limit":25,"format":"json"}}'
+// Explore what notefiles exist on the notehub
+notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 -explore
+notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 -explore -reserved
 
-notehub -out test.csv '{"req":"hub.app.data.query",query:{"columns":".serial;device_uid:.device;.file;.note;body:q(.body::text);.payload","format":"csv"}}'
+// See what files have been uploaded to the app
+notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.query"}'
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".serial;.modified;.when;.where;.payload;.body","limit":25}}'
+// Upload a file to an app
+notehub -product net.ozzie.ray:t -upload test.bin
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.body;.payload","limit":25,"where":".body.cpm::float < 30"}}'
+// Delete an uploaded file
+notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.delete","name":"test-20181002225319.bin"}'
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.payload;.body","limit":25,"where":".body.class::text <> '\''comms'\''"}}'
+// Get the metadata of an uploaded file
+notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin"}'
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.body;.payload","limit":25,"where":".modified>=now()-interval '\''1 day'\''"}}'
+// Get the data from an uploaded file once you know the length from the metadata
+notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin","offset":0,"length":10}'
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".body.severity;.modified,.body;.payload","limit":10,"where":".body.severity::int < 2"}}'
+// Set the metadata on an uploaded file
+notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.set","name":"test-20181002225319.bin","body":{"testing":123},"contains":"Generate Python"}'
 
-notehub '{"req":"hub.app.data.query",query:{"count":true,"where":".body.severity::int < 2"}}'
+// Get the env vars for various scopes, returning a JSON object containing them
+notehub -product net.ozzie.ray:t -pretty -scope fleet:60379c1da2401609b8e1fb3eec2a186e -get-vars
+notehub -product net.ozzie.ray:t -pretty -scope dev:864475040518622 -get-vars
+notehub -product net.ozzie.ray:t -pretty -scope "Ray's Fleet" -get-vars
+notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -get-vars
 
-notehub '{"req":"hub.app.data.query",query:{"columns":"device_uid:.device;when_captured:q(.when::text);loc_olc:q(.where::text);.body.lnd_7318u;.body.lnd_7128ec;.body.env_temp;.body.env_humid;.body.env_press;.body.bat_voltage;.body.bat_current;.body.bat_charge;.body.opc_pm01_0;.body.opc_pm02_5;.body.opc_pm10_0","limit":100}}'
+// Get the env vars for a list of fleets stored in a file, returning a JSON object containing them
+fleets.txt
+	Ray's Fleet
+	fleet:60379c1da2401609b8e1fb3eec2a186e
+notehub -product net.ozzie.ray:t -pretty -scope @fleets.txt -get-vars
 
-notehub '{"req":"hub.app.data.query",query:{"columns":"device_uid:.device;when_captured:q(to_char(.when, '\''YYYY-MM-DD\"T\"HH24:MI:SSZ'\''));loc_olc:q(.where::text)","limit":100}}'
+// Get the env vars for a list of devices stored in a file, returning a JSON object containing them
+devices.txt
+	@Ray's Fleet
+	dev:864475040518622
+notehub -product net.ozzie.ray:t -pretty -scope @devices.txt -get-vars -pretty
 
-notehub '{"req":"hub.app.data.query",query:{"columns":".serial;.modified;.body","limit":25,"order":".serial"}}'
+// Set one env vars and remove one using a template directly on the command line
+notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -set-vars '{"var1":"val1","var2":"-"}'
 
-notehub '{"req":"note.add","file":"geiger.q","body":{"testfield":"testvalue"}}'
-
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.when;.body;.payload","order":".modified","where":".body.test::text = '\''iccid:89011703278123166574:1522628156'\''"}}'
-
-notehub '{"req":"hub.app.data.query",query:{"columns":".modified;.where;.file;.payload;.body;.device","limit":5000,"order":".modified","descending":true,"format":"json"}}'
-
-notehub '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
-notehub '{"req":"note.get","file":"hub.db","note":"testnote"}'
-
-notehub -in testapp.json
-notehub -in testrpt.json
-notehub -in testweb1.json
-notehub -in testweb2.json
-notehub -in testmqtt.json
-notehub -in testm2x.json
+// Set env vars through a file-based template
+notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -set-vars @template
 
 
-notehub -upload test.bin
-
-notehub '{"req":"hub.app.upload.query"}'
-
-notehub '{"req":"hub.app.upload.delete","name":"test-20181002225319.bin"}'
-
-notehub '{"req":"hub.app.upload.get","name":"test-20181002225319.bin","offset":0,"length":10}'
-
-notehub '{"req":"hub.app.upload.set","name":"test-20181002225319.bin","body":{"testing":123},"contains":"Generate Python"}'
-
-notehub '{"req":"hub.app.upload.get","name":"test-20181002225319.bin"}'
-
-notehub '{"req":"hub.app.data.query",query:{"columns":".serial;.device;.modified;.when;.body;.payload","order":".modified","where":".device::text='\''imei:866425030050464'\'' or .device::text='\''imei:866425030050464:1543271941'\'' "}}'
-
-// To see what version of firmware is running on a notecard
-notehub  '{"req":"note.get","file":"_env.dbs","note":"device_vars"}'
-
-// For a DFU of Notecard
-notehub -upload ~/desktop/notecard.bin
-notehub -type firmware -upload ~/desktop/notecard.bin
-notehub -type firmware -upload ~/desktop/test.txt
-notehub -type notecard -upload ~/desktop/notecard.bin
-notehub -type notecard -upload ~/desktop/test.txt
-notehub '{"req":"hub.app.upload.query","type":"firmware"}'
-notehub '{"req":"hub.app.upload.query","type":"notecard"}'
-// Or for a DFU of an app
-notehub -upload ~/dev/tmp/arduino/airnote.ino.bin
-// ...then, optionaly, using the output from that command, substitute the "name" below and verify the contents build number, upload custom metadata, etc
-notehub '{"req":"hub.app.upload.set","name":"notecard-20181008172411.bin","body":{"your":"metadata"},"contains":"Blues Wireless Notecard"}'
-// ...or...
-notehub '{"req":"hub.app.upload.set","name":"airnote-20190407201549.ino.bin","body":{"your":"metadata"},"contains":"Airnote version"}'
-// ...then, modify the server's HubEnvVarCardFirmwareName (_fwc) with the "name" above.  That's it.
-// ...and if it fails for some reason, modify HubEnvVarCardFirmwareRetry (_fwc_retry) to bump it up by one, which will force a client retry
-// ...and all the while the device status should be being uploaded and viewable on the service.

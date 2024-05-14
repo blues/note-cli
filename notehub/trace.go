@@ -6,10 +6,7 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -61,7 +58,7 @@ traceloop:
 
 		// Process JSON requests
 		if strings.HasPrefix(cmd, "{") {
-			_, err := reqHubJSON(true, lib.ConfigAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
+			_, err := reqHubV0JSON(true, lib.ConfigAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 			}
@@ -160,20 +157,20 @@ traceloop:
 			}
 
 			// Perform the transaction
-			_, err := reqHubHTTP(true, lib.ConfigAPIHub(), args[0], url, bodyJSON)
+			_, err := reqHubV1JSON(true, lib.ConfigAPIHub(), args[0], url, bodyJSON)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 				return err
 			}
 		case "ping":
-			_, err := reqHubHTTP(true, lib.ConfigAPIHub(), "GET", "/ping", nil)
+			_, err := reqHubV1JSON(true, lib.ConfigAPIHub(), "GET", "/ping", nil)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 				return err
 			}
 			if cleanApp != "" {
 				url := "/v1/products/" + cleanApp + "/products"
-				_, err = reqHubHTTP(true, lib.ConfigAPIHub(), "GET", url, nil)
+				_, err = reqHubV1JSON(true, lib.ConfigAPIHub(), "GET", url, nil)
 				if err != nil {
 					fmt.Printf("error: %s\n", err)
 					return err
@@ -188,61 +185,4 @@ traceloop:
 		}
 	}
 	return nil
-}
-
-// Process an HTTPS request
-func reqHubHTTP(verbose bool, hub string, verb string, url string, body []byte) (response []byte, err error) {
-
-	verb = strings.ToUpper(verb)
-
-	httpurl := fmt.Sprintf("https://%s%s", hub, url)
-	buffer := &bytes.Buffer{}
-	if body != nil {
-		buffer = bytes.NewBuffer(body)
-	}
-	httpReq, err := http.NewRequest(verb, httpurl, buffer)
-	if err != nil {
-		return
-	}
-	httpReq.Header.Set("User-Agent", "notehub-client")
-	httpReq.Header.Set("Content-Type", "application/json")
-	err = lib.ConfigAuthenticationHeader(httpReq)
-	if err != nil {
-		return
-	}
-
-	if verbose {
-		fmt.Printf("%s %s\n", verb, httpurl)
-		if len(body) != 0 {
-			fmt.Printf("%s\n", string(body))
-		}
-	}
-
-	httpClient := &http.Client{}
-	httpRsp, err2 := httpClient.Do(httpReq)
-	if err2 != nil {
-		err = err2
-		return
-	}
-	if httpRsp.StatusCode == http.StatusUnauthorized {
-		err = fmt.Errorf("please use -signin to authenticate")
-		return
-	}
-
-	if verbose {
-		fmt.Printf("STATUS %d\n", httpRsp.StatusCode)
-	}
-
-	var rspJSON []byte
-	rspJSON, err = ioutil.ReadAll(httpRsp.Body)
-	if err != nil {
-		return
-	}
-
-	if verbose && len(rspJSON) != 0 {
-		fmt.Printf("%s\n", string(rspJSON))
-	}
-
-	return
-
 }
