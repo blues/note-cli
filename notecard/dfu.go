@@ -188,13 +188,9 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 			thisLen = chunkLen
 		}
 
-		// Send the chunk.  On the last chunk, don't wait for a reply
+		// Send the chunk
 		fmt.Printf("side-loading %d bytes (%.0f%% %d remaining)\n", thisLen, float64(lenRemaining*100)/float64(totalLen), lenRemaining)
-		if thisLen == lenRemaining {
-			req = notecard.Request{Cmd: "dfu.put"}
-		} else {
-			req = notecard.Request{Req: "dfu.put"}
-		}
+		req = notecard.Request{Req: "dfu.put"}
 		req.Offset = int32(offset)
 		req.Length = int32(thisLen)
 		payload := bin[offset : offset+thisLen]
@@ -266,7 +262,14 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 		for rsp.Pending {
 			rsp, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
 			if err != nil {
-				if note.ErrorContains(err, note.ErrDFUNotReady) && lenRemaining == 0 {
+				// Some Notecard firmware versions will return "firmware update is in progress", while
+				// newer versions should include {dfu-in-progress} in the error string if the DFU has
+				// already started when the Notecard receives the dfu.put request.
+				// {dfu-not-ready} shows up when the DFU is ready, but the Notecard hasn't synced yet.
+				// The DFU should kick off after the next successful sync.
+				if (note.ErrorContains(err, note.ErrDFUNotReady) ||
+				    note.ErrorContains(err, "firmware update is in progress") ||
+				    note.ErrorContains(err, note.ErrDFUInProgress)) && lenRemaining == 0 {
 					err = nil
 					break
 				}
