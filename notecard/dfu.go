@@ -281,21 +281,28 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 
 	}
 
+	// Display summary
+	elapsedSecs := (time.Now().UTC().Unix() - beganSecs) + 1
+	fmt.Printf("%d seconds (%.0f Bps)\n", elapsedSecs, float64(totalLen)/float64(elapsedSecs))
+
 	// Wait until the DFU has completed.  This is particularly important for notecard
 	// sideloads where we must restart the module.
 	if filetype == notehub.HubFileTypeCardFirmware {
+		first := true
 		for i := 0; i < 90; i++ {
 			rsp, err = card.TransactionRequest(notecard.Request{Req: "dfu.status", Name: "card"})
 			if err == nil && !rsp.Pending {
 				break
+			}
+			if first {
+				first = false
+				fmt.Printf("waiting for firmware update to complete\n")
 			}
 			time.Sleep(1000 * time.Millisecond)
 		}
 	}
 
 	// Done
-	elapsedSecs := (time.Now().UTC().Unix() - beganSecs) + 1
-	fmt.Printf("%d seconds (%.0f Bps)\n", elapsedSecs, float64(totalLen)/float64(elapsedSecs))
 	return
 
 }

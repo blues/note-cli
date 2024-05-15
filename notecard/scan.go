@@ -43,7 +43,7 @@ type ScannedSIM struct {
 }
 
 // Scan of a set of notecards, appending to JSON file.  Press ^C when done.
-func scan(debugEnabled bool, init bool, fnSetup string, fnSetupSKU string, carrierProvision string, factoryReset bool, outfile string) (err error) {
+func scan(debugEnabled bool, init bool, fnSetup string, fnSetupSKU string, carrierProvision string, factoryReset bool, sideload string, outfile string) (err error) {
 
 	// Only allow one of the two
 	if fnSetup != "" && fnSetupSKU != "" {
@@ -200,6 +200,14 @@ func scan(debugEnabled bool, init bool, fnSetup string, fnSetupSKU string, carri
 					break
 				}
 			}
+			if err != nil {
+				break
+			}
+		}
+
+		// If a sideload, do it
+		if sideload != "" {
+			err = dfuSideload(sideload, debugEnabled)
 			if err != nil {
 				break
 			}

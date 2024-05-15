@@ -556,7 +556,7 @@ func main() {
 		lib.ConfigSetHub(actionHub)
 	}
 
-	if err == nil && actionSideload != "" {
+	if err == nil && actionSideload != "" && actionScan == "" {
 		err = dfuSideload(actionSideload, actionVerbose)
 	}
 
@@ -669,7 +669,7 @@ func main() {
 	}
 
 	if err == nil && actionScan != "" {
-		err = scan(actionVerbose, actionFactory, actionSetup, actionSetupSKU, actionProvision, actionFactory, actionScan)
+		err = scan(actionVerbose, actionFactory, actionSetup, actionSetupSKU, actionProvision, actionFactory, actionSideload, actionScan)
 	}
 
 	if err == nil && actionCommtest {
