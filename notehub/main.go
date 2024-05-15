@@ -74,6 +74,10 @@ func main() {
 	flag.BoolVar(&flagVarsGet, "get-vars", false, "get environment vars")
 	var flagVarsSet string
 	flag.StringVar(&flagVarsSet, "set-vars", "", "set environment vars using a json template")
+	var flagSn string
+	flag.StringVar(&flagSn, "sn", "", "serial number")
+	var flagProvision bool
+	flag.BoolVar(&flagProvision, "provision", false, "provision devices")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
@@ -211,6 +215,19 @@ func main() {
 			}
 			if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
 				err = fmt.Errorf("no devices or fleets found within the specified scope")
+			}
+		}
+	}
+
+	// Provision devices before doing get or set
+	if err == nil && flagScope != "" && flagProvision {
+		if flagProduct == "" {
+			err = fmt.Errorf("productUID must be specified")
+		} else {
+			if len(scopeDevices) != 0 {
+				err = varsProvisionDevices(appMetadata, scopeDevices, flagProduct, flagSn, flagVerbose)
+			} else {
+				err = fmt.Errorf("no devices to provision")
 			}
 		}
 	}

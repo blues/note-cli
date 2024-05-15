@@ -59,6 +59,9 @@ func reqHubV0(verbose bool, hub string, request []byte, requestFile string, file
 	if err != nil {
 		return
 	}
+	if object == nil {
+		return
+	}
 	return note.JSONUnmarshal(response, object)
 }
 
@@ -200,6 +203,9 @@ func reqHubV1(verbose bool, hub string, verb string, url string, body []byte, ob
 	var response []byte
 	response, err = reqHubV1JSON(verbose, hub, verb, url, body)
 	if err != nil {
+		return
+	}
+	if object == nil {
 		return
 	}
 	return note.JSONUnmarshal(response, object)

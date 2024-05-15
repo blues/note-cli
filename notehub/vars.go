@@ -115,3 +115,28 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 
 	return
 }
+
+// Provision devices
+func varsProvisionDevices(appMetadata AppMetadata, uids []string, productUID string, deviceSN string, flagVerbose bool) (err error) {
+
+	for _, deviceUID := range uids {
+
+		req := notegoapi.ProvisionDeviceRequest{ProductUID: productUID, DeviceSN: deviceSN}
+
+		var reqJSON []byte
+		reqJSON, err = note.JSONMarshal(req)
+		if err != nil {
+			return
+		}
+
+		url := fmt.Sprintf("/v1/projects/%s/devices/%s/provision", appMetadata.App.UID, deviceUID)
+		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "POST", url, reqJSON, nil)
+		if err != nil {
+			return
+		}
+
+	}
+
+	return
+
+}
