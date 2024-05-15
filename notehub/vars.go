@@ -58,15 +58,7 @@ func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, f
 
 	for _, deviceUID := range uids {
 
-		rspGet := notegoapi.GetDeviceEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
-		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &rspGet)
-		if err != nil {
-			return
-		}
-
-		req := notegoapi.PutDeviceEnvironmentVariablesRequest{}
-		req.EnvironmentVariables = rspGet.EnvironmentVariables
+		req := notegoapi.PutDeviceEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
 		for k, v := range template {
 			req.EnvironmentVariables[k] = v
 		}
@@ -78,6 +70,7 @@ func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, f
 		}
 
 		rspPut := notegoapi.PutDeviceEnvironmentVariablesResponse{}
+		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "PUT", url, reqJSON, &rspPut)
 		if err != nil {
 			return
@@ -98,15 +91,7 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 
 	for _, fleetUID := range uids {
 
-		rspGet := notegoapi.GetFleetEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
-		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &rspGet)
-		if err != nil {
-			return
-		}
-
-		req := notegoapi.PutFleetEnvironmentVariablesRequest{}
-		req.EnvironmentVariables = rspGet.EnvironmentVariables
+		req := notegoapi.PutFleetEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
 		for k, v := range template {
 			req.EnvironmentVariables[k] = v
 		}
@@ -118,6 +103,7 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 		}
 
 		rspPut := notegoapi.PutFleetEnvironmentVariablesResponse{}
+		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "PUT", url, reqJSON, &rspPut)
 		if err != nil {
 			return
