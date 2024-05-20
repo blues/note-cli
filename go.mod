@@ -4,27 +4,27 @@ go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
 
-replace github.com/blues/note-go => ./note-go
+// replace github.com/blues/note-go => ./note-go
 
 require (
-	github.com/blues/note-cli/lib v0.0.0-20230907231149-742f8c61893d
-	github.com/blues/note-go v1.7.0
-	github.com/fatih/color v1.15.0
+	github.com/blues/note-cli/lib v0.0.0-20240515194341-6ba45582741d
+	github.com/blues/note-go v1.7.1
+	github.com/fatih/color v1.17.0
 	github.com/peterh/liner v1.2.2
-	golang.org/x/term v0.12.0
+	golang.org/x/term v0.20.0
 )
 
 require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/golang/snappy v0.0.4
-	github.com/lufia/plan9stats v0.0.0-20230326075908-cb1d2100619a // indirect
-	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
-	github.com/power-devops/perfstat v0.0.0-20221212215047-62379fc7944b // indirect
-	github.com/rivo/uniseg v0.4.4 // indirect
-	github.com/shirou/gopsutil/v3 v3.23.8 // indirect
-	go.bug.st/serial v1.6.1 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
+	github.com/tklauser/go-sysconf v0.3.14 // indirect
+	go.bug.st/serial v1.6.2 // indirect
+	golang.org/x/sys v0.20.0 // indirect
 	periph.io/x/host/v3 v3.8.2 // indirect
 )
