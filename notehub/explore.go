@@ -27,8 +27,9 @@ func explore(includeReserved bool, verbose bool, pretty bool) (err error) {
 	}
 
 	// Exit if no notefiles
+	fmt.Printf("%s\n", flagDevice)
 	if rsp.FileInfo == nil || len(*rsp.FileInfo) == 0 {
-		fmt.Printf("no notefiles\n")
+		fmt.Printf("    no notefiles\n")
 		return
 	}
 

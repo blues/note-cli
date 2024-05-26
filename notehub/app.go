@@ -167,44 +167,81 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 		}
 		return fmt.Errorf("'%s' does not appear to be a device, fleet, @fleet indirection, or @file.ext indirection", scope)
 	}
-	indirectScope := strings.TrimPrefix(scope, "@")
 
 	// Process a fleet indirection.  First, find the fleet.
+	indirectScope := strings.TrimPrefix(scope, "@")
 	foundFleet := false
 	lookingFor := strings.TrimSpace(indirectScope)
-	for _, fleet := range (*appMetadata).Fleets {
-		if strings.EqualFold(lookingFor, strings.TrimSpace(fleet.UID)) || strings.EqualFold(lookingFor, strings.TrimSpace(fleet.Name)) {
-			foundFleet = true
 
-			pageSize := 100
-			pageNum := 0
-			for {
-				pageNum++
+	// Looking for "all devices" or a named fleet
+	if indirectScope == "" {
+		// All devices
 
-				devices := notegoapi.GetDevicesResponse{}
-				url := fmt.Sprintf("/v1/projects/%s/fleets/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, fleet.UID, pageSize, pageNum)
-				err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
+		pageSize := 100
+		pageNum := 0
+		for {
+			pageNum++
+
+			devices := notegoapi.GetDevicesResponse{}
+			url := fmt.Sprintf("/v1/projects/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, pageSize, pageNum)
+			err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
+			if err != nil {
+				return
+			}
+
+			for _, device := range devices.Devices {
+				err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 				if err != nil {
-					return
+					return err
 				}
+			}
 
-				for _, device := range devices.Devices {
-					err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
-					if err != nil {
-						return err
-					}
-				}
-
-				if !devices.HasMore {
-					break
-				}
-
+			if !devices.HasMore {
+				break
 			}
 
 		}
-	}
-	if foundFleet {
+
 		return
+
+	} else {
+
+		// Fleet
+		for _, fleet := range (*appMetadata).Fleets {
+			if strings.EqualFold(lookingFor, strings.TrimSpace(fleet.UID)) || strings.EqualFold(lookingFor, strings.TrimSpace(fleet.Name)) {
+				foundFleet = true
+
+				pageSize := 100
+				pageNum := 0
+				for {
+					pageNum++
+
+					devices := notegoapi.GetDevicesResponse{}
+					url := fmt.Sprintf("/v1/projects/%s/fleets/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, fleet.UID, pageSize, pageNum)
+					err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
+					if err != nil {
+						return
+					}
+
+					for _, device := range devices.Devices {
+						err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+						if err != nil {
+							return err
+						}
+					}
+
+					if !devices.HasMore {
+						break
+					}
+
+				}
+
+			}
+		}
+		if foundFleet {
+			return
+		}
+
 	}
 
 	// Process a file indirection

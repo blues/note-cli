@@ -186,7 +186,7 @@ func main() {
 	}
 
 	// Explore the contents of the device
-	if err == nil && flagExplore {
+	if err == nil && flagExplore && flagScope == "" {
 		err = explore(flagReserved, flagVerbose, flagPretty)
 		didSomething = true
 	}
@@ -232,7 +232,7 @@ func main() {
 		}
 	}
 
-	// Perform actions based on scope
+	// Perform VarsGet actions based on scope
 	if err == nil && flagScope != "" && flagVarsGet {
 		var vars map[string]Vars
 		var varsJSON []byte
@@ -253,7 +253,7 @@ func main() {
 		}
 	}
 
-	// Perform actions based on scope
+	// Perform VarsSet actions based on scope
 	if err == nil && flagScope != "" && flagVarsSet != "" {
 		template := Vars{}
 		if strings.HasPrefix(flagVarsSet, "@") {
@@ -282,6 +282,18 @@ func main() {
 				if err == nil {
 					fmt.Printf("%s\n", varsJSON)
 				}
+			}
+		}
+	}
+
+	// Explore the contents of the device
+	if err == nil && len(scopeDevices) != 0 && flagExplore {
+		didSomething = true
+		for _, deviceUID := range scopeDevices {
+			flagDevice = deviceUID
+			err = explore(flagReserved, flagVerbose, flagPretty)
+			if err != nil {
+				break
 			}
 		}
 	}
