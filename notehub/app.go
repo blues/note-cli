@@ -17,9 +17,10 @@ import (
 )
 
 type Metadata struct {
-	Name string `json:"name,omitempty"`
-	UID  string `json:"uid,omitempty"`
-	BA   string `json:"billing_account_uid,omitempty"`
+	Name string            `json:"name,omitempty"`
+	UID  string            `json:"uid,omitempty"`
+	BA   string            `json:"billing_account_uid,omitempty"`
+	Vars map[string]string `json:"vars,omitempty"`
 }
 
 type AppMetadata struct {
@@ -30,7 +31,7 @@ type AppMetadata struct {
 }
 
 // Load metadata for the app
-func appGetMetadata(flagVerbose bool) (appMetadata AppMetadata, err error) {
+func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, err error) {
 
 	rsp := map[string]interface{}{}
 	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.get\"}"), "", "", "", "", false, false, nil, &rsp)
@@ -53,6 +54,15 @@ func appGetMetadata(flagVerbose bool) (appMetadata AppMetadata, err error) {
 				vj, ok := v.(map[string]interface{})
 				if ok {
 					i := Metadata{Name: vj["label"].(string), UID: k}
+					if flagVars {
+						varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
+						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, k)
+						err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
+						if err != nil {
+							return
+						}
+						i.Vars = varsRsp.EnvironmentVariables
+					}
 					items = append(items, i)
 				}
 			}
@@ -108,7 +118,7 @@ func appGetMetadata(flagVerbose bool) (appMetadata AppMetadata, err error) {
 func appGetScope(scope string, flagVerbose bool) (appMetadata AppMetadata, scopeDevices []string, scopeFleets []string, err error) {
 
 	// Get the metadata before we begin, because at a minimum we need appUID
-	appMetadata, err = appGetMetadata(flagVerbose)
+	appMetadata, err = appGetMetadata(flagVerbose, false)
 	if err != nil {
 		return
 	}

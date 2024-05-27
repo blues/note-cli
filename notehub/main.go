@@ -300,7 +300,7 @@ func main() {
 
 	// If we didn't do anything and we're just asking about an app, do it
 	if err == nil && !didSomething && (flagApp != "" || flagProduct != "") {
-		appMetadata, err = appGetMetadata(flagVerbose)
+		appMetadata, err = appGetMetadata(flagVerbose, flagVarsGet)
 		if err == nil {
 			var metaJSON []byte
 			if flagPretty {
