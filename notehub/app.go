@@ -218,7 +218,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 
 		// Fleet
 		for _, fleet := range (*appMetadata).Fleets {
-			if strings.EqualFold(lookingFor, strings.TrimSpace(fleet.UID)) || strings.EqualFold(lookingFor, strings.TrimSpace(fleet.Name)) {
+			if strings.EqualFold(lookingFor, strings.TrimSpace(fleet.UID)) || strings.EqualFold(lookingFor, strings.TrimSpace(fleet.Name)) || lookingFor == "" {
 				foundFleet = true
 
 				pageSize := 100
