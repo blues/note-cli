@@ -117,6 +117,14 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 // Get a device list given
 func appGetScope(scope string, flagVerbose bool) (appMetadata AppMetadata, scopeDevices []string, scopeFleets []string, err error) {
 
+	// Process special scopes, which are handled inside addScope
+	switch scope {
+	case "devices":
+		scope = "@"
+	case "fleets":
+		scope = "-"
+	}
+
 	// Get the metadata before we begin, because at a minimum we need appUID
 	appMetadata, err = appGetMetadata(flagVerbose, false)
 	if err != nil {
@@ -156,7 +164,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 		return
 	}
 
-	if strings.HasPrefix(scope, "imei:") {
+	if strings.HasPrefix(scope, "imei:") || strings.HasPrefix(scope, "burn:") {
 		// This is a pre-V1 legacy that still exists in some ancient fleets
 		*scopeDevices = append(*scopeDevices, scope)
 		return
@@ -169,13 +177,17 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 
 	// See if this is a fleet name, and translate it to an ID
 	if !strings.HasPrefix(scope, "@") {
+		found := false
 		for _, fleet := range (*appMetadata).Fleets {
-			if strings.EqualFold(scope, strings.TrimSpace(fleet.Name)) {
+			if fleetMatchesScope(fleet.Name, scope) {
 				*scopeFleets = append(*scopeFleets, fleet.UID)
-				return
+				found = true
 			}
 		}
-		return fmt.Errorf("'%s' does not appear to be a device, fleet, @fleet indirection, or @file.ext indirection", scope)
+		if !found {
+			return fmt.Errorf("'%s' does not appear to be a device, fleet, @fleet indirection, or @file.ext indirection", scope)
+		}
+		return
 	}
 
 	// Process a fleet indirection.  First, find the fleet.
@@ -187,7 +199,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 	if indirectScope == "" {
 		// All devices
 
-		pageSize := 100
+		pageSize := 500
 		pageNum := 0
 		for {
 			pageNum++
@@ -218,7 +230,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 
 		// Fleet
 		for _, fleet := range (*appMetadata).Fleets {
-			if strings.EqualFold(lookingFor, strings.TrimSpace(fleet.UID)) || strings.EqualFold(lookingFor, strings.TrimSpace(fleet.Name)) || lookingFor == "" {
+			if lookingFor == fleet.UID || fleetMatchesScope(fleet.Name, lookingFor) {
 				foundFleet = true
 
 				pageSize := 100
@@ -295,4 +307,22 @@ func sortAndRemoveDuplicates(strings []string) []string {
 	}
 
 	return result
+}
+
+// See if a fleet name matches a scope name
+func fleetMatchesScope(fleetName string, scope string) bool {
+	normalizedScope := strings.ToLower(scope)
+	scopeWildcard := false
+	if strings.HasSuffix(normalizedScope, "*") {
+		normalizedScope = strings.TrimSuffix(normalizedScope, "*")
+		scopeWildcard = true
+	}
+	normalizedName := strings.ToLower(fleetName)
+	match := scope == "-" || normalizedName == normalizedScope
+	if scopeWildcard {
+		if strings.HasPrefix(normalizedName, normalizedScope) {
+			match = true
+		}
+	}
+	return match
 }
