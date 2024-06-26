@@ -38,11 +38,16 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 	if err != nil {
 		return
 	}
+	rsperr, _ := rsp["err"].(string)
+	if rsperr != "" {
+		err = fmt.Errorf("%s", rsperr)
+		return
+	}
 
 	// App info
-	appMetadata.App.UID = rsp["uid"].(string)
-	appMetadata.App.Name = rsp["label"].(string)
-	appMetadata.App.BA = rsp["billing_account_uid"].(string)
+	appMetadata.App.UID, _ = rsp["uid"].(string)
+	appMetadata.App.Name, _ = rsp["label"].(string)
+	appMetadata.App.BA, _ = rsp["billing_account_uid"].(string)
 
 	// Fleet info
 	settings, exists := rsp["info"].(map[string]interface{})
@@ -73,6 +78,10 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 	// Enum routes
 	rsp = map[string]interface{}{}
 	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.test.route\"}"), "", "", "", "", false, false, nil, &rsp)
+	rsperr, _ = rsp["err"].(string)
+	if rsperr != "" {
+		err = fmt.Errorf("%s", rsperr)
+	}
 	if err == nil {
 		body, exists := rsp["body"].(map[string]interface{})
 		if exists {

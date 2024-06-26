@@ -220,14 +220,18 @@ func main() {
 	}
 
 	// Provision devices before doing get or set
-	if err == nil && flagScope != "" && flagProvision {
-		if flagProduct == "" {
-			err = fmt.Errorf("productUID must be specified")
+	if err == nil && flagProvision {
+		if flagScope == "" {
+			err = fmt.Errorf("use -scope to specify device(s) to be provisioned")
 		} else {
-			if len(scopeDevices) != 0 {
-				err = varsProvisionDevices(appMetadata, scopeDevices, flagProduct, flagSn, flagVerbose)
+			if flagProduct == "" {
+				err = fmt.Errorf("productUID must be specified")
 			} else {
-				err = fmt.Errorf("no devices to provision")
+				if len(scopeDevices) != 0 {
+					err = varsProvisionDevices(appMetadata, scopeDevices, flagProduct, flagSn, flagVerbose)
+				} else {
+					err = fmt.Errorf("no devices to provision")
+				}
 			}
 		}
 	}
