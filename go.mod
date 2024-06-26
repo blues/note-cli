@@ -8,7 +8,7 @@ replace github.com/blues/note-cli/lib => ./lib
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20240515194341-6ba45582741d
-	github.com/blues/note-go v1.7.1
+	github.com/blues/note-go v1.7.2
 	github.com/fatih/color v1.17.0
 	github.com/peterh/liner v1.2.2
 	golang.org/x/term v0.20.0
@@ -16,7 +16,6 @@ require (
 
 require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/golang/snappy v0.0.4
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
@@ -25,6 +24,5 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	go.bug.st/serial v1.6.2 // indirect
-	golang.org/x/sys v0.20.0 // indirect
 	periph.io/x/host/v3 v3.8.2 // indirect
 )

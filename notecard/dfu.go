@@ -50,9 +50,9 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	}
 
 	// Determine the file type
-	filetype := notehub.HubFileTypeUserFirmware
+	filetype := notehub.UploadTypeHostFirmware
 	if dfuIsNotecardFirmware(&bin) {
-		filetype = notehub.HubFileTypeCardFirmware
+		filetype = notehub.UploadTypeNotecardFirmware
 	}
 
 	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
@@ -71,7 +71,7 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	}
 
 	// If not a notecard DFU operation, place the card into dfu mode to access external storage
-	if filetype != notehub.HubFileTypeCardFirmware {
+	if filetype != notehub.UploadTypeNotecardFirmware {
 
 		fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
 
@@ -115,7 +115,7 @@ func dfuSideload(filename string, verbose bool) (err error) {
 }
 
 // Side-load a binary image
-func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err error) {
+func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax int) (err error) {
 	var req, rsp notecard.Request
 	totalLen := len(bin)
 
@@ -130,7 +130,7 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 	}
 
 	// Generate the simulated firmware info
-	var dbu notehub.HubRequestFile
+	var dbu notehub.UploadMetadata
 	dbu.Created = time.Now().Unix()
 	dbu.Source = filename
 	dbu.MD5 = fmt.Sprintf("%x", md5.Sum(bin))
@@ -287,7 +287,7 @@ func loadBin(filetype string, filename string, bin []byte, binaryMax int) (err e
 
 	// Wait until the DFU has completed.  This is particularly important for notecard
 	// sideloads where we must restart the module.
-	if filetype == notehub.HubFileTypeCardFirmware {
+	if filetype == notehub.UploadTypeNotecardFirmware {
 		first := true
 		for i := 0; i < 90; i++ {
 			rsp, err = card.TransactionRequest(notecard.Request{Req: "dfu.status", Name: "card"})
