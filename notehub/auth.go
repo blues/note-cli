@@ -19,6 +19,43 @@ import (
 	terminal "golang.org/x/term"
 )
 
+// Sign into the notehub account with a token
+func authSignInToken(token string) (err error) {
+
+	// Sign out
+	_, _, authenticated := lib.ConfigSignedIn()
+	if authenticated {
+		authSignOut()
+	}
+
+	// Print hub if not the default
+	if lib.Config.Hub != "" {
+		fmt.Printf("notehub %s\n", lib.Config.Hub)
+	}
+
+	// Extract the token and save it
+	var creds lib.ConfigCreds
+	creds.Token = token
+	creds.User = "(token)"
+	if lib.Config.HubCreds == nil {
+		lib.Config.HubCreds = map[string]lib.ConfigCreds{}
+	}
+	hub := lib.Config.Hub
+	if hub == "" {
+		hub = notehub.DefaultAPIService
+	}
+	lib.Config.HubCreds[hub] = creds
+	err = lib.ConfigWrite()
+	if err != nil {
+		return
+	}
+
+	// Done
+	fmt.Printf("signed in successfully with token\n")
+	return
+
+}
+
 // Sign into the notehub account
 func authSignIn() (err error) {
 
