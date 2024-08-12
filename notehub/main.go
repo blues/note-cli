@@ -53,6 +53,8 @@ func main() {
 	flag.StringVar(&flagOut, "out", "", "output filename")
 	var flagSignIn bool
 	flag.BoolVar(&flagSignIn, "signin", false, "sign-in to the notehub so that API requests may be made")
+	var flagSignInToken string
+	flag.StringVar(&flagSignInToken, "signin-token", "", "sign-in to the notehub with an explicit token")
 	var flagSignOut bool
 	flag.BoolVar(&flagSignOut, "signout", false, "sign out of the notehub")
 	var flagToken bool
@@ -102,6 +104,13 @@ func main() {
 			os.Exit(exitFail)
 		}
 	}
+	if flagSignInToken != "" {
+		err = authSignInToken(flagSignInToken)
+		if err != nil {
+			fmt.Printf("%s\n", err)
+			os.Exit(exitFail)
+		}
+	}
 	if flagSignOut {
 		err = authSignOut()
 		if err != nil {
@@ -119,6 +128,7 @@ func main() {
 		username, token, err = authToken()
 		if err != nil {
 			fmt.Printf("%s\n", err)
+			os.Exit(exitFail)
 		} else {
 			fmt.Printf("To issue HTTP API requests on behalf of %s set header field X-Session-Token to:\n%s\n", username, token)
 		}
