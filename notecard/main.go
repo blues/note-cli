@@ -730,6 +730,8 @@ func main() {
 		os.Exit(exitFail)
 	}
 
+	card.Close()
+
 	// Success
 	os.Exit(exitOk)
 
