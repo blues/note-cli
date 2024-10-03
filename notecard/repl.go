@@ -198,9 +198,14 @@ repl:
 			break
 		} else {
 			fmt.Printf("error reading line: %s\n", err)
+			repl.context.Close()
 			return 1
 		}
 	}
+
+	// If we don't do this, the Notecard port that was being used may
+	// appear as "busy" even though it's no longer in use.
+	repl.context.Close()
 
 	return 0
 }

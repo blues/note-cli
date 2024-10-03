@@ -730,6 +730,8 @@ func main() {
 		os.Exit(exitFail)
 	}
 
+	// If we don't do this, the Notecard port that was being used may
+	// appear as "busy" even though it's no longer in use.
 	card.Close()
 
 	// Success
