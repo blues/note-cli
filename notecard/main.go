@@ -33,9 +33,26 @@ var version = "development"
 
 // Main entry
 func main() {
+    // Channel to handle OS signals
+    signalChan := make(chan os.Signal, 1)
+    signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	// Spawn our signal handler
-	go signalHandler()
+    // Make sure to close the Notecard connection before the program ends.
+    defer func() {
+        if card != nil {
+            card.Close()
+        }
+    }()
+
+    // Similarly, close the Notecard connection on SIGINT, SIGTERM, and SIGQUIT.
+    go func() {
+        sig := <-signalChan
+        fmt.Printf("Received signal: %s\n", sig)
+        if card != nil {
+            card.Close()
+        }
+        os.Exit(exitFail)
+    }()
 
 	// Process actions
 	var actionPretty bool
@@ -730,10 +747,6 @@ func main() {
 		os.Exit(exitFail)
 	}
 
-	// If we don't do this, the Notecard port that was being used may
-	// appear as "busy" even though it's no longer in use.
-	card.Close()
-
 	// Success
 	os.Exit(exitOk)
 
@@ -747,18 +760,4 @@ func accumulateInfoErr(infoErr error, newErr error) error {
 		return newErr
 	}
 	return fmt.Errorf("%s\n%s", infoErr, newErr)
-}
-
-// Our app's signal handler
-func signalHandler() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM)
-	signal.Notify(ch, syscall.SIGINT)
-	signal.Notify(ch, syscall.SIGSEGV)
-	for {
-		switch <-ch {
-		case syscall.SIGINT, syscall.SIGTERM:
-			os.Exit(exitFail)
-		}
-	}
 }

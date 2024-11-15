@@ -86,6 +86,7 @@ func (repl *REPL) writeHistory() {
 func (repl *REPL) close() {
 	repl.writeHistory()
 	repl.liner.Close()
+	repl.context.Close()
 }
 
 // Start the read/eval/print loop which will accept user input
@@ -198,14 +199,9 @@ repl:
 			break
 		} else {
 			fmt.Printf("error reading line: %s\n", err)
-			repl.context.Close()
 			return 1
 		}
 	}
-
-	// If we don't do this, the Notecard port that was being used may
-	// appear as "busy" even though it's no longer in use.
-	repl.context.Close()
 
 	return 0
 }
