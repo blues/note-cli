@@ -22,7 +22,6 @@ import (
 )
 
 // Exit codes
-const exitOk = 0
 const exitFail = 1
 
 // The open notecard
@@ -746,10 +745,6 @@ func main() {
 		}
 		os.Exit(exitFail)
 	}
-
-	// Success
-	os.Exit(exitOk)
-
 }
 
 func accumulateInfoErr(infoErr error, newErr error) error {
