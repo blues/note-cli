@@ -30,28 +30,130 @@ var card *notecard.Context
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
+// Define flag groups
+type FlagGroup struct {
+	Name        string
+	Description string
+	Flags       []*flag.Flag
+}
+
+// getFlagGroups returns the organized flag groups
+func getFlagGroups() []FlagGroup {
+	return []FlagGroup{
+		{
+			Name:        "config",
+			Description: "Basic Configuration",
+			Flags: []*flag.Flag{
+				getFlagByName("product"),
+				getFlagByName("sn"),
+				getFlagByName("hub"),
+				getFlagByName("info"),
+			},
+		},
+		{
+			Name:        "device",
+			Description: "Device Management",
+			Flags: []*flag.Flag{
+				getFlagByName("scan"),
+				getFlagByName("factory"),
+				getFlagByName("format"),
+				getFlagByName("setup"),
+				getFlagByName("setup-sku"),
+				getFlagByName("provision"),
+				getFlagByName("sideload"),
+			},
+		},
+		{
+			Name:        "comm",
+			Description: "Communication & Debug",
+			Flags: []*flag.Flag{
+				getFlagByName("verbose"),
+				getFlagByName("pretty"),
+				getFlagByName("req"),
+				getFlagByName("input"),
+				getFlagByName("output"),
+				getFlagByName("fast"),
+				getFlagByName("trace"),
+			},
+		},
+		{
+			Name:        "hub",
+			Description: "Notehub Sync & Status",
+			Flags: []*flag.Flag{
+				getFlagByName("when-connected"),
+				getFlagByName("when-disconnected"),
+				getFlagByName("when-disarmed"),
+				getFlagByName("when-synced"),
+				getFlagByName("sync"),
+				getFlagByName("watch"),
+			},
+		},
+		{
+			Name:        "tools",
+			Description: "Utilities & Tools",
+			Flags: []*flag.Flag{
+				getFlagByName("play"),
+				getFlagByName("playtime"),
+				getFlagByName("commtest"),
+				getFlagByName("echo"),
+				getFlagByName("binpack"),
+			},
+		},
+		{
+			Name:        "notefile",
+			Description: "Notefile Management",
+			Flags: []*flag.Flag{
+				getFlagByName("explore"),
+				getFlagByName("reserved"),
+				getFlagByName("log"),
+			},
+		},
+		{
+			Name:        "cli",
+			Description: "CLI Configuration",
+			Flags: []*flag.Flag{
+				getFlagByName("interface"),
+				getFlagByName("port"),
+				getFlagByName("portconfig"),
+			},
+		},
+		{
+			Name:        "other",
+			Description: "Other",
+			Flags: []*flag.Flag{
+				getFlagByName("version"),
+			},
+		},
+	}
+}
+
 // Main entry
 func main() {
-    // Channel to handle OS signals
-    signalChan := make(chan os.Signal, 1)
-    signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	// Channel to handle OS signals
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-    // Make sure to close the Notecard connection before the program ends.
-    defer func() {
-        if card != nil {
-            card.Close()
-        }
-    }()
+	// Make sure to close the Notecard connection before the program ends.
+	defer func() {
+		if card != nil {
+			card.Close()
+		}
+	}()
 
-    // Similarly, close the Notecard connection on SIGINT, SIGTERM, and SIGQUIT.
-    go func() {
-        sig := <-signalChan
-        fmt.Printf("Received signal: %s\n", sig)
-        if card != nil {
-            card.Close()
-        }
-        os.Exit(exitFail)
-    }()
+	// Similarly, close the Notecard connection on SIGINT, SIGTERM, and SIGQUIT.
+	go func() {
+		sig := <-signalChan
+		fmt.Printf("Received signal: %s\n", sig)
+		if card != nil {
+			card.Close()
+		}
+		os.Exit(exitFail)
+	}()
+
+	// Override the default usage function to use our grouped format
+	flag.Usage = func() {
+		printGroupedFlags(getFlagGroups())
+	}
 
 	// Process actions
 	var actionPretty bool
@@ -130,8 +232,7 @@ func main() {
 
 	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
 	if len(os.Args) == 1 {
-		fmt.Printf("Command arguments:\n")
-		flag.PrintDefaults()
+		printGroupedFlags(getFlagGroups())
 		lib.ConfigShow()
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
@@ -755,4 +856,49 @@ func accumulateInfoErr(infoErr error, newErr error) error {
 		return newErr
 	}
 	return fmt.Errorf("%s\n%s", infoErr, newErr)
+}
+
+// Helper function to print grouped commands
+func printGroupedFlags(groups []FlagGroup) {
+	fmt.Println("Notecard CLI - Command line tool for interacting with Notecards\n")
+	fmt.Println("USAGE: notecard [options]\n")
+
+	// First pass: find the longest flag name + type
+	maxLen := 0
+	for _, group := range groups {
+		for _, f := range group.Flags {
+			typeName, _ := flag.UnquoteUsage(f)
+			length := len(f.Name)
+			if len(typeName) > 0 {
+				length += len(typeName) + 3 // +3 for flagText formatting
+			}
+			if length > maxLen {
+				maxLen = length
+			}
+		}
+	}
+
+	// Add padding for the flag prefix "  -" and some extra space
+	padding := maxLen + 5
+
+	for _, group := range groups {
+		fmt.Printf("%s:\n", group.Description)
+		for _, f := range group.Flags {
+			typeName, usage := flag.UnquoteUsage(f)
+			flagText := f.Name
+			if len(typeName) > 0 {
+				flagText = fmt.Sprintf("%s (%s)", f.Name, typeName)
+			}
+			fmt.Printf("  -%*s%s\n", -padding, flagText, usage)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("For more detailed documentation and examples, visit:")
+	fmt.Println("https://dev.blues.io/tools-and-sdks/notecard-cli/\n")
+}
+
+// Helper function to get flag by name from the default command line flags
+func getFlagByName(name string) *flag.Flag {
+	return flag.CommandLine.Lookup(name)
 }
