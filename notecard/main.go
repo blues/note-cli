@@ -860,8 +860,9 @@ func accumulateInfoErr(infoErr error, newErr error) error {
 
 // Helper function to print grouped commands
 func printGroupedFlags(groups []FlagGroup) {
-	fmt.Println("Notecard CLI - Command line tool for interacting with Notecards\n")
-	fmt.Println("USAGE: notecard [options]\n")
+	fmt.Println("Notecard CLI - Command line tool for interacting with Notecards")
+	fmt.Println("USAGE: notecard [options]")
+	fmt.Println()
 
 	// First pass: find the longest flag name + type
 	maxLen := 0
@@ -895,7 +896,7 @@ func printGroupedFlags(groups []FlagGroup) {
 	}
 
 	fmt.Println("For more detailed documentation and examples, visit:")
-	fmt.Println("https://dev.blues.io/tools-and-sdks/notecard-cli/\n")
+	fmt.Println("https://dev.blues.io/tools-and-sdks/notecard-cli/")
 }
 
 // Helper function to get flag by name from the default command line flags
