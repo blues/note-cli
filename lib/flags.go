@@ -23,8 +23,9 @@ func GetFlagByName(name string) *flag.Flag {
 
 // Helper function to print grouped commands
 func PrintGroupedFlags(groups []FlagGroup, cli string) {
-	fmt.Println(cli + " - Command line tool for interacting with " + cli + "\n")
-	fmt.Println("USAGE: " + cli + " [options]\n")
+	fmt.Println(cli + " - Command line tool for interacting with " + cli)
+	fmt.Println("USAGE: " + cli + " [options]")
+	fmt.Println()
 
 	// First pass: find the longest flag name + type
 	maxLen := 0
@@ -58,5 +59,5 @@ func PrintGroupedFlags(groups []FlagGroup, cli string) {
 	}
 
 	fmt.Println("For more detailed documentation and examples, visit:")
-	fmt.Println("https://dev.blues.io/tools-and-sdks/" + cli + "-cli/\n")
+	fmt.Println("https://dev.blues.io/tools-and-sdks/" + cli + "-cli")
 }
