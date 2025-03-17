@@ -34,7 +34,7 @@ type AppMetadata struct {
 func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, err error) {
 
 	rsp := map[string]interface{}{}
-	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.get\"}"), "", "", "", "", false, false, nil, &rsp)
+	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.get\"}"), "", "", "", "", false, false, false, nil, &rsp)
 	if err != nil {
 		return
 	}
@@ -77,7 +77,7 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 
 	// Enum routes
 	rsp = map[string]interface{}{}
-	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.test.route\"}"), "", "", "", "", false, false, nil, &rsp)
+	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.test.route\"}"), "", "", "", "", false, false, false, nil, &rsp)
 	rsperr, _ = rsp["err"].(string)
 	if rsperr != "" {
 		err = fmt.Errorf("%s", rsperr)

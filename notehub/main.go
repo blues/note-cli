@@ -49,6 +49,8 @@ func main() {
 	flag.BoolVar(&flagTrace, "trace", false, "enter trace mode to interactively send requests to notehub")
 	var flagOverwrite bool
 	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
+	var flagDryrun bool
+	flag.BoolVar(&flagDryrun, "dryrun", false, "perform a dry run of batch updates")
 	var flagOut string
 	flag.StringVar(&flagOut, "out", "", "output filename")
 	var flagSignIn bool
@@ -167,7 +169,7 @@ func main() {
 	// Process requests
 	if flagReq != "" || flagUpload != "" {
 		var rsp []byte
-		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
+		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagDryrun, flagJson, nil)
 		if err == nil {
 			if flagOut == "" {
 				if flagPretty {
