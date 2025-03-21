@@ -58,7 +58,7 @@ traceloop:
 
 		// Process JSON requests
 		if strings.HasPrefix(cmd, "{") {
-			_, err := reqHubV0JSON(true, lib.ConfigAPIHub(), []byte(cmd), "", "", "", "", false, false, false, nil)
+			_, err := reqHubV0JSON(true, lib.ConfigAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 			}

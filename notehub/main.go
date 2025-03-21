@@ -49,10 +49,12 @@ func main() {
 	flag.BoolVar(&flagTrace, "trace", false, "enter trace mode to interactively send requests to notehub")
 	var flagOverwrite bool
 	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
-	var flagDryrun bool
-	flag.BoolVar(&flagDryrun, "dryrun", false, "perform a dry run of a provisioning job")
-	var flagJob string
-	flag.StringVar(&flagJob, "job", "", "get status of specified provisioning job")
+	var flagJobGet string
+	flag.StringVar(&flagJobGet, "job", "", "show the named provisioning job")
+	var flagJobSubmit string
+	flag.StringVar(&flagJobSubmit, "job-submit", "", "submit the named provisioning job")
+	var flagJobDelete string
+	flag.StringVar(&flagJobDelete, "job-delete", "", "delete the named provisioning job")
 	var flagOut string
 	flag.StringVar(&flagOut, "out", "", "output filename")
 	var flagSignIn bool
@@ -168,15 +170,21 @@ func main() {
 		flagReq = string(contents)
 	}
 
-	// This is just a shortcut to processing a provisioning job
-	if flagJob != "" {
-		flagReq = fmt.Sprintf(`{"req":"hub.app.job.report","name":"%s"}`, flagJob)
+	// Shortcuts to jobs
+	if flagJobGet != "" {
+		flagReq = fmt.Sprintf(`{"req":"hub.app.job.get","name":"%s"}`, flagJobGet)
+	}
+	if flagJobDelete != "" {
+		flagReq = fmt.Sprintf(`{"req":"hub.app.job.delete","name":"%s"}`, flagJobDelete)
+	}
+	if flagJobSubmit != "" {
+		flagReq = fmt.Sprintf(`{"req":"hub.app.job.submit","name":"%s"}`, flagJobSubmit)
 	}
 
 	// Process requests
 	if flagReq != "" || flagUpload != "" {
 		var rsp []byte
-		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagDryrun, flagJson, nil)
+		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
 		if err == nil {
 			if flagOut == "" {
 				if flagPretty {

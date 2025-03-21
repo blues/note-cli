@@ -42,7 +42,7 @@ func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehu
 	if err != nil {
 		return
 	}
-	err = reqHubV0(verbose, lib.ConfigAPIHub(), reqJSON, "", "", "", "", false, false, false, nil, &rsp)
+	err = reqHubV0(verbose, lib.ConfigAPIHub(), reqJSON, "", "", "", "", false, false, nil, &rsp)
 	if err != nil {
 		return
 	}
@@ -53,9 +53,9 @@ func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehu
 }
 
 // Process a V0 HTTPS request and unmarshal into an object
-func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dryrun bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
+func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
 	var response []byte
-	response, err = reqHubV0JSON(verbose, hub, request, requestFile, filetype, filetags, filenotes, overwrite, dryrun, dropNonJSON, outq)
+	response, err = reqHubV0JSON(verbose, hub, request, requestFile, filetype, filetags, filenotes, overwrite, dropNonJSON, outq)
 	if err != nil {
 		return
 	}
@@ -66,7 +66,7 @@ func reqHubV0(verbose bool, hub string, request []byte, requestFile string, file
 }
 
 // Perform a V0 HTTP request
-func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dryrun bool, dropNonJSON bool, outq chan string) (response []byte, err error) {
+func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string) (response []byte, err error) {
 
 	fn := ""
 	path := strings.Split(requestFile, "/")
@@ -87,9 +87,6 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	query = addQuery(query, "upload", fn)
 	if overwrite {
 		query = addQuery(query, "overwrite", "true")
-	}
-	if dryrun {
-		query = addQuery(query, "dryrun", "true")
 	}
 	if filetype != "" {
 		query = addQuery(query, "type", filetype)
