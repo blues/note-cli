@@ -50,7 +50,9 @@ func main() {
 	var flagOverwrite bool
 	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
 	var flagDryrun bool
-	flag.BoolVar(&flagDryrun, "dryrun", false, "perform a dry run of batch updates")
+	flag.BoolVar(&flagDryrun, "dryrun", false, "perform a dry run of a provisioning job")
+	var flagJob string
+	flag.StringVar(&flagJob, "job", "", "get status of specified provisioning job")
 	var flagOut string
 	flag.StringVar(&flagOut, "out", "", "output filename")
 	var flagSignIn bool
@@ -164,6 +166,11 @@ func main() {
 			os.Exit(exitFail)
 		}
 		flagReq = string(contents)
+	}
+
+	// This is just a shortcut to processing a provisioning job
+	if flagJob != "" {
+		flagReq = fmt.Sprintf(`{"req":"hub.app.job.report","name":"%s"}`, flagJob)
 	}
 
 	// Process requests
