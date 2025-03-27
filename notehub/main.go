@@ -51,6 +51,8 @@ func main() {
 	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
 	var flagJobGet string
 	flag.StringVar(&flagJobGet, "job", "", "show the named provisioning job")
+	var flagJobsGet bool
+	flag.BoolVar(&flagJobsGet, "jobs", false, "list all jobs")
 	var flagJobSubmit string
 	flag.StringVar(&flagJobSubmit, "job-submit", "", "submit the named provisioning job")
 	var flagJobDelete string
@@ -179,6 +181,9 @@ func main() {
 	}
 	if flagJobSubmit != "" {
 		flagReq = fmt.Sprintf(`{"req":"hub.app.job.submit","name":"%s"}`, flagJobSubmit)
+	}
+	if flagJobsGet {
+		flagReq = `{"req":"hub.app.jobs.get"}`
 	}
 
 	// Process requests

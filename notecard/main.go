@@ -718,7 +718,7 @@ func main() {
 						}
 					}
 				}
-			} else if req.Req == "card.binary.put" {
+			} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
 				payload := *req.Payload
 				actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
 				if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
