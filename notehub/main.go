@@ -49,14 +49,6 @@ func main() {
 	flag.BoolVar(&flagTrace, "trace", false, "enter trace mode to interactively send requests to notehub")
 	var flagOverwrite bool
 	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
-	var flagJobGet string
-	flag.StringVar(&flagJobGet, "job", "", "show the named provisioning job")
-	var flagJobsGet bool
-	flag.BoolVar(&flagJobsGet, "jobs", false, "list all jobs")
-	var flagJobSubmit string
-	flag.StringVar(&flagJobSubmit, "job-submit", "", "submit the named provisioning job")
-	var flagJobDelete string
-	flag.StringVar(&flagJobDelete, "job-delete", "", "delete the named provisioning job")
 	var flagOut string
 	flag.StringVar(&flagOut, "out", "", "output filename")
 	var flagSignIn bool
@@ -170,20 +162,6 @@ func main() {
 			os.Exit(exitFail)
 		}
 		flagReq = string(contents)
-	}
-
-	// Shortcuts to jobs
-	if flagJobGet != "" {
-		flagReq = fmt.Sprintf(`{"req":"hub.app.job.get","name":"%s"}`, flagJobGet)
-	}
-	if flagJobDelete != "" {
-		flagReq = fmt.Sprintf(`{"req":"hub.app.job.delete","name":"%s"}`, flagJobDelete)
-	}
-	if flagJobSubmit != "" {
-		flagReq = fmt.Sprintf(`{"req":"hub.app.job.submit","name":"%s"}`, flagJobSubmit)
-	}
-	if flagJobsGet {
-		flagReq = `{"req":"hub.app.jobs.get"}`
 	}
 
 	// Process requests
