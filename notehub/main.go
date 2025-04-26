@@ -124,6 +124,14 @@ func main() {
 
 	// Display the token
 	if flagToken {
+		_, _, authenticated := lib.ConfigSignedIn()
+		if !authenticated {
+			err = authSignIn()
+			if err != nil {
+				fmt.Printf("%s\n", err)
+				os.Exit(exitFail)
+			}
+		}
 		var token, username string
 		username, token, err = authToken()
 		if err != nil {
