@@ -138,7 +138,8 @@ func main() {
 			fmt.Printf("%s\n", err)
 			os.Exit(exitFail)
 		} else {
-			fmt.Printf("To issue HTTP API requests on behalf of %s set header field X-Session-Token to:\n%s\n", username, token)
+			fmt.Printf("To issue HTTP API requests on behalf of %s place the token into the X-Session-Token header field\n", username)
+			fmt.Fprintf(os.Stderr, "%s\n", token)
 		}
 		didSomething = true
 	}
