@@ -126,11 +126,8 @@ func main() {
 	if flagToken {
 		_, _, authenticated := lib.ConfigSignedIn()
 		if !authenticated {
-			err = authSignIn()
-			if err != nil {
-				fmt.Printf("%s\n", err)
-				os.Exit(exitFail)
-			}
+			fmt.Printf("please sign in using -signin\n")
+			os.Exit(exitFail)
 		}
 		var token, username string
 		username, token, err = authToken()
