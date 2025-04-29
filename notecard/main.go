@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -20,7 +19,6 @@ import (
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notecard"
-	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // Exit codes
@@ -697,8 +695,6 @@ func main() {
 				err = validateRequest([]byte(actionRequest))
 				if err == nil {
 					fmt.Println("Request validation successful")
-				} else {
-					break
 				}
 			}
 
