@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notecard"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // Exit codes
@@ -74,6 +76,7 @@ func getFlagGroups() []FlagGroup {
 				getFlagByName("output"),
 				getFlagByName("fast"),
 				getFlagByName("trace"),
+				getFlagByName("validate"),
 			},
 		},
 		{
@@ -168,6 +171,8 @@ func main() {
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display notecard requests and responses")
+	var actionValidate bool
+	flag.BoolVar(&actionValidate, "validate", false, "validate JSON requests against the notecard schema (when used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -687,6 +692,15 @@ func main() {
 			var rspJSON []byte
 			var req, rsp notecard.Request
 			note.JSONUnmarshal([]byte(actionRequest), &req)
+
+			if actionValidate {
+				err = validateRequest([]byte(actionRequest))
+				if err == nil {
+					fmt.Println("Request validation successful")
+				} else {
+					break
+				}
+			}
 
 			// If we want to read the payload from a file, do so
 			if actionInput != "" {
