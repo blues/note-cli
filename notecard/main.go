@@ -74,7 +74,7 @@ func getFlagGroups() []FlagGroup {
 				getFlagByName("output"),
 				getFlagByName("fast"),
 				getFlagByName("trace"),
-				getFlagByName("validate"),
+				getFlagByName("force"),
 			},
 		},
 		{
@@ -169,8 +169,8 @@ func main() {
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display notecard requests and responses")
-	var actionValidate bool
-	flag.BoolVar(&actionValidate, "validate", false, "validate JSON requests against the notecard schema (when used with -req)")
+	var actionForce bool
+	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the notecard schema (when used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -691,7 +691,7 @@ func main() {
 			var req, rsp notecard.Request
 			note.JSONUnmarshal([]byte(actionRequest), &req)
 
-			if actionValidate {
+			if !actionForce {
 				err = validateRequest([]byte(actionRequest))
 				if err != nil {
 					goto done
