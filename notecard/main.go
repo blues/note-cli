@@ -694,7 +694,7 @@ func main() {
 			if actionValidate {
 				err = validateRequest([]byte(actionRequest))
 				if err != nil {
-					break
+					goto done
 				}
 			}
 
@@ -844,6 +844,7 @@ func main() {
 		err = explore(actionReserved, actionPretty)
 	}
 
+done:
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {
