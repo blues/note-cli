@@ -24,7 +24,7 @@ import (
 // Exit codes
 const exitFail = 1
 
-// The open notecard
+// The open Notecard
 var card *notecard.Context
 
 // CLI Version - Set by ldflags during build/release
@@ -116,6 +116,7 @@ func getFlagGroups() []FlagGroup {
 				getFlagByName("interface"),
 				getFlagByName("port"),
 				getFlagByName("portconfig"),
+				getFlagByName("json-schema-url"),
 			},
 		},
 		{
@@ -168,9 +169,9 @@ func main() {
 	var actionWhenDisarmed bool
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
-	flag.BoolVar(&actionVerbose, "verbose", false, "display notecard requests and responses")
+	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
 	var actionForce bool
-	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the notecard schema (when used with -req)")
+	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -178,15 +179,15 @@ func main() {
 	var actionExplore bool
 	flag.BoolVar(&actionExplore, "explore", false, "explore the contents of the device")
 	var actionFactory bool
-	flag.BoolVar(&actionFactory, "factory", false, "reset notecard to factory defaults")
+	flag.BoolVar(&actionFactory, "factory", false, "reset Notecard to factory defaults")
 	var actionFormat bool
-	flag.BoolVar(&actionFormat, "format", false, "reset notecard's notefile storage but retain configuration")
+	flag.BoolVar(&actionFormat, "format", false, "reset Notecard's Notefile storage but retain configuration")
 	var actionInput string
 	flag.StringVar(&actionInput, "input", "", "add the contents of this file as a payload to the request")
 	var actionOutput string
 	flag.StringVar(&actionOutput, "output", "", "output file")
 	var actionLog string
-	flag.StringVar(&actionLog, "log", "", "add a text string to the _log.qo notefile")
+	flag.StringVar(&actionLog, "log", "", "add a text string to the _log.qo Notefile")
 	var actionTrace bool
 	flag.BoolVar(&actionTrace, "trace", false, "watch Notecard's trace output")
 	var actionPlayground bool
@@ -210,19 +211,19 @@ func main() {
 	var actionSetup string
 	flag.StringVar(&actionSetup, "setup", "", "issue requests sequentially as stored in the specified .json file")
 	var actionSetupSKU string
-	flag.StringVar(&actionSetupSKU, "setup-sku", "", "configure a notecard for self-setup even after factory restore, with  requests in the specified .json file")
+	flag.StringVar(&actionSetupSKU, "setup-sku", "", "configure a Notecard for self-setup even after factory restore, with  requests in the specified .json file")
 	var actionScan string
-	flag.StringVar(&actionScan, "scan", "", "scan a batch of notecards to collect info or to set them up")
+	flag.StringVar(&actionScan, "scan", "", "scan a batch of Notecards to collect info or to set them up")
 	var actionProvision string
 	flag.StringVar(&actionProvision, "provision", "", "provision into carrier account using AccountSID:AuthTOKEN")
 	var actionDFUPackage string
 	flag.StringVar(&actionDFUPackage, "binpack", "", "package multiple .bin's for DFU into a single .bins package")
 	var actionFast bool
-	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to notecard knowing that {io} errors are to be expected")
+	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to Notecard knowing that {io} errors are to be expected")
 	var actionSideload string
-	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the notecard's storage")
+	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
 	var actionEcho int
-	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the notecard")
+	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
 
@@ -269,7 +270,7 @@ func main() {
 		if argsLeft == 1 {
 			actionRequest = flag.Args()[0]
 		} else if argsLeft > 0 {
-			fmt.Printf("to send a JSON request to the notecard, please place it in quotes")
+			fmt.Printf("to send a JSON request to the Notecard, please place it in quotes")
 			os.Exit(exitFail)
 		}
 	}
@@ -685,6 +686,25 @@ func main() {
 		actionRequest = ""
 	}
 
+	// If the user has provided a JSON schema URL, we need to clear the cache
+	// and re-initialize the schema.  This is because the schema URL may have
+	// changed, and we need to make sure that the schema is up to date.
+	json_provided := false
+	for _, arg := range os.Args {
+		if arg == "-json-schema-url" {
+			json_provided = true
+			break
+		}
+	}
+	if err == nil && json_provided {
+		clearCache()
+		url := lib.Config.SchemaUrl
+		if url == "" {
+			url = defaultJsonSchemaUrl
+		}
+		err = initSchema(url)
+	}
+
 	if err == nil && actionRequest != "" {
 		if err == nil {
 			var rspJSON []byte
@@ -692,7 +712,7 @@ func main() {
 			note.JSONUnmarshal([]byte(actionRequest), &req)
 
 			if !actionForce {
-				err = validateRequest([]byte(actionRequest))
+				err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
 				if err != nil {
 					goto done
 				}
