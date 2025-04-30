@@ -1,4 +1,4 @@
-schema_cache/
+notecard-schema/
 dist/
 
 .DS_Store

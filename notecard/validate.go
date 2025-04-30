@@ -24,7 +24,7 @@ var (
 )
 
 // cacheDir is the directory where schemas are stored
-const cacheDir = "./schema_cache"
+const cacheDir = "./notecard-schema"
 const defaultJsonSchemaUrl = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
 
 func clearCache() error {
