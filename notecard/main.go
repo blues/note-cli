@@ -693,8 +693,8 @@ func main() {
 
 			if actionValidate {
 				err = validateRequest([]byte(actionRequest))
-				if err == nil {
-					fmt.Println("Request validation successful")
+				if err != nil {
+					break
 				}
 			}
 
