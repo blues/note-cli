@@ -7,7 +7,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -240,7 +239,7 @@ func main() {
 	// Process request starting with @ as a filename containing the request
 	if strings.HasPrefix(flagReq, "@") {
 		fn := strings.TrimPrefix(flagReq, "@")
-		contents, err := ioutil.ReadFile(fn)
+		contents, err := os.ReadFile(fn)
 		if err != nil {
 			fmt.Printf("Can't read request file '%s': %s\n", fn, err)
 			os.Exit(exitFail)
@@ -356,7 +355,7 @@ func main() {
 		template := Vars{}
 		if strings.HasPrefix(flagVarsSet, "@") {
 			var templateJSON []byte
-			templateJSON, err = ioutil.ReadFile(strings.TrimPrefix(flagVarsSet, "@"))
+			templateJSON, err = os.ReadFile(strings.TrimPrefix(flagVarsSet, "@"))
 			if err == nil {
 				err = note.JSONUnmarshal(templateJSON, &template)
 			}

@@ -7,7 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 )
@@ -32,7 +32,7 @@ func notehubTime() (epochTime int64, err error) {
 
 	// Unmarshal the ping response
 	var webrspJSON []byte
-	webrspJSON, err = ioutil.ReadAll(webrsp.Body)
+	webrspJSON, err = io.ReadAll(webrsp.Body)
 	webrsp.Body.Close()
 	if err != nil {
 		return

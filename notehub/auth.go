@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -128,7 +128,7 @@ func authSignIn() (err error) {
 		err = fmt.Errorf("status %d", httpRsp.StatusCode)
 		return
 	}
-	rspJSON, err2 := ioutil.ReadAll(httpRsp.Body)
+	rspJSON, err2 := io.ReadAll(httpRsp.Body)
 	if err2 != nil {
 		err = err2
 		return
@@ -215,7 +215,7 @@ func authSignOut() (err error) {
 		err = fmt.Errorf("user is not signed in")
 		return
 	}
-	rspJSON, err2 := ioutil.ReadAll(httpRsp.Body)
+	rspJSON, err2 := io.ReadAll(httpRsp.Body)
 	if err2 != nil {
 		err = err2
 		return
