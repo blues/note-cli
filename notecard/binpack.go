@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -103,7 +102,7 @@ func dfuPackage(verbose bool, outfile string, hostProcessorType string, args []s
 		regionArray := []int{}
 		if !strings.HasSuffix(fnArg, ".zip") {
 			fnArray = append(fnArray, filepath.Base(fnArg))
-			bin, err := ioutil.ReadFile(fnArg)
+			bin, err := os.ReadFile(fnArg)
 			if err != nil {
 				return fmt.Errorf("%s: %s", fnArg, err)
 			}
@@ -308,7 +307,7 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 
 	// Read the ZIP contents
 	var zipContents []byte
-	zipContents, err = ioutil.ReadFile(path)
+	zipContents, err = os.ReadFile(path)
 	if err != nil {
 		return
 	}
@@ -335,7 +334,7 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 			err = err2
 			return
 		}
-		contents, err2 := ioutil.ReadAll(f)
+		contents, err2 := os.ReadAll(f)
 		f.Close()
 		if err != nil {
 			err = err2

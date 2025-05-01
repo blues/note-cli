@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"os/user"
@@ -118,7 +117,7 @@ repl:
 				continue repl
 			case "history":
 				repl.writeHistory()
-				history, err := ioutil.ReadFile(repl.historyFilePath)
+				history, err := os.ReadFile(repl.historyFilePath)
 				if err != nil {
 					fmt.Printf("error: %s\n", err)
 				} else {

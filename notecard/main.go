@@ -9,7 +9,6 @@ import (
 	"crypto/md5"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -714,7 +713,7 @@ func main() {
 			// If we want to read the payload from a file, do so
 			if actionInput != "" {
 				var contents []byte
-				contents, err = ioutil.ReadFile(actionInput)
+				contents, err = os.ReadFile(actionInput)
 				if err == nil {
 					req.Payload = &contents
 				}
@@ -770,7 +769,7 @@ func main() {
 			// Write the payload to an output file if appropriate
 			if err == nil && actionOutput != "" {
 				if rsp.Payload != nil {
-					err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
+					err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
 					if err != nil {
 						rsp.Payload = nil
 					}

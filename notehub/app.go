@@ -8,7 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 
@@ -277,7 +277,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 
 	// Process a file indirection
 	var contents []byte
-	contents, err = ioutil.ReadFile(indirectScope)
+	contents, err = os.ReadFile(indirectScope)
 	if err != nil {
 		return fmt.Errorf("%s: %s", indirectScope, err)
 	}

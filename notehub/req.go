@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -103,7 +102,7 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	var fileLength int
 	buffer := bytes.NewBuffer(request)
 	if requestFile != "" {
-		fileContents, err = ioutil.ReadFile(requestFile)
+		fileContents, err = os.ReadFile(requestFile)
 		if err != nil {
 			return
 		}
@@ -254,7 +253,7 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 		fmt.Printf("STATUS %d\n", httpRsp.StatusCode)
 	}
 
-	response, err = ioutil.ReadAll(httpRsp.Body)
+	response, err = os.ReadAll(httpRsp.Body)
 	if err != nil {
 		return
 	}

@@ -7,7 +7,6 @@ package lib
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -57,7 +56,7 @@ func ConfigRead() error {
 	rand.Seed(rand.Int63() ^ time.Now().UnixNano())
 
 	// Read the config file
-	contents, err := ioutil.ReadFile(configSettingsPath())
+	contents, err := os.ReadFile(configSettingsPath())
 	if os.IsNotExist(err) {
 		ConfigReset()
 		err = nil
