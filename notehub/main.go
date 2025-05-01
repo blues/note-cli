@@ -27,8 +27,87 @@ var flagDevice string
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
+// getFlagGroups returns the organized flag groups
+func getFlagGroups() []lib.FlagGroup {
+	return []lib.FlagGroup{
+		{
+			Name:        "auth",
+			Description: "Authentication & Session",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("signin"),
+				lib.GetFlagByName("signin-token"),
+				lib.GetFlagByName("signout"),
+				lib.GetFlagByName("token"),
+			},
+		},
+		{
+			Name:        "scope",
+			Description: "Project & Device Scope",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("project"),
+				lib.GetFlagByName("provision"),
+				lib.GetFlagByName("product"),
+				lib.GetFlagByName("device"),
+				lib.GetFlagByName("scope"),
+				lib.GetFlagByName("sn"),
+			},
+		},
+		{
+			Name:        "vars",
+			Description: "Environment Variables",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("get-vars"),
+				lib.GetFlagByName("set-vars"),
+			},
+		},
+		{
+			Name:        "request",
+			Description: "API Request Options",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("req"),
+				lib.GetFlagByName("pretty"),
+				lib.GetFlagByName("json"),
+				lib.GetFlagByName("verbose"),
+			},
+		},
+		{
+			Name:        "operations",
+			Description: "Notefile Operations",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("upload"),
+				lib.GetFlagByName("type"),
+				lib.GetFlagByName("tags"),
+				lib.GetFlagByName("notes"),
+				lib.GetFlagByName("overwrite"),
+				lib.GetFlagByName("out"),
+			},
+		},
+		{
+			Name:        "notefile",
+			Description: "Notefile Management",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("explore"),
+				lib.GetFlagByName("reserved"),
+				lib.GetFlagByName("trace"),
+			},
+		},
+		{
+			Name:        "other",
+			Description: "Other Options",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("version"),
+			},
+		},
+	}
+}
+
 // Main entry point
 func main() {
+
+	// Override the default usage function to use our grouped format
+	flag.Usage = func() {
+		lib.PrintGroupedFlags(getFlagGroups(), "notehub")
+	}
 
 	// Process command line
 	var flagReq string
@@ -90,8 +169,7 @@ func main() {
 
 	// If no commands found, just show the config
 	if len(os.Args) == 1 {
-		fmt.Printf("\nCommand options:\n")
-		flag.PrintDefaults()
+		lib.PrintGroupedFlags(getFlagGroups(), "notehub")
 		lib.ConfigShow()
 		os.Exit(exitOk)
 	}

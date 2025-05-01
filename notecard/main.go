@@ -30,100 +30,93 @@ var card *notecard.Context
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
-// Define flag groups
-type FlagGroup struct {
-	Name        string
-	Description string
-	Flags       []*flag.Flag
-}
-
 // getFlagGroups returns the organized flag groups
-func getFlagGroups() []FlagGroup {
-	return []FlagGroup{
+func getFlagGroups() []lib.FlagGroup {
+	return []lib.FlagGroup{
 		{
 			Name:        "config",
 			Description: "Basic Configuration",
 			Flags: []*flag.Flag{
-				getFlagByName("product"),
-				getFlagByName("sn"),
-				getFlagByName("hub"),
-				getFlagByName("info"),
+				lib.GetFlagByName("product"),
+				lib.GetFlagByName("sn"),
+				lib.GetFlagByName("hub"),
+				lib.GetFlagByName("info"),
 			},
 		},
 		{
 			Name:        "device",
 			Description: "Device Management",
 			Flags: []*flag.Flag{
-				getFlagByName("scan"),
-				getFlagByName("factory"),
-				getFlagByName("format"),
-				getFlagByName("setup"),
-				getFlagByName("setup-sku"),
-				getFlagByName("provision"),
-				getFlagByName("sideload"),
+				lib.GetFlagByName("scan"),
+				lib.GetFlagByName("factory"),
+				lib.GetFlagByName("format"),
+				lib.GetFlagByName("setup"),
+				lib.GetFlagByName("setup-sku"),
+				lib.GetFlagByName("provision"),
+				lib.GetFlagByName("sideload"),
 			},
 		},
 		{
 			Name:        "comm",
 			Description: "Communication & Debug",
 			Flags: []*flag.Flag{
-				getFlagByName("verbose"),
-				getFlagByName("pretty"),
-				getFlagByName("req"),
-				getFlagByName("input"),
-				getFlagByName("output"),
-				getFlagByName("fast"),
-				getFlagByName("trace"),
-				getFlagByName("force"),
+				lib.GetFlagByName("verbose"),
+				lib.GetFlagByName("pretty"),
+				lib.GetFlagByName("req"),
+				lib.GetFlagByName("input"),
+				lib.GetFlagByName("output"),
+				lib.GetFlagByName("fast"),
+				lib.GetFlagByName("trace"),
+				lib.GetFlagByName("force"),
 			},
 		},
 		{
 			Name:        "hub",
 			Description: "Notehub Sync & Status",
 			Flags: []*flag.Flag{
-				getFlagByName("when-connected"),
-				getFlagByName("when-disconnected"),
-				getFlagByName("when-disarmed"),
-				getFlagByName("when-synced"),
-				getFlagByName("sync"),
-				getFlagByName("watch"),
+				lib.GetFlagByName("when-connected"),
+				lib.GetFlagByName("when-disconnected"),
+				lib.GetFlagByName("when-disarmed"),
+				lib.GetFlagByName("when-synced"),
+				lib.GetFlagByName("sync"),
+				lib.GetFlagByName("watch"),
 			},
 		},
 		{
 			Name:        "tools",
 			Description: "Utilities & Tools",
 			Flags: []*flag.Flag{
-				getFlagByName("play"),
-				getFlagByName("playtime"),
-				getFlagByName("commtest"),
-				getFlagByName("echo"),
-				getFlagByName("binpack"),
+				lib.GetFlagByName("play"),
+				lib.GetFlagByName("playtime"),
+				lib.GetFlagByName("commtest"),
+				lib.GetFlagByName("echo"),
+				lib.GetFlagByName("binpack"),
 			},
 		},
 		{
 			Name:        "notefile",
 			Description: "Notefile Management",
 			Flags: []*flag.Flag{
-				getFlagByName("explore"),
-				getFlagByName("reserved"),
-				getFlagByName("log"),
+				lib.GetFlagByName("explore"),
+				lib.GetFlagByName("reserved"),
+				lib.GetFlagByName("log"),
 			},
 		},
 		{
 			Name:        "cli",
 			Description: "CLI Configuration",
 			Flags: []*flag.Flag{
-				getFlagByName("interface"),
-				getFlagByName("port"),
-				getFlagByName("portconfig"),
-				getFlagByName("json-schema-url"),
+				lib.GetFlagByName("interface"),
+				lib.GetFlagByName("port"),
+				lib.GetFlagByName("portconfig"),
+				lib.GetFlagByName("json-schema-url"),
 			},
 		},
 		{
 			Name:        "other",
 			Description: "Other",
 			Flags: []*flag.Flag{
-				getFlagByName("version"),
+				lib.GetFlagByName("version"),
 			},
 		},
 	}
@@ -154,7 +147,7 @@ func main() {
 
 	// Override the default usage function to use our grouped format
 	flag.Usage = func() {
-		printGroupedFlags(getFlagGroups())
+		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 	}
 
 	// Process actions
@@ -236,7 +229,7 @@ func main() {
 
 	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
 	if len(os.Args) == 1 {
-		printGroupedFlags(getFlagGroups())
+		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 		lib.ConfigShow()
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
@@ -887,50 +880,4 @@ func accumulateInfoErr(infoErr error, newErr error) error {
 		return newErr
 	}
 	return fmt.Errorf("%s\n%s", infoErr, newErr)
-}
-
-// Helper function to print grouped commands
-func printGroupedFlags(groups []FlagGroup) {
-	fmt.Println("Notecard CLI - Command line tool for interacting with Notecards")
-	fmt.Println("USAGE: notecard [options]")
-	fmt.Println()
-
-	// First pass: find the longest flag name + type
-	maxLen := 0
-	for _, group := range groups {
-		for _, f := range group.Flags {
-			typeName, _ := flag.UnquoteUsage(f)
-			length := len(f.Name)
-			if len(typeName) > 0 {
-				length += len(typeName) + 3 // +3 for flagText formatting
-			}
-			if length > maxLen {
-				maxLen = length
-			}
-		}
-	}
-
-	// Add padding for the flag prefix "  -" and some extra space
-	padding := maxLen + 5
-
-	for _, group := range groups {
-		fmt.Printf("%s:\n", group.Description)
-		for _, f := range group.Flags {
-			typeName, usage := flag.UnquoteUsage(f)
-			flagText := f.Name
-			if len(typeName) > 0 {
-				flagText = fmt.Sprintf("%s (%s)", f.Name, typeName)
-			}
-			fmt.Printf("  -%*s%s\n", -padding, flagText, usage)
-		}
-		fmt.Println()
-	}
-
-	fmt.Println("For more detailed documentation and examples, visit:")
-	fmt.Println("https://dev.blues.io/tools-and-sdks/notecard-cli/")
-}
-
-// Helper function to get flag by name from the default command line flags
-func getFlagByName(name string) *flag.Flag {
-	return flag.CommandLine.Lookup(name)
 }
