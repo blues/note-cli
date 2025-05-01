@@ -698,94 +698,92 @@ func main() {
 	}
 
 	if err == nil && actionRequest != "" {
-		if err == nil {
-			var rspJSON []byte
-			var req, rsp notecard.Request
-			note.JSONUnmarshal([]byte(actionRequest), &req)
+		var rspJSON []byte
+		var req, rsp notecard.Request
+		note.JSONUnmarshal([]byte(actionRequest), &req)
 
-			if !actionForce {
-				err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
-				if err != nil {
-					goto done
-				}
+		if !actionForce {
+			err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
+			if err != nil {
+				goto done
 			}
+		}
 
-			// If we want to read the payload from a file, do so
-			if actionInput != "" {
-				var contents []byte
-				contents, err = os.ReadFile(actionInput)
-				if err == nil {
-					req.Payload = &contents
-				}
+		// If we want to read the payload from a file, do so
+		if actionInput != "" {
+			var contents []byte
+			contents, err = os.ReadFile(actionInput)
+			if err == nil {
+				req.Payload = &contents
 			}
+		}
 
-			// Perform the transaction and do special handling for binary
-			if req.Req == "card.binary.get" {
-				expectedMD5 := req.Status
-				rsp, err = card.TransactionRequest(req)
+		// Perform the transaction and do special handling for binary
+		if req.Req == "card.binary.get" {
+			expectedMD5 := req.Status
+			rsp, err = card.TransactionRequest(req)
+			if err == nil {
+				var rspBytes []byte
+				rspBytes, err = card.ReceiveBytes()
 				if err == nil {
-					var rspBytes []byte
-					rspBytes, err = card.ReceiveBytes()
+					rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
+					rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
 					if err == nil {
-						rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
-						rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
-						if err == nil {
-							actualMD5 := fmt.Sprintf("%x", md5.Sum(rspBytes))
-							if expectedMD5 != actualMD5 {
-								err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, expectedMD5)
-							} else {
-								rsp.Payload = &rspBytes
-								rsp.Cobs = 0
-							}
+						actualMD5 := fmt.Sprintf("%x", md5.Sum(rspBytes))
+						if expectedMD5 != actualMD5 {
+							err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, expectedMD5)
+						} else {
+							rsp.Payload = &rspBytes
+							rsp.Cobs = 0
 						}
 					}
 				}
-			} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
-				payload := *req.Payload
-				actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
-				if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
-					err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
-				} else {
-					req.Status = actualMD5
-					payload, err = notecard.CobsEncode(payload, byte('\n'))
-					if err == nil {
-						req.Payload = nil
-						req.Cobs = int32(len(payload))
-						rsp, err = card.TransactionRequest(req)
-						if err == nil {
-							payload = append(payload, byte('\n'))
-							err = card.SendBytes(payload)
-						}
-					}
-				}
+			}
+		} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
+			payload := *req.Payload
+			actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
+			if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
+				err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
 			} else {
-				actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
-				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				req.Status = actualMD5
+				payload, err = notecard.CobsEncode(payload, byte('\n'))
 				if err == nil {
-					_ = note.JSONUnmarshal(rspJSON, &rsp)
-				}
-			}
-
-			// Write the payload to an output file if appropriate
-			if err == nil && actionOutput != "" {
-				if rsp.Payload != nil {
-					err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
-					if err != nil {
-						rsp.Payload = nil
+					req.Payload = nil
+					req.Cobs = int32(len(payload))
+					rsp, err = card.TransactionRequest(req)
+					if err == nil {
+						payload = append(payload, byte('\n'))
+						err = card.SendBytes(payload)
 					}
 				}
 			}
+		} else {
+			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
+			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+			if err == nil {
+				_ = note.JSONUnmarshal(rspJSON, &rsp)
+			}
+		}
 
-			// Output the response to the console
-			if !actionVerbose {
-				if err == nil {
-					if actionPretty {
-						rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
-					} else {
-						rspJSON, _ = note.JSONMarshal(rsp)
-					}
-					fmt.Printf("%s\n", rspJSON)
+		// Write the payload to an output file if appropriate
+		if err == nil && actionOutput != "" {
+			if rsp.Payload != nil {
+				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+				if err != nil {
+					rsp.Payload = nil
 				}
+			}
+		}
+
+		// Output the response to the console
+		if !actionVerbose {
+			if err == nil {
+				if actionPretty {
+					rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+				} else {
+					rspJSON, _ = note.JSONMarshal(rsp)
+				}
+				fmt.Printf("%s\n", rspJSON)
 			}
 		}
 	}
