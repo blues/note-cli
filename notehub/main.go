@@ -202,13 +202,19 @@ func main() {
 
 	// Display the token
 	if flagToken {
+		_, _, authenticated := lib.ConfigSignedIn()
+		if !authenticated {
+			fmt.Printf("please sign in using -signin\n")
+			os.Exit(exitFail)
+		}
 		var token, username string
 		username, token, err = authToken()
 		if err != nil {
 			fmt.Printf("%s\n", err)
 			os.Exit(exitFail)
 		} else {
-			fmt.Printf("To issue HTTP API requests on behalf of %s set header field X-Session-Token to:\n%s\n", username, token)
+			fmt.Printf("To issue HTTP API requests on behalf of %s place the token into the X-Session-Token header field\n", username)
+			fmt.Printf("%s\n", token)
 		}
 		didSomething = true
 	}

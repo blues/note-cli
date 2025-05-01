@@ -38,6 +38,7 @@ type ConfigSettings struct {
 	HubCreds  map[string]ConfigCreds `json:"creds,omitempty"`
 	Interface string                 `json:"interface,omitempty"`
 	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
+	SchemaUrl string                 `json:"json-schema-url,omitempty"`
 }
 
 // Config are the master config settings
@@ -46,6 +47,7 @@ var configFlagHub string
 var configFlagInterface string
 var configFlagPort string
 var configFlagPortConfig int
+var configFlagJsonSchemaUrl string
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -104,6 +106,7 @@ func ConfigReset() {
 	configResetInterface()
 	ConfigSetHub("-")
 	Config.When = time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	Config.SchemaUrl = ""
 }
 
 // ConfigShow displays all current config parameters
@@ -135,6 +138,9 @@ func ConfigShow() error {
 			fmt.Printf("   -port %s\n", Config.IPort[Config.Interface].Port)
 			fmt.Printf("   -portconfig %d\n", Config.IPort[Config.Interface].PortConfig)
 		}
+	}
+	if Config.SchemaUrl != "" {
+		fmt.Printf("   -json-schema-url %s\n", Config.SchemaUrl)
 	}
 
 	return nil
@@ -168,6 +174,11 @@ func ConfigFlagsProcess() (err error) {
 		configResetInterface()
 	} else if configFlagInterface != "" {
 		Config.Interface = configFlagInterface
+	}
+	if configFlagJsonSchemaUrl == "-" {
+		Config.SchemaUrl = ""
+	} else if configFlagJsonSchemaUrl != "" {
+		Config.SchemaUrl = configFlagJsonSchemaUrl
 	}
 	if configFlagPort == "-" {
 		temp := Config.IPort[Config.Interface]
@@ -203,6 +214,7 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 	// Process the commands
 	if notecardFlags {
 		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for notecard")
+		flag.StringVar(&configFlagJsonSchemaUrl, "json-schema-url", "", "set the schema URL for the notecard")
 		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for notecard")
 		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for notecard")
 	}
@@ -239,6 +251,7 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 				case "-interface":
 				case "-port":
 				case "-portconfig":
+				case "-json-schema-url":
 				case "-hub":
 				// any odd argument that isn't one of our switches
 				default:
@@ -257,6 +270,11 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	str := os.Getenv("NOTE_INTERFACE")
 	if str != "" {
 		Config.Interface = str
+	}
+
+	str = os.Getenv("NOTE_JSON_SCHEMA_URL")
+	if str != "" {
+		Config.SchemaUrl = str
 	}
 
 	// Override via env vars if specified
