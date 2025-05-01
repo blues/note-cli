@@ -689,6 +689,7 @@ func main() {
 		}
 	}
 	if err == nil && json_provided {
+		fmt.Printf("*** updating schema cache... ***\n")
 		clearCache()
 		url := lib.Config.SchemaUrl
 		if url == "" {
@@ -702,19 +703,35 @@ func main() {
 		var req, rsp notecard.Request
 		note.JSONUnmarshal([]byte(actionRequest), &req)
 
-		if !actionForce {
-			err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
-			if err != nil {
-				goto done
-			}
-		}
-
-		// If we want to read the payload from a file, do so
+		// Append payload from the specified file
 		if actionInput != "" {
 			var contents []byte
 			contents, err = os.ReadFile(actionInput)
 			if err == nil {
 				req.Payload = &contents
+			} else {
+				goto done
+			}
+
+			// Update the original request with the payload
+			var reqBytes []byte
+			reqBytes, err = note.JSONMarshal(req)
+			if err == nil {
+				actionRequest = string(reqBytes)
+			} else {
+				goto done
+			}
+		}
+
+		// Validate the request against the schema, unless we are forcing it
+		if !actionForce {
+			var reqMap map[string]interface{}
+			if err = note.JSONUnmarshal([]byte(actionRequest), &reqMap); err != nil {
+				goto done
+			}
+
+			if err = validateRequest(reqMap, lib.Config.SchemaUrl, actionVerbose); err != nil {
+				goto done
 			}
 		}
 
@@ -758,6 +775,7 @@ func main() {
 				}
 			}
 		} else {
+			// Transact using CLI input to avoid JSON parsing complications
 			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
 			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
 			if err == nil {
@@ -766,13 +784,23 @@ func main() {
 		}
 
 		// Write the payload to an output file if appropriate
-		if err == nil && actionOutput != "" {
-			if rsp.Payload != nil {
-				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
-				if err != nil {
-					rsp.Payload = nil
-				}
+		if err == nil && actionOutput != "" && rsp.Payload != nil {
+			err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+			// If we can't write the file, set the payload to nil so
+			// we don't try to print it out and cause a JSON error.
+			if err != nil {
+				rsp.Payload = nil
 			}
+		}
+
+		// Output the response to the console
+		if err == nil && !actionVerbose {
+			if actionPretty {
+				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+			} else {
+				rspJSON, _ = note.JSONMarshal(rsp)
+			}
+			fmt.Printf("%s\n", rspJSON)
 		}
 
 		// Output the response to the console

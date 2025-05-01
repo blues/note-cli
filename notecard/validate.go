@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/blues/note-go/note"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
 )
@@ -167,7 +166,7 @@ func loadOrFetchSchema(url string) (io.Reader, error) {
 	return fetchAndCacheSchema(url)
 }
 
-func validateRequest(requestJSON []byte, url string) error {
+func validateRequest(reqMap map[string]interface{}, url string, verbose bool) error {
 	// Use default URL if none provided
 	if url == "" {
 		url = defaultJsonSchemaUrl
@@ -178,13 +177,15 @@ func validateRequest(requestJSON []byte, url string) error {
 		return err
 	}
 
-	var reqMap map[string]interface{}
-	if err := note.JSONUnmarshal(requestJSON, &reqMap); err != nil {
-		return fmt.Errorf("failed to parse request for validation: %v (use -force to bypass validation)", err)
+	// Validate the request against the schema
+	if verbose {
+		fmt.Println("Validating against schema:", url)
 	}
-
 	if err := schema.Validate(reqMap); err != nil {
-		return fmt.Errorf("validation failed: %v (use -force to bypass validation)", err)
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
+		}
+		return fmt.Errorf("failed to validate against Notecard schema (use -force to bypass validation)")
 	}
 
 	return nil
