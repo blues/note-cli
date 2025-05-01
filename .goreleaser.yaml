@@ -88,7 +88,7 @@ nfpms:
      - notecard-linux
     vendor: Blues
     homepage: https://blues.com
-    maintainer: Blues <blues@blues.com>
+    maintainer: Blues <support@blues.com>
     description: Notecard CLI
     license: MIT
     formats:
@@ -101,7 +101,7 @@ nfpms:
      - notehub-linux
     vendor: Blues
     homepage: https://blues.com
-    maintainer: Blues <blues@blues.com>
+    maintainer: Blues <support@blues.com>
     description: Notehub CLI
     license: MIT
     formats:
