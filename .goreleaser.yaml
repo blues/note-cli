@@ -43,7 +43,6 @@ builds:
       - darwin
     goarch:
       - amd64
-      - arm
       - arm64
     ignore:
       - goos: windows
@@ -64,7 +63,6 @@ builds:
       - darwin
     goarch:
       - amd64
-      - arm
       - arm64
     ignore:
       - goos: windows
@@ -75,11 +73,45 @@ builds:
 
 checksum:
   name_template: 'checksums.txt'
-snapshot:
-  name_template: "{{ incpatch .Version }}-next"
 changelog:
   sort: asc
   filters:
     exclude:
       - '^docs:'
       - '^test:'
+
+nfpms:
+  -
+    id: notecard_deb
+    package_name: notecard
+    builds:
+     - notecard-linux
+    vendor: Blues
+    homepage: https://blues.com
+    maintainer: Blues <blues@blues.com>
+    description: Notecard CLI
+    license: MIT
+    formats:
+      - deb
+
+  -
+    id: notehub_deb
+    package_name: notehub
+    builds:
+     - notehub-linux
+    vendor: Blues
+    homepage: https://blues.com
+    maintainer: Blues <blues@blues.com>
+    description: Notehub CLI
+    license: MIT
+    formats:
+      - deb
+
+brews:
+  - repository:
+      owner: blues
+      name: homebrew-note-cli
+    directory: Formula
+    homepage: https://blues.com
+    description: Note CLI
+    license: MIT
