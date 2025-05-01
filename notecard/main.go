@@ -709,34 +709,26 @@ func main() {
 			contents, err = os.ReadFile(actionInput)
 			if err == nil {
 				req.Payload = &contents
-			} else {
-				goto done
-			}
 
-			// Update the original request with the payload
-			var reqBytes []byte
-			reqBytes, err = note.JSONMarshal(req)
-			if err == nil {
-				actionRequest = string(reqBytes)
-			} else {
-				goto done
+				// Update the original request with the payload
+				var reqBytes []byte
+				reqBytes, err = note.JSONMarshal(req)
+				if err == nil {
+					actionRequest = string(reqBytes)
+				}
 			}
 		}
 
 		// Validate the request against the schema, unless we are forcing it
-		if !actionForce {
+		if err == nil && !actionForce {
 			var reqMap map[string]interface{}
 			if err = note.JSONUnmarshal([]byte(actionRequest), &reqMap); err != nil {
-				goto done
-			}
-
-			if err = validateRequest(reqMap, lib.Config.SchemaUrl, actionVerbose); err != nil {
-				goto done
+			} else if err = validateRequest(reqMap, lib.Config.SchemaUrl, actionVerbose); err != nil {
 			}
 		}
 
 		// Perform the transaction and do special handling for binary
-		if req.Req == "card.binary.get" {
+		if err == nil && req.Req == "card.binary.get" {
 			expectedMD5 := req.Status
 			rsp, err = card.TransactionRequest(req)
 			if err == nil {
@@ -756,7 +748,7 @@ func main() {
 					}
 				}
 			}
-		} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
+		} else if err == nil && req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
 			payload := *req.Payload
 			actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
 			if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
@@ -774,7 +766,7 @@ func main() {
 					}
 				}
 			}
-		} else {
+		} else if err == nil {
 			// Transact using CLI input to avoid JSON parsing complications
 			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
 			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
@@ -804,7 +796,7 @@ func main() {
 		}
 
 		// Output the response to the console
-		if !actionVerbose {
+		if err == nil && !actionVerbose {
 			if err == nil {
 				if actionPretty {
 					rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
