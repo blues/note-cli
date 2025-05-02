@@ -18,7 +18,7 @@ import (
 	"github.com/blues/note-go/notehub"
 )
 
-// ConfigCreds are the credentials for a given notehub
+// ConfigCreds are the credentials for a given Notehub
 type ConfigCreds struct {
 	User  string `json:"user,omitempty"`
 	Token string `json:"token,omitempty"`
@@ -38,6 +38,7 @@ type ConfigSettings struct {
 	Interface string                 `json:"interface,omitempty"`
 	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
 	SchemaUrl string                 `json:"json-schema-url,omitempty"`
+	Validate  bool                   `json:"json-validation,omitempty"`
 }
 
 // Config are the master config settings
@@ -47,6 +48,7 @@ var configFlagInterface string
 var configFlagPort string
 var configFlagPortConfig int
 var configFlagJsonSchemaUrl string
+var configFlagToggleValidation bool
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -106,6 +108,14 @@ func ConfigReset() {
 	ConfigSetHub("-")
 	Config.When = time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	Config.SchemaUrl = ""
+
+	// Opt-in Blues employees to validation
+	_, blues_employee := os.LookupEnv("BLUES")
+	if blues_employee {
+		Config.Validate = true
+	} else {
+		Config.Validate = false
+	}
 }
 
 // ConfigShow displays all current config parameters
@@ -140,6 +150,13 @@ func ConfigShow() error {
 	}
 	if Config.SchemaUrl != "" {
 		fmt.Printf("   -json-schema-url %s\n", Config.SchemaUrl)
+	}
+
+	_, blues_employee := os.LookupEnv("BLUES")
+	if blues_employee || Config.Validate {
+		fmt.Printf("   -json-validation enabled\n")
+	} else {
+		fmt.Printf("   -json-validation disabled\n")
 	}
 
 	return nil
@@ -179,6 +196,12 @@ func ConfigFlagsProcess() (err error) {
 	} else if configFlagJsonSchemaUrl != "" {
 		Config.SchemaUrl = configFlagJsonSchemaUrl
 	}
+	_, blues_employee := os.LookupEnv("BLUES")
+	if blues_employee {
+		Config.Validate = true
+	} else if configFlagToggleValidation {
+		Config.Validate = !Config.Validate
+	}
 	if configFlagPort == "-" {
 		temp := Config.IPort[Config.Interface]
 		temp.Port = ""
@@ -212,13 +235,14 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 
 	// Process the commands
 	if notecardFlags {
-		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for notecard")
-		flag.StringVar(&configFlagJsonSchemaUrl, "json-schema-url", "", "set the schema URL for the notecard")
-		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for notecard")
-		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for notecard")
+		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for Notecard")
+		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for Notecard")
+		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for Notecard")
+		flag.StringVar(&configFlagJsonSchemaUrl, "json-schema-url", "", "set the schema URL for the Notecard")
+		flag.BoolVar(&configFlagToggleValidation, "toggle-json-validation", false, "enable/disable JSON schema validation (experimental)")
 	}
 	if notehubFlags {
-		flag.StringVar(&configFlagHub, "hub", "", "set notehub domain")
+		flag.StringVar(&configFlagHub, "hub", "", "set Notehub domain")
 	}
 
 }
@@ -251,6 +275,13 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 				case "-port":
 				case "-portconfig":
 				case "-json-schema-url":
+				case "-toggle-json-validation":
+					// Good employees dog food Blues products
+					_, blues_employee := os.LookupEnv("BLUES")
+					if blues_employee {
+						configOnly = false
+						fmt.Println("I'm sorry Dave, I'm afraid I can't do that.")
+					}
 				case "-hub":
 				// any odd argument that isn't one of our switches
 				default:
@@ -332,7 +363,7 @@ func ConfigAuthenticationHeader(httpReq *http.Request) (err error) {
 		if hub == "" {
 			hub = notehub.DefaultAPIService
 		}
-		err = fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the notehub service", hub)
+		err = fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", hub)
 		return
 	}
 

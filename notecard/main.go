@@ -109,6 +109,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("port"),
 				lib.GetFlagByName("portconfig"),
 				lib.GetFlagByName("json-schema-url"),
+				lib.GetFlagByName("toggle-json-validation"),
 			},
 		},
 		{
@@ -163,7 +164,7 @@ func main() {
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
 	var actionForce bool
-	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when used with -req)")
+	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when validation is enabled and used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -678,24 +679,26 @@ func main() {
 		actionRequest = ""
 	}
 
-	// If the user has provided a JSON schema URL, we need to clear the cache
-	// and re-initialize the schema.  This is because the schema URL may have
-	// changed, and we need to make sure that the schema is up to date.
-	json_provided := false
-	for _, arg := range os.Args {
-		if arg == "-json-schema-url" {
-			json_provided = true
-			break
+	if err == nil && lib.Config.Validate {
+		// If the user has provided a JSON schema URL, we need to clear the cache
+		// and re-initialize the schema.  This is because the schema URL may have
+		// changed, and we need to make sure that the schema is up to date.
+		json_provided := false
+		for _, arg := range os.Args {
+			if arg == "-json-schema-url" {
+				json_provided = true
+				break
+			}
 		}
-	}
-	if err == nil && json_provided {
-		fmt.Printf("*** updating schema cache... ***\n")
-		clearCache()
-		url := lib.Config.SchemaUrl
-		if url == "" {
-			url = defaultJsonSchemaUrl
+		if json_provided {
+			fmt.Printf("*** updating schema cache... ***\n")
+			clearCache()
+			url := lib.Config.SchemaUrl
+			if url == "" {
+				url = defaultJsonSchemaUrl
+			}
+			err = initSchema(url)
 		}
-		err = initSchema(url)
 	}
 
 	if err == nil && actionRequest != "" {
@@ -720,7 +723,7 @@ func main() {
 		}
 
 		// Validate the request against the schema, unless we are forcing it
-		if err == nil && !actionForce {
+		if err == nil && lib.Config.Validate && !actionForce {
 			var reqMap map[string]interface{}
 			if err = note.JSONUnmarshal([]byte(actionRequest), &reqMap); err != nil {
 			} else if err = validateRequest(reqMap, lib.Config.SchemaUrl, actionVerbose); err != nil {
@@ -797,14 +800,12 @@ func main() {
 
 		// Output the response to the console
 		if err == nil && !actionVerbose {
-			if err == nil {
-				if actionPretty {
-					rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
-				} else {
-					rspJSON, _ = note.JSONMarshal(rsp)
-				}
-				fmt.Printf("%s\n", rspJSON)
+			if actionPretty {
+				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+			} else {
+				rspJSON, _ = note.JSONMarshal(rsp)
 			}
+			fmt.Printf("%s\n", rspJSON)
 		}
 	}
 
@@ -874,7 +875,6 @@ func main() {
 		err = explore(actionReserved, actionPretty)
 	}
 
-done:
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {

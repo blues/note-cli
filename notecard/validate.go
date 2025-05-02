@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/blues/note-cli/lib"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
 )
@@ -23,8 +24,9 @@ var (
 )
 
 // cacheDir is the directory where schemas are stored
-const cacheDir = "./notecard-schema"
 const defaultJsonSchemaUrl = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
+
+var cacheDir = lib.ConfigDir() + "/notecard-schema"
 
 func clearCache() error {
 	return os.RemoveAll(cacheDir)
