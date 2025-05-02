@@ -169,22 +169,18 @@ func resolveSchemaError(reqMap map[string]interface{}) {
 	if reqType == nil {
 		reqType = reqMap["cmd"]
 	}
+	fmt.Fprintf(os.Stderr, "Failed to validate %v request!\n", reqType)
 	reqTypeStr, ok := reqType.(string)
 	if !ok {
+		fmt.Fprintf(os.Stderr, "Request type not a string!\n")
 		return
 	}
-	fmt.Fprintf(os.Stderr, "Failed to validate %s request!\n", reqTypeStr)
 
 	// Compose the request schema URL
-	var reqSchemaUrl string = cacheDir
-	reqSchemaUrl += reqTypeStr
-	reqSchemaUrl += ".req.notecard.api.json"
+	reqSchemaUrl := filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json")
 
 	// Load the request schema
-	compiler := jsonschema.NewCompiler()
-	compiler.Draft = jsonschema.Draft2020
-	var reqSchema *jsonschema.Schema
-	reqSchema, err := compiler.Compile(reqSchemaUrl)
+	reqSchema, err := jsonschema.Compile(reqSchemaUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load error schema!\n%v\n", err)
 	} else if err := reqSchema.Validate(reqMap); err != nil {
