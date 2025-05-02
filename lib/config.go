@@ -37,8 +37,6 @@ type ConfigSettings struct {
 	HubCreds  map[string]ConfigCreds `json:"creds,omitempty"`
 	Interface string                 `json:"interface,omitempty"`
 	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
-	SchemaUrl string                 `json:"json-schema-url,omitempty"`
-	Validate  bool                   `json:"json-validation,omitempty"`
 }
 
 // Config are the master config settings
@@ -47,8 +45,6 @@ var configFlagHub string
 var configFlagInterface string
 var configFlagPort string
 var configFlagPortConfig int
-var configFlagJsonSchemaUrl string
-var configFlagToggleValidation bool
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -107,15 +103,6 @@ func ConfigReset() {
 	configResetInterface()
 	ConfigSetHub("-")
 	Config.When = time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	Config.SchemaUrl = ""
-
-	// Opt-in Blues employees to validation
-	_, blues_employee := os.LookupEnv("BLUES")
-	if blues_employee {
-		Config.Validate = true
-	} else {
-		Config.Validate = false
-	}
 }
 
 // ConfigShow displays all current config parameters
@@ -147,16 +134,6 @@ func ConfigShow() error {
 			fmt.Printf("   -port %s\n", Config.IPort[Config.Interface].Port)
 			fmt.Printf("   -portconfig %d\n", Config.IPort[Config.Interface].PortConfig)
 		}
-	}
-	if Config.SchemaUrl != "" {
-		fmt.Printf("   -json-schema-url %s\n", Config.SchemaUrl)
-	}
-
-	_, blues_employee := os.LookupEnv("BLUES")
-	if blues_employee || Config.Validate {
-		fmt.Printf("   -json-validation enabled\n")
-	} else {
-		fmt.Printf("   -json-validation disabled\n")
 	}
 
 	return nil
@@ -190,17 +167,6 @@ func ConfigFlagsProcess() (err error) {
 		configResetInterface()
 	} else if configFlagInterface != "" {
 		Config.Interface = configFlagInterface
-	}
-	if configFlagJsonSchemaUrl == "-" {
-		Config.SchemaUrl = ""
-	} else if configFlagJsonSchemaUrl != "" {
-		Config.SchemaUrl = configFlagJsonSchemaUrl
-	}
-	_, blues_employee := os.LookupEnv("BLUES")
-	if blues_employee {
-		Config.Validate = true
-	} else if configFlagToggleValidation {
-		Config.Validate = !Config.Validate
 	}
 	if configFlagPort == "-" {
 		temp := Config.IPort[Config.Interface]
@@ -238,8 +204,6 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for Notecard")
 		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for Notecard")
 		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for Notecard")
-		flag.StringVar(&configFlagJsonSchemaUrl, "json-schema-url", "", "set the schema URL for the Notecard")
-		flag.BoolVar(&configFlagToggleValidation, "toggle-json-validation", false, "enable/disable JSON schema validation (experimental)")
 	}
 	if notehubFlags {
 		flag.StringVar(&configFlagHub, "hub", "", "set Notehub domain")
@@ -274,14 +238,6 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 				case "-interface":
 				case "-port":
 				case "-portconfig":
-				case "-json-schema-url":
-				case "-toggle-json-validation":
-					// Good employees dog food Blues products
-					_, blues_employee := os.LookupEnv("BLUES")
-					if blues_employee {
-						configOnly = false
-						fmt.Println("I'm sorry Dave, I'm afraid I can't do that.")
-					}
 				case "-hub":
 				// any odd argument that isn't one of our switches
 				default:
@@ -300,11 +256,6 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	str := os.Getenv("NOTE_INTERFACE")
 	if str != "" {
 		Config.Interface = str
-	}
-
-	str = os.Getenv("NOTE_JSON_SCHEMA_URL")
-	if str != "" {
-		Config.SchemaUrl = str
 	}
 
 	// Override via env vars if specified

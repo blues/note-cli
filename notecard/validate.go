@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/blues/note-cli/lib"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
 )
@@ -24,13 +23,7 @@ var (
 )
 
 // cacheDir is the directory where schemas are stored
-const defaultJsonSchemaUrl = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
-
-var cacheDir = lib.ConfigDir() + "/notecard-schema"
-
-func clearCache() error {
-	return os.RemoveAll(cacheDir)
-}
+const cacheDir = "/tmp/notecard-schema/"
 
 // extractRefs recursively extracts $ref URLs from a schema
 func extractRefs(schema map[string]interface{}, baseURL string) []string {
@@ -55,6 +48,8 @@ func extractRefs(schema map[string]interface{}, baseURL string) []string {
 
 // fetchAndCacheSchema fetches a schema from the URL and caches it
 func fetchAndCacheSchema(url string) (io.Reader, error) {
+	// Fetch the schema
+	fmt.Printf("*** fetching schema: %s ***\n", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema %s: %v", url, err)
@@ -168,27 +163,50 @@ func loadOrFetchSchema(url string) (io.Reader, error) {
 	return fetchAndCacheSchema(url)
 }
 
-func validateRequest(reqMap map[string]interface{}, url string, verbose bool) error {
-	// Use default URL if none provided
-	if url == "" {
-		url = defaultJsonSchemaUrl
+func resolveSchemaError(reqMap map[string]interface{}) {
+	// Identify base request to deduce schema URL
+	reqType := reqMap["req"]
+	if reqType == nil {
+		reqType = reqMap["cmd"]
 	}
+	reqTypeStr, ok := reqType.(string)
+	if !ok {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Failed to validate %s request!\n", reqTypeStr)
 
+	// Compose the request schema URL
+	var reqSchemaUrl string = cacheDir
+	reqSchemaUrl += reqTypeStr
+	reqSchemaUrl += ".req.notecard.api.json"
+
+	// Load the request schema
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft2020
+	var reqSchema *jsonschema.Schema
+	reqSchema, err := compiler.Compile(reqSchemaUrl)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load error schema!\n%v\n", err)
+	} else if err := reqSchema.Validate(reqMap); err != nil {
+		fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
+	}
+}
+
+func validateRequest(reqMap map[string]interface{}, url string, verbose bool) {
 	// Ensure schema is initialized
 	if err := initSchema(url); err != nil {
-		return err
+		fmt.Fprintf(os.Stderr, "Failed to initialize schema: %v\n", err)
+		return
 	}
 
 	// Validate the request against the schema
-	if verbose {
-		fmt.Println("Validating against schema:", url)
-	}
 	if err := schema.Validate(reqMap); err != nil {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
-		}
-		return fmt.Errorf("failed to validate against Notecard schema (use -force to bypass validation)")
+		// fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
+		resolveSchemaError(reqMap)
+		return
 	}
 
-	return nil
+	if verbose {
+		fmt.Println("Validated against schema:", url)
+	}
 }

@@ -29,6 +29,10 @@ var card *notecard.Context
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
+// JSON schema control variables
+var validateJSON bool = false
+var jsonSchemaUrl string = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
+
 // getFlagGroups returns the organized flag groups
 func getFlagGroups() []lib.FlagGroup {
 	return []lib.FlagGroup{
@@ -66,7 +70,6 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
 				lib.GetFlagByName("trace"),
-				lib.GetFlagByName("force"),
 			},
 		},
 		{
@@ -108,8 +111,6 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("interface"),
 				lib.GetFlagByName("port"),
 				lib.GetFlagByName("portconfig"),
-				lib.GetFlagByName("json-schema-url"),
-				lib.GetFlagByName("toggle-json-validation"),
 			},
 		},
 		{
@@ -145,6 +146,13 @@ func main() {
 		os.Exit(exitFail)
 	}()
 
+	// Check the environment for JSON schema control variables
+	_, validateJSON = os.LookupEnv("BLUES")  // Opt-in Blues employees to validation
+	url := os.Getenv("NOTE_JSON_SCHEMA_URL") // Override the default schema URL
+	if url != "" {
+		jsonSchemaUrl = url
+	}
+
 	// Override the default usage function to use our grouped format
 	flag.Usage = func() {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
@@ -163,8 +171,6 @@ func main() {
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
-	var actionForce bool
-	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when validation is enabled and used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -679,28 +685,6 @@ func main() {
 		actionRequest = ""
 	}
 
-	if err == nil && lib.Config.Validate {
-		// If the user has provided a JSON schema URL, we need to clear the cache
-		// and re-initialize the schema.  This is because the schema URL may have
-		// changed, and we need to make sure that the schema is up to date.
-		json_provided := false
-		for _, arg := range os.Args {
-			if arg == "-json-schema-url" {
-				json_provided = true
-				break
-			}
-		}
-		if json_provided {
-			fmt.Printf("*** updating schema cache... ***\n")
-			clearCache()
-			url := lib.Config.SchemaUrl
-			if url == "" {
-				url = defaultJsonSchemaUrl
-			}
-			err = initSchema(url)
-		}
-	}
-
 	if err == nil && actionRequest != "" {
 		var rspJSON []byte
 		var req, rsp notecard.Request
@@ -722,11 +706,12 @@ func main() {
 			}
 		}
 
-		// Validate the request against the schema, unless we are forcing it
-		if err == nil && lib.Config.Validate && !actionForce {
+		// Validate the request against the schema
+		if err == nil && validateJSON {
 			var reqMap map[string]interface{}
-			if err = note.JSONUnmarshal([]byte(actionRequest), &reqMap); err != nil {
-			} else if err = validateRequest(reqMap, lib.Config.SchemaUrl, actionVerbose); err != nil {
+			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
+			if err == nil {
+				validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
 			}
 		}
 
@@ -786,16 +771,6 @@ func main() {
 			if err != nil {
 				rsp.Payload = nil
 			}
-		}
-
-		// Output the response to the console
-		if err == nil && !actionVerbose {
-			if actionPretty {
-				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
-			} else {
-				rspJSON, _ = note.JSONMarshal(rsp)
-			}
-			fmt.Printf("%s\n", rspJSON)
 		}
 
 		// Output the response to the console
