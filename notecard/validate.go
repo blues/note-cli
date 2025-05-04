@@ -121,7 +121,7 @@ func formatErrorMessage(reqType string, errUnformatted error) (err error) {
 	if len(property) > 0 {
 		err = fmt.Errorf("'%s' is not valid for %s: %s", property, reqType, errorMessage)
 	} else {
-		err = fmt.Errorf("%s validation: %s", reqType, errorMessage)
+		err = fmt.Errorf("for '%s' %s", reqType, errorMessage)
 	}
 
 	// Return the formatted error
