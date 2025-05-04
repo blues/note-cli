@@ -29,6 +29,10 @@ var card *notecard.Context
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
+// JSON schema control variables
+var validateJSON bool = false
+var jsonSchemaUrl string = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
+
 // getFlagGroups returns the organized flag groups
 func getFlagGroups() []lib.FlagGroup {
 	return []lib.FlagGroup{
@@ -66,7 +70,6 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
 				lib.GetFlagByName("trace"),
-				lib.GetFlagByName("force"),
 			},
 		},
 		{
@@ -108,7 +111,6 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("interface"),
 				lib.GetFlagByName("port"),
 				lib.GetFlagByName("portconfig"),
-				lib.GetFlagByName("json-schema-url"),
 			},
 		},
 		{
@@ -144,6 +146,13 @@ func main() {
 		os.Exit(exitFail)
 	}()
 
+	// Check the environment for JSON schema control variables
+	_, validateJSON = os.LookupEnv("BLUES")  // Opt-in Blues employees to validation
+	url := os.Getenv("NOTE_JSON_SCHEMA_URL") // Override the default schema URL
+	if url != "" {
+		jsonSchemaUrl = url
+	}
+
 	// Override the default usage function to use our grouped format
 	flag.Usage = func() {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
@@ -162,8 +171,6 @@ func main() {
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
-	var actionForce bool
-	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -678,48 +685,41 @@ func main() {
 		actionRequest = ""
 	}
 
-	// If the user has provided a JSON schema URL, we need to clear the cache
-	// and re-initialize the schema.  This is because the schema URL may have
-	// changed, and we need to make sure that the schema is up to date.
-	json_provided := false
-	for _, arg := range os.Args {
-		if arg == "-json-schema-url" {
-			json_provided = true
-			break
-		}
-	}
-	if err == nil && json_provided {
-		clearCache()
-		url := lib.Config.SchemaUrl
-		if url == "" {
-			url = defaultJsonSchemaUrl
-		}
-		err = initSchema(url)
-	}
-
 	if err == nil && actionRequest != "" {
 		var rspJSON []byte
 		var req, rsp notecard.Request
 		note.JSONUnmarshal([]byte(actionRequest), &req)
 
-		if !actionForce {
-			err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
-			if err != nil {
-				goto done
-			}
-		}
-
-		// If we want to read the payload from a file, do so
+		// Append payload from the specified file
 		if actionInput != "" {
 			var contents []byte
 			contents, err = os.ReadFile(actionInput)
 			if err == nil {
 				req.Payload = &contents
+
+				// Update the original request with the payload
+				var reqBytes []byte
+				reqBytes, err = note.JSONMarshal(req)
+				if err == nil {
+					actionRequest = string(reqBytes)
+				}
+			}
+		}
+
+		// Validate the request against the schema
+		if err == nil && validateJSON {
+			var reqMap map[string]interface{}
+			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
+			if err == nil {
+				validationErr := validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
+				if validationErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", validationErr)
+				}
 			}
 		}
 
 		// Perform the transaction and do special handling for binary
-		if req.Req == "card.binary.get" {
+		if err == nil && req.Req == "card.binary.get" {
 			expectedMD5 := req.Status
 			rsp, err = card.TransactionRequest(req)
 			if err == nil {
@@ -739,7 +739,7 @@ func main() {
 					}
 				}
 			}
-		} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
+		} else if err == nil && req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
 			payload := *req.Payload
 			actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
 			if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
@@ -757,7 +757,8 @@ func main() {
 					}
 				}
 			}
-		} else {
+		} else if err == nil {
+			// Transact using CLI input to avoid JSON parsing complications
 			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
 			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
 			if err == nil {
@@ -766,25 +767,23 @@ func main() {
 		}
 
 		// Write the payload to an output file if appropriate
-		if err == nil && actionOutput != "" {
-			if rsp.Payload != nil {
-				err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
-				if err != nil {
-					rsp.Payload = nil
-				}
+		if err == nil && actionOutput != "" && rsp.Payload != nil {
+			err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+			// If we can't write the file, set the payload to nil so
+			// we don't try to print it out and cause a JSON error.
+			if err != nil {
+				rsp.Payload = nil
 			}
 		}
 
 		// Output the response to the console
-		if !actionVerbose {
-			if err == nil {
-				if actionPretty {
-					rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
-				} else {
-					rspJSON, _ = note.JSONMarshal(rsp)
-				}
-				fmt.Printf("%s\n", rspJSON)
+		if err == nil && !actionVerbose {
+			if actionPretty {
+				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+			} else {
+				rspJSON, _ = note.JSONMarshal(rsp)
 			}
+			fmt.Printf("%s\n", rspJSON)
 		}
 	}
 
@@ -854,7 +853,6 @@ func main() {
 		err = explore(actionReserved, actionPretty)
 	}
 
-done:
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {
