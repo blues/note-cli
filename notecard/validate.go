@@ -103,6 +103,10 @@ func formatErrorMessage(reqType string, errUnformatted error) (err error) {
 	// Extract property and remaining part
 	property := parts[0]
 	if len(property) > 0 {
+		// As of jsonschema v5.3.1, a forward-slash is prefixed to the
+		// property name. Remove it to improve readability.
+		// Workaround for issue:
+		// https://github.com/santhosh-tekuri/jsonschema/issues/220
 		property = parts[0][1:]
 	}
 	remaining := parts[1]
