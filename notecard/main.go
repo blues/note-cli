@@ -711,7 +711,10 @@ func main() {
 			var reqMap map[string]interface{}
 			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
 			if err == nil {
-				validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
+				validationErr := validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
+				if validationErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", validationErr)
+				}
 			}
 		}
 
