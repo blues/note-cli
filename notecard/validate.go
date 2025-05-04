@@ -80,7 +80,7 @@ func fetchAndCacheSchema(url string, verbose bool) (io.Reader, error) {
 	return bytes.NewReader(data), nil
 }
 
-func formatErrorMessage(errUnformatted error) (err error) {
+func formatErrorMessage(reqType string, errUnformatted error) (err error) {
 	errMsg := errUnformatted.Error()
 
 	// Define constants
@@ -119,9 +119,9 @@ func formatErrorMessage(errUnformatted error) (err error) {
 
 	// Format the new error message
 	if len(property) > 0 {
-		err = fmt.Errorf("'%s' does not validate: %s", property, errorMessage)
+		err = fmt.Errorf("'%s' is not valid for %s: %s", property, reqType, errorMessage)
 	} else {
-		err = fmt.Errorf("does not validate: %s", errorMessage)
+		err = fmt.Errorf("%s validation: %s", reqType, errorMessage)
 	}
 
 	// Return the formatted error
@@ -231,7 +231,7 @@ func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error)
 		if err == nil {
 			err = reqSchema.Validate(reqMap)
 			if !verbose {
-				err = formatErrorMessage(err)
+				err = formatErrorMessage(reqTypeStr, err)
 			}
 		}
 	}
