@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,33 +48,87 @@ func extractRefs(schema map[string]interface{}, baseURL string) []string {
 }
 
 // fetchAndCacheSchema fetches a schema from the URL and caches it
-func fetchAndCacheSchema(url string) (io.Reader, error) {
+func fetchAndCacheSchema(url string, verbose bool) (io.Reader, error) {
 	// Fetch the schema
-	fmt.Printf("*** fetching schema: %s ***\n", url)
+	if verbose {
+		fmt.Printf("*** fetching schema: %s ***\n", url)
+	}
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch schema %s: %v", url, err)
+		errMsg := fmt.Sprintf("failed to fetch schema %s: %v", url, err)
+		return nil, errors.New(wrapErrorString(errMsg))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch schema %s: status %d", url, resp.StatusCode)
+		errMsg := fmt.Sprintf("failed to fetch schema %s: status %d", url, resp.StatusCode)
+		return nil, errors.New(wrapErrorString(errMsg))
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read schema %s: %v", url, err)
+		errMsg := fmt.Sprintf("failed to read schema %s: %v", url, err)
+		return nil, errors.New(wrapErrorString(errMsg))
 	}
 	// Verify it's valid JSON before caching
 	var v interface{}
 	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, fmt.Errorf("invalid schema %s: %v", url, err)
+		errMsg := fmt.Sprintf("invalid JSON schema %s: %v", url, err)
+		return nil, errors.New(wrapErrorString(errMsg))
 	}
 	// Save to cache
 	cachePath := getCachePath(url)
 	if err := os.WriteFile(cachePath, data, 0644); err != nil {
-		// Log error but continue
-		fmt.Fprintf(os.Stderr, "Failed to cache schema %s: %v\n", url, err)
+		// Log warning but continue
+		warnMsg := fmt.Sprintf("failed to cache schema %s: %v", url, err)
+		fmt.Fprintln(os.Stderr, wrapErrorString(warnMsg))
 	}
 	return bytes.NewReader(data), nil
+}
+
+func formatErrorMessage(errMsg string) string {
+	// Define constants
+	const prefix = "jsonschema: '"
+	const mid1 = "' does not validate with "
+	const mid2 = ": "
+
+	// Check if message starts with prefix
+	if !strings.HasPrefix(errMsg, prefix) {
+		return "invalid error message format"
+	}
+
+	// Remove prefix and split on mid1
+	rest := strings.TrimPrefix(errMsg, prefix)
+	parts := strings.SplitN(rest, mid1, 2)
+	if len(parts) != 2 {
+		return "invalid error message format"
+	}
+
+	// Extract property and remaining part
+	property := parts[0]
+	if len(property) > 0 {
+		property = parts[0][1:]
+	}
+	remaining := parts[1]
+
+	// Split remaining part on mid2
+	finalParts := strings.SplitN(remaining, mid2, 2)
+	if len(finalParts) != 2 {
+		return "invalid error message format"
+	}
+
+	// Extract schema rule and error message
+	// schemaRule := finalParts[0] // Not used in output, but available if needed
+	errorMessage := finalParts[1]
+
+	// Format the new error message
+	var newMessage string
+	if len(property) > 0 {
+		newMessage = fmt.Sprintf("'%s' does not validate: %s", property, errorMessage)
+	} else {
+		newMessage = fmt.Sprintf("does not validate: %s", errorMessage)
+	}
+
+	// Create JSON string
+	return newMessage
 }
 
 // getCachePath converts a URL to a safe file path in the cache directory
@@ -84,49 +139,56 @@ func getCachePath(url string) string {
 }
 
 // initSchema compiles the schema, using cached files if available
-func initSchema(url string) error {
+func initSchema(url string, verbose bool) error {
 	schemaOnce.Do(func() {
 		compiler := jsonschema.NewCompiler()
 		compiler.Draft = jsonschema.Draft2020
 
 		// Ensure cache directory exists
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
-			schemaErr = fmt.Errorf("failed to create cache directory: %v", err)
+			errMsg := fmt.Sprintf("failed to create cache directory %s: %v", cacheDir, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 
 		// Load main schema
-		mainSchemaReader, err := loadOrFetchSchema(url)
+		mainSchemaReader, err := loadOrFetchSchema(url, verbose)
 		if err != nil {
-			schemaErr = fmt.Errorf("failed to load schema %s: %v", url, err)
+			errMsg := fmt.Sprintf("failed to load main schema %s: %v", url, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 		// Read main schema to extract $ref URLs
 		mainSchemaData, err := io.ReadAll(mainSchemaReader)
 		if err != nil {
-			schemaErr = fmt.Errorf("failed to read main schema %s: %v", url, err)
+			errMsg := fmt.Sprintf("failed to read main schema %s: %v", url, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 		var mainSchema map[string]interface{}
 		if err := json.Unmarshal(mainSchemaData, &mainSchema); err != nil {
-			schemaErr = fmt.Errorf("failed to parse main schema %s: %v", url, err)
+			errMsg := fmt.Sprintf("failed to parse main schema %s: %v", url, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 		// Add main schema resource
 		if err := compiler.AddResource(url, bytes.NewReader(mainSchemaData)); err != nil {
-			schemaErr = fmt.Errorf("failed to add schema resource %s: %v", url, err)
+			errMsg := fmt.Sprintf("failed to add main schema resource %s: %v", url, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 		// Extract and cache referenced schemas
 		refs := extractRefs(mainSchema, url)
 		for _, refURL := range refs {
-			refReader, err := loadOrFetchSchema(refURL)
+			refReader, err := loadOrFetchSchema(refURL, verbose)
 			if err != nil {
-				schemaErr = fmt.Errorf("failed to load referenced schema %s: %v", refURL, err)
+				errMsg := fmt.Sprintf("failed to load referenced schema %s: %v", refURL, err)
+				schemaErr = errors.New(wrapErrorString(errMsg))
 				return
 			}
 			if err := compiler.AddResource(refURL, refReader); err != nil {
-				schemaErr = fmt.Errorf("failed to add referenced schema resource %s: %v", refURL, err)
+				errMsg := fmt.Sprintf("failed to add referenced schema resource %s: %v", refURL, err)
+				schemaErr = errors.New(wrapErrorString(errMsg))
 				return
 			}
 		}
@@ -134,7 +196,8 @@ func initSchema(url string) error {
 		// Compile the schema
 		schema, err = compiler.Compile(url)
 		if err != nil {
-			schemaErr = fmt.Errorf("failed to compile schema: %v (use -force to bypass validation)", err)
+			errMsg := fmt.Sprintf("failed to compile schema %s: %v", url, err)
+			schemaErr = errors.New(wrapErrorString(errMsg))
 			return
 		}
 	})
@@ -142,37 +205,37 @@ func initSchema(url string) error {
 }
 
 // loadOrFetchSchema loads a schema from cache or fetches it from the URL, caching the result
-func loadOrFetchSchema(url string) (io.Reader, error) {
+func loadOrFetchSchema(url string, verbose bool) (io.Reader, error) {
 	cachePath := getCachePath(url)
 	// Try to load from cache
 	if file, err := os.Open(cachePath); err == nil {
 		defer file.Close()
 		data, err := io.ReadAll(file)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read cached schema %s: %v", cachePath, err)
+			errMsg := fmt.Sprintf("failed to read cached schema %s: %v", cachePath, err)
+			return nil, errors.New(wrapErrorString(errMsg))
 		}
 		// Verify it's valid JSON
 		var v interface{}
 		if err := json.Unmarshal(data, &v); err != nil {
 			// Invalid cache: proceed to fetch
-			return fetchAndCacheSchema(url)
+			return fetchAndCacheSchema(url, verbose)
 		}
 		return bytes.NewReader(data), nil
 	}
 	// Cache miss: fetch from URL
-	return fetchAndCacheSchema(url)
+	return fetchAndCacheSchema(url, verbose)
 }
 
-func resolveSchemaError(reqMap map[string]interface{}) {
+func resolveSchemaError(reqMap map[string]interface{}, verbose bool) {
 	// Identify base request to deduce schema URL
 	reqType := reqMap["req"]
 	if reqType == nil {
 		reqType = reqMap["cmd"]
 	}
-	fmt.Fprintf(os.Stderr, "Failed to validate %v request!\n", reqType)
 	reqTypeStr, ok := reqType.(string)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "Request type not a string!\n")
+		fmt.Fprintln(os.Stderr, wrapErrorString("request type not a string!"))
 		return
 	}
 
@@ -182,27 +245,37 @@ func resolveSchemaError(reqMap map[string]interface{}) {
 	// Load the request schema
 	reqSchema, err := jsonschema.Compile(reqSchemaUrl)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load error schema!\n%v\n", err)
+		fmt.Fprintln(os.Stderr, wrapErrorString(err.Error()))
 	} else if err := reqSchema.Validate(reqMap); err != nil {
-		fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
+		var errMsg string
+		if verbose {
+			errMsg = err.Error()
+		} else {
+			errMsg = formatErrorMessage(err.Error())
+		}
+		fmt.Fprintln(os.Stderr, wrapErrorString(errMsg))
 	}
 }
 
 func validateRequest(reqMap map[string]interface{}, url string, verbose bool) {
 	// Ensure schema is initialized
-	if err := initSchema(url); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize schema: %v\n", err)
+	if err := initSchema(url, verbose); err != nil {
+		errMsg := fmt.Sprintf("failed to initialize schema: %v", err)
+		fmt.Fprintln(os.Stderr, wrapErrorString(errMsg))
 		return
 	}
 
 	// Validate the request against the schema
 	if err := schema.Validate(reqMap); err != nil {
 		// fmt.Fprintf(os.Stderr, "Validation error: %v\n", err)
-		resolveSchemaError(reqMap)
+		resolveSchemaError(reqMap, verbose)
 		return
 	}
+}
 
-	if verbose {
-		fmt.Println("Validated against schema:", url)
+func wrapErrorString(err string) string {
+	if err == "" {
+		return ""
 	}
+	return fmt.Sprintf("{\"err\":\"%v\"}", err)
 }
