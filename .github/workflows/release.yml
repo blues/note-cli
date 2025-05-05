@@ -32,11 +32,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       -
-        name: Upload assets to release
-        uses: softprops/action-gh-release@v1
+        name: Upload assets
+        uses: actions/upload-artifact@v3
         with:
-          files: |
-            dist/*.tar.gz
-            dist/checksums.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: note-cli
+          path: dist/*
