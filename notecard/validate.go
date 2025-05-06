@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/blues/note-go/note"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
 )
@@ -24,12 +23,7 @@ var (
 )
 
 // cacheDir is the directory where schemas are stored
-const cacheDir = "./notecard-schema"
-const defaultJsonSchemaUrl = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
-
-func clearCache() error {
-	return os.RemoveAll(cacheDir)
-}
+const cacheDir = "/tmp/notecard-schema/"
 
 // extractRefs recursively extracts $ref URLs from a schema
 func extractRefs(schema map[string]interface{}, baseURL string) []string {
@@ -53,7 +47,11 @@ func extractRefs(schema map[string]interface{}, baseURL string) []string {
 }
 
 // fetchAndCacheSchema fetches a schema from the URL and caches it
-func fetchAndCacheSchema(url string) (io.Reader, error) {
+func fetchAndCacheSchema(url string, verbose bool) (io.Reader, error) {
+	// Fetch the schema
+	if verbose {
+		fmt.Fprintf(os.Stderr, "*** fetching schema: %s ***\n", url)
+	}
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema %s: %v", url, err)
@@ -69,15 +67,69 @@ func fetchAndCacheSchema(url string) (io.Reader, error) {
 	// Verify it's valid JSON before caching
 	var v interface{}
 	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, fmt.Errorf("invalid schema %s: %v", url, err)
+		return nil, fmt.Errorf("invalid JSON schema %s: %v", url, err)
 	}
 	// Save to cache
 	cachePath := getCachePath(url)
 	if err := os.WriteFile(cachePath, data, 0644); err != nil {
 		// Log error but continue
-		fmt.Fprintf(os.Stderr, "Failed to cache schema %s: %v\n", url, err)
+		if verbose {
+			fmt.Fprintf(os.Stderr, "failed to cache schema %s: %v\n", url, err)
+		}
 	}
 	return bytes.NewReader(data), nil
+}
+
+func formatErrorMessage(reqType string, errUnformatted error) (err error) {
+	errMsg := errUnformatted.Error()
+
+	// Define constants
+	const prefix = "jsonschema: '"
+	const mid1 = "' does not validate with "
+	const mid2 = ": "
+
+	// Check if message starts with prefix
+	if !strings.HasPrefix(errMsg, prefix) {
+		return fmt.Errorf("invalid error message format")
+	}
+
+	// Remove prefix and split on mid1
+	rest := strings.TrimPrefix(errMsg, prefix)
+	parts := strings.SplitN(rest, mid1, 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid error message format")
+	}
+
+	// Extract property and remaining part
+	property := parts[0]
+	if len(property) > 0 {
+		// As of jsonschema v5.3.1, a forward-slash is prefixed to the
+		// property name. Remove it to improve readability.
+		// Workaround for issue:
+		// https://github.com/santhosh-tekuri/jsonschema/issues/220
+		property = parts[0][1:]
+	}
+	remaining := parts[1]
+
+	// Split remaining part on mid2
+	finalParts := strings.SplitN(remaining, mid2, 2)
+	if len(finalParts) != 2 {
+		return fmt.Errorf("invalid error message format")
+	}
+
+	// Extract schema rule and error message
+	// schemaRule := finalParts[0] // Not used in output, but available if needed
+	errorMessage := finalParts[1]
+
+	// Format the new error message
+	if len(property) > 0 {
+		err = fmt.Errorf("'%s' is not valid for %s: %s", property, reqType, errorMessage)
+	} else {
+		err = fmt.Errorf("for '%s' %s", reqType, errorMessage)
+	}
+
+	// Return the formatted error
+	return err
 }
 
 // getCachePath converts a URL to a safe file path in the cache directory
@@ -88,21 +140,21 @@ func getCachePath(url string) string {
 }
 
 // initSchema compiles the schema, using cached files if available
-func initSchema(url string) error {
+func initSchema(url string, verbose bool) error {
 	schemaOnce.Do(func() {
 		compiler := jsonschema.NewCompiler()
 		compiler.Draft = jsonschema.Draft2020
 
 		// Ensure cache directory exists
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
-			schemaErr = fmt.Errorf("failed to create cache directory: %v", err)
+			schemaErr = fmt.Errorf("failed to create cache directory %s: %v", cacheDir, err)
 			return
 		}
 
 		// Load main schema
-		mainSchemaReader, err := loadOrFetchSchema(url)
+		mainSchemaReader, err := loadOrFetchSchema(url, verbose)
 		if err != nil {
-			schemaErr = fmt.Errorf("failed to load schema %s: %v", url, err)
+			schemaErr = fmt.Errorf("failed to load main schema %s: %v", url, err)
 			return
 		}
 		// Read main schema to extract $ref URLs
@@ -118,13 +170,13 @@ func initSchema(url string) error {
 		}
 		// Add main schema resource
 		if err := compiler.AddResource(url, bytes.NewReader(mainSchemaData)); err != nil {
-			schemaErr = fmt.Errorf("failed to add schema resource %s: %v", url, err)
+			schemaErr = fmt.Errorf("failed to add main schema resource %s: %v", url, err)
 			return
 		}
 		// Extract and cache referenced schemas
 		refs := extractRefs(mainSchema, url)
 		for _, refURL := range refs {
-			refReader, err := loadOrFetchSchema(refURL)
+			refReader, err := loadOrFetchSchema(refURL, verbose)
 			if err != nil {
 				schemaErr = fmt.Errorf("failed to load referenced schema %s: %v", refURL, err)
 				return
@@ -138,7 +190,7 @@ func initSchema(url string) error {
 		// Compile the schema
 		schema, err = compiler.Compile(url)
 		if err != nil {
-			schemaErr = fmt.Errorf("failed to compile schema: %v (use -force to bypass validation)", err)
+			schemaErr = fmt.Errorf("failed to compile schema %s: %v", url, err)
 			return
 		}
 	})
@@ -146,7 +198,7 @@ func initSchema(url string) error {
 }
 
 // loadOrFetchSchema loads a schema from cache or fetches it from the URL, caching the result
-func loadOrFetchSchema(url string) (io.Reader, error) {
+func loadOrFetchSchema(url string, verbose bool) (io.Reader, error) {
 	cachePath := getCachePath(url)
 	// Try to load from cache
 	if file, err := os.Open(cachePath); err == nil {
@@ -159,33 +211,48 @@ func loadOrFetchSchema(url string) (io.Reader, error) {
 		var v interface{}
 		if err := json.Unmarshal(data, &v); err != nil {
 			// Invalid cache: proceed to fetch
-			return fetchAndCacheSchema(url)
+			return fetchAndCacheSchema(url, verbose)
 		}
 		return bytes.NewReader(data), nil
 	}
 	// Cache miss: fetch from URL
-	return fetchAndCacheSchema(url)
+	return fetchAndCacheSchema(url, verbose)
 }
 
-func validateRequest(requestJSON []byte, url string) error {
-	// Use default URL if none provided
-	if url == "" {
-		url = defaultJsonSchemaUrl
+func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error) {
+	reqType := reqMap["req"]
+	if reqType == nil {
+		reqType = reqMap["cmd"]
 	}
+	reqTypeStr, ok := reqType.(string)
+	if !ok {
+		err = fmt.Errorf("request type not a string")
+	} else if reqTypeStr == "" {
+		err = fmt.Errorf("no request type specified")
+	} else {
+		var reqSchema *jsonschema.Schema
+		reqSchema, err = jsonschema.Compile(filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json"))
+		if err == nil {
+			err = reqSchema.Validate(reqMap)
+			if !verbose {
+				err = formatErrorMessage(reqTypeStr, err)
+			}
+		}
+	}
+	return err
+}
 
+func validateRequest(reqMap map[string]interface{}, url string, verbose bool) (err error) {
 	// Ensure schema is initialized
-	if err := initSchema(url); err != nil {
-		return err
+	if err = initSchema(url, verbose); err != nil {
+		return fmt.Errorf("failed to initialize schema: %v", err)
 	}
 
-	var reqMap map[string]interface{}
-	if err := note.JSONUnmarshal(requestJSON, &reqMap); err != nil {
-		return fmt.Errorf("failed to parse request for validation: %v (use -force to bypass validation)", err)
+	// Validate the request against the schema
+	if err = schema.Validate(reqMap); err != nil {
+		return resolveSchemaError(reqMap, verbose)
 	}
 
-	if err := schema.Validate(reqMap); err != nil {
-		return fmt.Errorf("validation failed: %v (use -force to bypass validation)", err)
-	}
-
+	// Validates successfully
 	return nil
 }

@@ -7,7 +7,6 @@ package lib
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -19,7 +18,7 @@ import (
 	"github.com/blues/note-go/notehub"
 )
 
-// ConfigCreds are the credentials for a given notehub
+// ConfigCreds are the credentials for a given Notehub
 type ConfigCreds struct {
 	User  string `json:"user,omitempty"`
 	Token string `json:"token,omitempty"`
@@ -38,7 +37,6 @@ type ConfigSettings struct {
 	HubCreds  map[string]ConfigCreds `json:"creds,omitempty"`
 	Interface string                 `json:"interface,omitempty"`
 	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
-	SchemaUrl string                 `json:"json-schema-url,omitempty"`
 }
 
 // Config are the master config settings
@@ -47,7 +45,6 @@ var configFlagHub string
 var configFlagInterface string
 var configFlagPort string
 var configFlagPortConfig int
-var configFlagJsonSchemaUrl string
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -57,7 +54,7 @@ func ConfigRead() error {
 	rand.Seed(rand.Int63() ^ time.Now().UnixNano())
 
 	// Read the config file
-	contents, err := ioutil.ReadFile(configSettingsPath())
+	contents, err := os.ReadFile(configSettingsPath())
 	if os.IsNotExist(err) {
 		ConfigReset()
 		err = nil
@@ -106,7 +103,6 @@ func ConfigReset() {
 	configResetInterface()
 	ConfigSetHub("-")
 	Config.When = time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	Config.SchemaUrl = ""
 }
 
 // ConfigShow displays all current config parameters
@@ -138,9 +134,6 @@ func ConfigShow() error {
 			fmt.Printf("   -port %s\n", Config.IPort[Config.Interface].Port)
 			fmt.Printf("   -portconfig %d\n", Config.IPort[Config.Interface].PortConfig)
 		}
-	}
-	if Config.SchemaUrl != "" {
-		fmt.Printf("   -json-schema-url %s\n", Config.SchemaUrl)
 	}
 
 	return nil
@@ -175,11 +168,6 @@ func ConfigFlagsProcess() (err error) {
 	} else if configFlagInterface != "" {
 		Config.Interface = configFlagInterface
 	}
-	if configFlagJsonSchemaUrl == "-" {
-		Config.SchemaUrl = ""
-	} else if configFlagJsonSchemaUrl != "" {
-		Config.SchemaUrl = configFlagJsonSchemaUrl
-	}
 	if configFlagPort == "-" {
 		temp := Config.IPort[Config.Interface]
 		temp.Port = ""
@@ -213,13 +201,12 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 
 	// Process the commands
 	if notecardFlags {
-		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for notecard")
-		flag.StringVar(&configFlagJsonSchemaUrl, "json-schema-url", "", "set the schema URL for the notecard")
-		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for notecard")
-		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for notecard")
+		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for Notecard")
+		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for Notecard")
+		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for Notecard")
 	}
 	if notehubFlags {
-		flag.StringVar(&configFlagHub, "hub", "", "set notehub domain")
+		flag.StringVar(&configFlagHub, "hub", "", "set Notehub domain")
 	}
 
 }
@@ -251,7 +238,6 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 				case "-interface":
 				case "-port":
 				case "-portconfig":
-				case "-json-schema-url":
 				case "-hub":
 				// any odd argument that isn't one of our switches
 				default:
@@ -270,11 +256,6 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	str := os.Getenv("NOTE_INTERFACE")
 	if str != "" {
 		Config.Interface = str
-	}
-
-	str = os.Getenv("NOTE_JSON_SCHEMA_URL")
-	if str != "" {
-		Config.SchemaUrl = str
 	}
 
 	// Override via env vars if specified
@@ -333,7 +314,7 @@ func ConfigAuthenticationHeader(httpReq *http.Request) (err error) {
 		if hub == "" {
 			hub = notehub.DefaultAPIService
 		}
-		err = fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the notehub service", hub)
+		err = fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", hub)
 		return
 	}
 

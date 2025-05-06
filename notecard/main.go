@@ -9,7 +9,6 @@ import (
 	"crypto/md5"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -30,100 +29,95 @@ var card *notecard.Context
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
-// Define flag groups
-type FlagGroup struct {
-	Name        string
-	Description string
-	Flags       []*flag.Flag
-}
+// JSON schema control variables
+var validateJSON bool = false
+var jsonSchemaUrl string = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
 
 // getFlagGroups returns the organized flag groups
-func getFlagGroups() []FlagGroup {
-	return []FlagGroup{
+func getFlagGroups() []lib.FlagGroup {
+	return []lib.FlagGroup{
 		{
 			Name:        "config",
 			Description: "Basic Configuration",
 			Flags: []*flag.Flag{
-				getFlagByName("product"),
-				getFlagByName("sn"),
-				getFlagByName("hub"),
-				getFlagByName("info"),
+				lib.GetFlagByName("product"),
+				lib.GetFlagByName("sn"),
+				lib.GetFlagByName("hub"),
+				lib.GetFlagByName("info"),
 			},
 		},
 		{
 			Name:        "device",
 			Description: "Device Management",
 			Flags: []*flag.Flag{
-				getFlagByName("scan"),
-				getFlagByName("factory"),
-				getFlagByName("format"),
-				getFlagByName("setup"),
-				getFlagByName("setup-sku"),
-				getFlagByName("provision"),
-				getFlagByName("sideload"),
+				lib.GetFlagByName("scan"),
+				lib.GetFlagByName("factory"),
+				lib.GetFlagByName("format"),
+				lib.GetFlagByName("setup"),
+				lib.GetFlagByName("setup-sku"),
+				lib.GetFlagByName("provision"),
+				lib.GetFlagByName("sideload"),
 			},
 		},
 		{
 			Name:        "comm",
 			Description: "Communication & Debug",
 			Flags: []*flag.Flag{
-				getFlagByName("verbose"),
-				getFlagByName("pretty"),
-				getFlagByName("req"),
-				getFlagByName("input"),
-				getFlagByName("output"),
-				getFlagByName("fast"),
-				getFlagByName("trace"),
-				getFlagByName("force"),
+				lib.GetFlagByName("verbose"),
+				lib.GetFlagByName("pretty"),
+				lib.GetFlagByName("req"),
+				lib.GetFlagByName("input"),
+				lib.GetFlagByName("output"),
+				lib.GetFlagByName("fast"),
+				lib.GetFlagByName("trace"),
 			},
 		},
 		{
 			Name:        "hub",
 			Description: "Notehub Sync & Status",
 			Flags: []*flag.Flag{
-				getFlagByName("when-connected"),
-				getFlagByName("when-disconnected"),
-				getFlagByName("when-disarmed"),
-				getFlagByName("when-synced"),
-				getFlagByName("sync"),
-				getFlagByName("watch"),
+				lib.GetFlagByName("when-connected"),
+				lib.GetFlagByName("when-disconnected"),
+				lib.GetFlagByName("when-disarmed"),
+				lib.GetFlagByName("when-synced"),
+				lib.GetFlagByName("sync"),
+				lib.GetFlagByName("watch"),
 			},
 		},
 		{
 			Name:        "tools",
 			Description: "Utilities & Tools",
 			Flags: []*flag.Flag{
-				getFlagByName("play"),
-				getFlagByName("playtime"),
-				getFlagByName("commtest"),
-				getFlagByName("echo"),
-				getFlagByName("binpack"),
+				lib.GetFlagByName("play"),
+				lib.GetFlagByName("playtime"),
+				lib.GetFlagByName("commtest"),
+				lib.GetFlagByName("echo"),
+				lib.GetFlagByName("binpack"),
 			},
 		},
 		{
 			Name:        "notefile",
 			Description: "Notefile Management",
 			Flags: []*flag.Flag{
-				getFlagByName("explore"),
-				getFlagByName("reserved"),
-				getFlagByName("log"),
+				lib.GetFlagByName("explore"),
+				lib.GetFlagByName("reserved"),
+				lib.GetFlagByName("log"),
 			},
 		},
 		{
 			Name:        "cli",
 			Description: "CLI Configuration",
 			Flags: []*flag.Flag{
-				getFlagByName("interface"),
-				getFlagByName("port"),
-				getFlagByName("portconfig"),
-				getFlagByName("json-schema-url"),
+				lib.GetFlagByName("interface"),
+				lib.GetFlagByName("port"),
+				lib.GetFlagByName("portconfig"),
 			},
 		},
 		{
 			Name:        "other",
 			Description: "Other",
 			Flags: []*flag.Flag{
-				getFlagByName("version"),
+				lib.GetFlagByName("version"),
 			},
 		},
 	}
@@ -152,9 +146,16 @@ func main() {
 		os.Exit(exitFail)
 	}()
 
+	// Check the environment for JSON schema control variables
+	_, validateJSON = os.LookupEnv("BLUES")  // Opt-in Blues employees to validation
+	url := os.Getenv("NOTE_JSON_SCHEMA_URL") // Override the default schema URL
+	if url != "" {
+		jsonSchemaUrl = url
+	}
+
 	// Override the default usage function to use our grouped format
 	flag.Usage = func() {
-		printGroupedFlags(getFlagGroups())
+		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 	}
 
 	// Process actions
@@ -170,8 +171,6 @@ func main() {
 	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
 	var actionVerbose bool
 	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
-	var actionForce bool
-	flag.BoolVar(&actionForce, "force", false, "bypass JSON request validation against the Notecard schema (when used with -req)")
 	var actionWhenSynced bool
 	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
 	var actionReserved bool
@@ -236,7 +235,7 @@ func main() {
 
 	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
 	if len(os.Args) == 1 {
-		printGroupedFlags(getFlagGroups())
+		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 		lib.ConfigShow()
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
@@ -686,115 +685,105 @@ func main() {
 		actionRequest = ""
 	}
 
-	// If the user has provided a JSON schema URL, we need to clear the cache
-	// and re-initialize the schema.  This is because the schema URL may have
-	// changed, and we need to make sure that the schema is up to date.
-	json_provided := false
-	for _, arg := range os.Args {
-		if arg == "-json-schema-url" {
-			json_provided = true
-			break
-		}
-	}
-	if err == nil && json_provided {
-		clearCache()
-		url := lib.Config.SchemaUrl
-		if url == "" {
-			url = defaultJsonSchemaUrl
-		}
-		err = initSchema(url)
-	}
-
 	if err == nil && actionRequest != "" {
-		if err == nil {
-			var rspJSON []byte
-			var req, rsp notecard.Request
-			note.JSONUnmarshal([]byte(actionRequest), &req)
+		var rspJSON []byte
+		var req, rsp notecard.Request
+		note.JSONUnmarshal([]byte(actionRequest), &req)
 
-			if !actionForce {
-				err = validateRequest([]byte(actionRequest), lib.Config.SchemaUrl)
-				if err != nil {
-					goto done
+		// Append payload from the specified file
+		if actionInput != "" {
+			var contents []byte
+			contents, err = os.ReadFile(actionInput)
+			if err == nil {
+				req.Payload = &contents
+
+				// Update the original request with the payload
+				var reqBytes []byte
+				reqBytes, err = note.JSONMarshal(req)
+				if err == nil {
+					actionRequest = string(reqBytes)
 				}
 			}
+		}
 
-			// If we want to read the payload from a file, do so
-			if actionInput != "" {
-				var contents []byte
-				contents, err = ioutil.ReadFile(actionInput)
-				if err == nil {
-					req.Payload = &contents
+		// Validate the request against the schema
+		if err == nil && validateJSON {
+			var reqMap map[string]interface{}
+			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
+			if err == nil {
+				validationErr := validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
+				if validationErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", validationErr)
 				}
 			}
+		}
 
-			// Perform the transaction and do special handling for binary
-			if req.Req == "card.binary.get" {
-				expectedMD5 := req.Status
-				rsp, err = card.TransactionRequest(req)
+		// Perform the transaction and do special handling for binary
+		if err == nil && req.Req == "card.binary.get" {
+			expectedMD5 := req.Status
+			rsp, err = card.TransactionRequest(req)
+			if err == nil {
+				var rspBytes []byte
+				rspBytes, err = card.ReceiveBytes()
 				if err == nil {
-					var rspBytes []byte
-					rspBytes, err = card.ReceiveBytes()
+					rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
+					rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
 					if err == nil {
-						rspBytes = bytes.TrimSuffix(rspBytes, []byte("\n"))
-						rspBytes, err = notecard.CobsDecode(rspBytes, byte('\n'))
-						if err == nil {
-							actualMD5 := fmt.Sprintf("%x", md5.Sum(rspBytes))
-							if expectedMD5 != actualMD5 {
-								err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, expectedMD5)
-							} else {
-								rsp.Payload = &rspBytes
-								rsp.Cobs = 0
-							}
+						actualMD5 := fmt.Sprintf("%x", md5.Sum(rspBytes))
+						if expectedMD5 != actualMD5 {
+							err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, expectedMD5)
+						} else {
+							rsp.Payload = &rspBytes
+							rsp.Cobs = 0
 						}
 					}
 				}
-			} else if req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
-				payload := *req.Payload
-				actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
-				if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
-					err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
-				} else {
-					req.Status = actualMD5
-					payload, err = notecard.CobsEncode(payload, byte('\n'))
-					if err == nil {
-						req.Payload = nil
-						req.Cobs = int32(len(payload))
-						rsp, err = card.TransactionRequest(req)
-						if err == nil {
-							payload = append(payload, byte('\n'))
-							err = card.SendBytes(payload)
-						}
-					}
-				}
+			}
+		} else if err == nil && req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
+			payload := *req.Payload
+			actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
+			if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
+				err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
 			} else {
-				actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
-				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				req.Status = actualMD5
+				payload, err = notecard.CobsEncode(payload, byte('\n'))
 				if err == nil {
-					_ = note.JSONUnmarshal(rspJSON, &rsp)
-				}
-			}
-
-			// Write the payload to an output file if appropriate
-			if err == nil && actionOutput != "" {
-				if rsp.Payload != nil {
-					err = ioutil.WriteFile(actionOutput, *rsp.Payload, 0644)
-					if err != nil {
-						rsp.Payload = nil
+					req.Payload = nil
+					req.Cobs = int32(len(payload))
+					rsp, err = card.TransactionRequest(req)
+					if err == nil {
+						payload = append(payload, byte('\n'))
+						err = card.SendBytes(payload)
 					}
 				}
 			}
-
-			// Output the response to the console
-			if !actionVerbose {
-				if err == nil {
-					if actionPretty {
-						rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
-					} else {
-						rspJSON, _ = note.JSONMarshal(rsp)
-					}
-					fmt.Printf("%s\n", rspJSON)
-				}
+		} else if err == nil {
+			// Transact using CLI input to avoid JSON parsing complications
+			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
+			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+			if err == nil {
+				_ = note.JSONUnmarshal(rspJSON, &rsp)
 			}
+		}
+
+		// Write the payload to an output file if appropriate
+		if err == nil && actionOutput != "" && rsp.Payload != nil {
+			err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+			// If we can't write the file, set the payload to nil so
+			// we don't try to print it out and cause a JSON error.
+			if err != nil {
+				rsp.Payload = nil
+			}
+		}
+
+		// Output the response to the console
+		if err == nil && !actionVerbose {
+			if actionPretty {
+				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
+			} else {
+				rspJSON, _ = note.JSONMarshal(rsp)
+			}
+			fmt.Printf("%s\n", rspJSON)
 		}
 	}
 
@@ -864,7 +853,6 @@ func main() {
 		err = explore(actionReserved, actionPretty)
 	}
 
-done:
 	// Process errors
 	if err != nil {
 		if actionRequest != "" && !actionVerbose {
@@ -887,50 +875,4 @@ func accumulateInfoErr(infoErr error, newErr error) error {
 		return newErr
 	}
 	return fmt.Errorf("%s\n%s", infoErr, newErr)
-}
-
-// Helper function to print grouped commands
-func printGroupedFlags(groups []FlagGroup) {
-	fmt.Println("Notecard CLI - Command line tool for interacting with Notecards")
-	fmt.Println("USAGE: notecard [options]")
-	fmt.Println()
-
-	// First pass: find the longest flag name + type
-	maxLen := 0
-	for _, group := range groups {
-		for _, f := range group.Flags {
-			typeName, _ := flag.UnquoteUsage(f)
-			length := len(f.Name)
-			if len(typeName) > 0 {
-				length += len(typeName) + 3 // +3 for flagText formatting
-			}
-			if length > maxLen {
-				maxLen = length
-			}
-		}
-	}
-
-	// Add padding for the flag prefix "  -" and some extra space
-	padding := maxLen + 5
-
-	for _, group := range groups {
-		fmt.Printf("%s:\n", group.Description)
-		for _, f := range group.Flags {
-			typeName, usage := flag.UnquoteUsage(f)
-			flagText := f.Name
-			if len(typeName) > 0 {
-				flagText = fmt.Sprintf("%s (%s)", f.Name, typeName)
-			}
-			fmt.Printf("  -%*s%s\n", -padding, flagText, usage)
-		}
-		fmt.Println()
-	}
-
-	fmt.Println("For more detailed documentation and examples, visit:")
-	fmt.Println("https://dev.blues.io/tools-and-sdks/notecard-cli/")
-}
-
-// Helper function to get flag by name from the default command line flags
-func getFlagByName(name string) *flag.Flag {
-	return flag.CommandLine.Lookup(name)
 }
