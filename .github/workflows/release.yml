@@ -31,6 +31,7 @@ jobs:
           args: release -f .goreleaser.yaml --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
       -
         name: Upload assets
         uses: actions/upload-artifact@v4
