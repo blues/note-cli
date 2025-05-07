@@ -236,9 +236,6 @@ func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error)
 	} else if reqTypeStr == "" {
 		err = fmt.Errorf("no request type specified")
 	} else {
-		// Normalize request type
-		reqTypeStr = strings.ToLower(reqTypeStr)
-
 		// Validate against the specific request schema
 		schemaPath := filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json")
 		if _, err = os.Stat(schemaPath); os.IsNotExist(err) {
