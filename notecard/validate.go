@@ -81,6 +81,12 @@ func fetchAndCacheSchema(url string, verbose bool) (io.Reader, error) {
 }
 
 func formatErrorMessage(reqType string, errUnformatted error) (err error) {
+	// Check if the error is nil
+	if errUnformatted == nil {
+		return nil
+	}
+
+	// Convert the error to a string
 	errMsg := errUnformatted.Error()
 
 	// Define constants
@@ -227,18 +233,24 @@ func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error)
 	reqTypeStr, ok := reqType.(string)
 	if !ok {
 		err = fmt.Errorf("request type not a string")
-	} else if reqTypeStr == "" {
-		err = fmt.Errorf("no request type specified")
-	} else {
+		return
+	}
+
+	// Validate against the specific request schema
+	schemaPath := filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json")
+	if _, err = os.Stat(schemaPath); os.IsNotExist(err) {
+		err = fmt.Errorf("unknown request type: %s", reqTypeStr)
+	} else if err == nil {
 		var reqSchema *jsonschema.Schema
-		reqSchema, err = jsonschema.Compile(filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json"))
+		reqSchema, err = jsonschema.Compile(schemaPath)
 		if err == nil {
 			err = reqSchema.Validate(reqMap)
-			if !verbose {
+			if err != nil && !verbose {
 				err = formatErrorMessage(reqTypeStr, err)
 			}
 		}
 	}
+
 	return err
 }
 
