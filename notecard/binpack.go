@@ -331,13 +331,13 @@ func readZip(hostProcessorType string, path string) (addressArray []int, regionA
 	}
 	for _, zf := range archive.File {
 		f, err2 := zf.Open()
-		if err != nil {
+		if err2 != nil {
 			err = err2
 			return
 		}
 		contents, err2 := io.ReadAll(f)
 		f.Close()
-		if err != nil {
+		if err2 != nil {
 			err = err2
 			return
 		}
