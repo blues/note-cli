@@ -233,20 +233,24 @@ func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error)
 	reqTypeStr, ok := reqType.(string)
 	if !ok {
 		err = fmt.Errorf("request type not a string")
-		return
-	}
+	} else if reqTypeStr == "" {
+		err = fmt.Errorf("no request type specified")
+	} else {
+		// Normalize request type
+		reqTypeStr = strings.ToLower(reqTypeStr)
 
-	// Validate against the specific request schema
-	schemaPath := filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json")
-	if _, err = os.Stat(schemaPath); os.IsNotExist(err) {
-		err = fmt.Errorf("unknown request type: %s", reqTypeStr)
-	} else if err == nil {
-		var reqSchema *jsonschema.Schema
-		reqSchema, err = jsonschema.Compile(schemaPath)
-		if err == nil {
-			err = reqSchema.Validate(reqMap)
-			if err != nil && !verbose {
-				err = formatErrorMessage(reqTypeStr, err)
+		// Validate against the specific request schema
+		schemaPath := filepath.Join(cacheDir, reqTypeStr+".req.notecard.api.json")
+		if _, err = os.Stat(schemaPath); os.IsNotExist(err) {
+			err = fmt.Errorf("unknown request type: %s", reqTypeStr)
+		} else if err == nil {
+			var reqSchema *jsonschema.Schema
+			reqSchema, err = jsonschema.Compile(schemaPath)
+			if err == nil {
+				err = reqSchema.Validate(reqMap)
+				if err != nil && !verbose {
+					err = formatErrorMessage(reqTypeStr, err)
+				}
 			}
 		}
 	}
