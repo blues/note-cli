@@ -123,6 +123,14 @@ func getFlagGroups() []lib.FlagGroup {
 	}
 }
 
+func exitFailAndCloseCard() {
+	if card != nil {
+		card.Close()
+	}
+	os.Exit(exitFail)
+}
+
+
 // Main entry
 func main() {
 	// Channel to handle OS signals
@@ -140,10 +148,7 @@ func main() {
 	go func() {
 		sig := <-signalChan
 		fmt.Printf("Received signal: %s\n", sig)
-		if card != nil {
-			card.Close()
-		}
-		os.Exit(exitFail)
+		exitFailAndCloseCard()
 	}()
 
 	// Check the environment for JSON schema control variables
@@ -230,7 +235,7 @@ func main() {
 	err := lib.FlagParse(true, false)
 	if err != nil {
 		fmt.Printf("%s\n", err)
-		os.Exit(exitFail)
+		exitFailAndCloseCard()
 	}
 
 	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
@@ -270,14 +275,14 @@ func main() {
 			actionRequest = flag.Args()[0]
 		} else if argsLeft > 0 {
 			fmt.Printf("to send a JSON request to the Notecard, please place it in quotes")
-			os.Exit(exitFail)
+			exitFailAndCloseCard()
 		}
 	}
 
 	// Both actionDFUPackage and actionRequest potentially use the 'remaining args' outside the flags
 	if actionDFUPackage != "" && actionRequest != "" {
 		fmt.Printf("-req and -binpack may not be combined into one command")
-		os.Exit(exitFail)
+		exitFailAndCloseCard()
 	}
 
 	// Open the card, just to make sure errors are reported early
@@ -863,7 +868,7 @@ func main() {
 		} else {
 			fmt.Printf("%s\n", err)
 		}
-		os.Exit(exitFail)
+		exitFailAndCloseCard()
 	}
 }
 
