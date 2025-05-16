@@ -259,7 +259,12 @@ func main() {
 			fmt.Printf("Ports on '%s':\n", nInterface)
 			for _, port := range ports {
 				if port == nPort {
-					fmt.Printf("   %s ***\n", port)
+					nPortConfig := lib.Config.IPort[lib.Config.Interface].PortConfig
+					if nPortConfig == 0 {
+						fmt.Printf("   %s ***\n", port)
+					} else {
+						fmt.Printf("   %s (%d) ***\n", port, nPortConfig)
+					}
 				} else {
 					fmt.Printf("   %s\n", port)
 				}
@@ -298,7 +303,7 @@ func main() {
 	// Process non-config commands
 	var rsp notecard.Request
 
-	// The timouts in the note-go library are set under the assumption that
+	// The timeouts in the note-go library are set under the assumption that
 	// the device is connected with long header wires that have significant
 	// capacitance and resistance, and where there may be arbitrary activity
 	// on the Notecard. This switch uses a larger buffer and shorter inter-segment

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/blues/note-go/note"
+	"github.com/blues/note-go/notecard"
 	"github.com/blues/note-go/notehub"
 )
 
@@ -56,7 +57,16 @@ func ConfigRead() error {
 	// Read the config file
 	contents, err := os.ReadFile(configSettingsPath())
 	if os.IsNotExist(err) {
-		ConfigReset()
+		// If no interface has been provided and no saved config, set defaults
+		if Config.Interface == "" {
+			ConfigReset()
+			newConfigPort := Config.IPort[Config.Interface]
+			Config.Interface, newConfigPort.Port, newConfigPort.PortConfig = notecard.Defaults()
+			Config.IPort[Config.Interface] = newConfigPort
+			ConfigWrite()
+		} else {
+			ConfigReset()
+		}
 		err = nil
 	} else if err == nil {
 		err = note.JSONUnmarshal(contents, &Config)
