@@ -66,6 +66,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("verbose"),
 				lib.GetFlagByName("pretty"),
 				lib.GetFlagByName("req"),
+				lib.GetFlagByName("dry"),
 				lib.GetFlagByName("input"),
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
@@ -130,7 +131,6 @@ func exitFailAndCloseCard() {
 	os.Exit(exitFail)
 }
 
-
 // Main entry
 func main() {
 	// Channel to handle OS signals
@@ -168,6 +168,8 @@ func main() {
 	flag.BoolVar(&actionPretty, "pretty", false, "format JSON output indented")
 	var actionRequest string
 	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
+	var actionRequestDry bool
+	flag.BoolVar(&actionRequestDry, "dry", false, "validate a -req but do not send it to the Notecard")
 	var actionWhenConnected bool
 	flag.BoolVar(&actionWhenConnected, "when-connected", false, "wait until connected")
 	var actionWhenDisconnected bool
@@ -764,10 +766,14 @@ func main() {
 			}
 		} else if err == nil {
 			// Transact using CLI input to avoid JSON parsing complications
-			actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
-			rspJSON, err = card.TransactionJSON([]byte(actionRequest))
-			if err == nil {
-				_ = note.JSONUnmarshal(rspJSON, &rsp)
+			if !actionRequestDry {
+				actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
+				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+				if err == nil {
+					_ = note.JSONUnmarshal(rspJSON, &rsp)
+				}
+			} else if actionVerbose {
+				fmt.Printf("%s\n", actionRequest)
 			}
 		}
 
@@ -782,7 +788,7 @@ func main() {
 		}
 
 		// Output the response to the console
-		if err == nil && !actionVerbose {
+		if err == nil && !actionVerbose && !actionRequestDry {
 			if actionPretty {
 				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
 			} else {
