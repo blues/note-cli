@@ -13,14 +13,24 @@
     ],
     "configurations": [
         {
-            "name": "Launch Notecard CLI",
+            "name": "Launch Notecard CLI (empty)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/notecard",
+            "env": {
+                "BLUES": ""
+            }
+        },
+        {
+            "name": "Launch Notecard CLI (with request)",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/notecard",
             "args": ["-req", "${input:requestJson}"],
             "env": {
-                "BLUES": "abucknall@blues.com"
+                "BLUES": ""
             }
         },
         {
@@ -29,7 +39,10 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/notehub",
-            "args": ["-req", "${input:requestJson}"]
+            "args": ["-req", "${input:requestJson}"],
+            "env": {
+                "BLUES": ""
+            }
         }
     ]
 }
