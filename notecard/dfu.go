@@ -67,14 +67,23 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	}
 	_, err = card.TransactionRequest(notecard.Request{Req: "card.time", Time: epochTime})
 	if err != nil {
+		fmt.Printf("card.time request failed\n")
 		return
 	}
 
-	// If not a notecard DFU operation, place the card into dfu mode to access external storage
-	if filetype != notehub.UploadTypeNotecardFirmware {
+	rsp, err = card.TransactionRequest(notecard.Request{Req: "card.version"})
+	if err != nil {
+		fmt.Printf("card.version request failed\n")
+		return
+	}
+	isLora := rsp.LoRa
 
-		fmt.Printf("placing notecard into DFU mode so that we can send file to its external flash storage\n")
-
+	// If we've got a LoRa Notecard, DFU op mode is not supported, nor is host
+	// DFU.
+	if !isLora {
+		fmt.Printf("enabling DFU op mode\n")
+		// This resets the DFU watchdog timer, which is necessary for the DFU
+		// to proceed.
 		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu"})
 		if err != nil {
 			return
@@ -82,23 +91,26 @@ func dfuSideload(filename string, verbose bool) (err error) {
 
 		// Make sure we restore the mode on exit
 		defer func() {
-			fmt.Printf("restoring notecard so that it is no longer in DFU mode\n")
+			fmt.Printf("disabling DFU op mode\n")
 			card.TransactionRequest(notecard.Request{Req: "hub.set", Mode: "dfu-completed"})
 		}()
 
-		// Wait until dfu status says that we're in DFU mode
-		for {
-			fmt.Printf("waiting for notecard to power-up the external storage\n")
-			_, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
-			if err != nil && !note.ErrorContains(err, note.ErrDFUNotReady) && !note.ErrorContains(err, note.ErrCardIo) {
-				return
+		// If we're sideloading Notecard firmware, there is no need for external
+		// storage.
+		if filetype != notehub.UploadTypeNotecardFirmware {
+			// Wait until dfu status says that we're in DFU mode
+			for {
+				fmt.Printf("waiting for notecard to power-up the external storage\n")
+				_, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
+				if err != nil && !note.ErrorContains(err, note.ErrDFUNotReady) && !note.ErrorContains(err, note.ErrCardIo) {
+					return
+				}
+				if err == nil {
+					break
+				}
+				time.Sleep(1500 * time.Millisecond)
 			}
-			if err == nil {
-				break
-			}
-			time.Sleep(1500 * time.Millisecond)
 		}
-
 	}
 
 	// Do the write
@@ -258,25 +270,27 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 		lenRemaining -= thisLen
 		offset += thisLen
 
-		// Wait until the migration succeeds
-		for rsp.Pending {
-			rsp, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
-			if err != nil {
-				// Some Notecard firmware versions will return "firmware update is in progress", while
-				// newer versions should include {dfu-in-progress} in the error string if the DFU has
-				// already started when the Notecard receives the dfu.put request.
-				// {dfu-not-ready} shows up when the DFU is ready, but the Notecard hasn't synced yet.
-				// The DFU should kick off after the next successful sync.
-				if (note.ErrorContains(err, note.ErrDFUNotReady) ||
-					note.ErrorContains(err, "firmware update is in progress") ||
-					note.ErrorContains(err, note.ErrDFUInProgress)) && lenRemaining == 0 {
-					err = nil
-					break
+		if filetype != notehub.UploadTypeNotecardFirmware {
+			// Wait until the migration succeeds
+			for rsp.Pending {
+				rsp, err = card.TransactionRequest(notecard.Request{Req: "dfu.put"})
+				if err != nil {
+					// Some Notecard firmware versions will return "firmware update is in progress", while
+					// newer versions should include {dfu-in-progress} in the error string if the DFU has
+					// already started when the Notecard receives the dfu.put request.
+					// {dfu-not-ready} shows up when the DFU is ready, but the Notecard hasn't synced yet.
+					// The DFU should kick off after the next successful sync.
+					if (note.ErrorContains(err, note.ErrDFUNotReady) ||
+						note.ErrorContains(err, "firmware update is in progress") ||
+						note.ErrorContains(err, note.ErrDFUInProgress)) && lenRemaining == 0 {
+						err = nil
+						break
+					}
+					fmt.Printf("aborting after error retrieving side-loading status: %s\n", err)
+					return
 				}
-				fmt.Printf("aborting after error retrieving side-loading status: %s\n", err)
-				return
+				time.Sleep(750 * time.Millisecond)
 			}
-			time.Sleep(750 * time.Millisecond)
 		}
 
 	}
