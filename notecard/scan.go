@@ -400,6 +400,14 @@ func loadRequests(filename string) (requests []map[string]interface{}, err error
 	if err != nil {
 		return
 	}
+
+	// First try to parse as a valid JSON array
+	err = note.JSONUnmarshal(contents, &requests)
+	if err == nil {
+		return
+	}
+
+	// Then try to parse as a newline-delimited list of JSON objects
 	jrecs := bytes.Split(contents, []byte("\n"))
 	for _, line := range jrecs {
 		line = bytes.TrimSpace(line)
