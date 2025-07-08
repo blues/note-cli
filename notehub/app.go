@@ -33,65 +33,74 @@ type AppMetadata struct {
 // Load metadata for the app
 func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, err error) {
 
-	rsp := map[string]interface{}{}
-	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.get\"}"), "", "", "", "", false, false, nil, &rsp)
-	if err != nil {
+	// Determine the project UID to use
+	projectUID := flagApp
+	if projectUID == "" {
+		projectUID = flagProduct
+	}
+	if projectUID == "" {
+		err = fmt.Errorf("project UID must be specified via -project or -product flag")
 		return
 	}
-	rsperr, _ := rsp["err"].(string)
-	if rsperr != "" {
-		err = fmt.Errorf("%s", rsperr)
+
+	// Get the specific project using V1 API
+	projectRsp := map[string]interface{}{}
+	err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/project/"+projectUID, nil, &projectRsp)
+	if err != nil {
 		return
 	}
 
 	// App info
-	appMetadata.App.UID, _ = rsp["uid"].(string)
-	appMetadata.App.Name, _ = rsp["label"].(string)
-	appMetadata.App.BA, _ = rsp["billing_account_uid"].(string)
+	appMetadata.App.UID, _ = projectRsp["uid"].(string)
+	appMetadata.App.Name, _ = projectRsp["label"].(string)
+	// Placeholder for billing account since V1 API doesn't return it
+	appMetadata.App.BA = "" // TODO: billing_account_uid not available in V1 project API
 
-	// Fleet info
-	settings, exists := rsp["info"].(map[string]interface{})
-	if exists {
-		fleets, exists := settings["fleet"].(map[string]interface{})
+	// Fleet info - Get fleets using V1 API
+	fleetsRsp := map[string]interface{}{}
+	err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+appMetadata.App.UID+"/fleets", nil, &fleetsRsp)
+	if err == nil {
+		fleets, exists := fleetsRsp["fleets"].([]interface{})
 		if exists {
 			items := []Metadata{}
-			for k, v := range fleets {
-				vj, ok := v.(map[string]interface{})
+			for _, v := range fleets {
+				fleet, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: vj["label"].(string), UID: k}
-					if flagVars {
-						varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
-						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, k)
-						err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
-						if err != nil {
-							return
+					name, nameExists := fleet["label"].(string)
+					uid, uidExists := fleet["uid"].(string)
+					if nameExists && uidExists {
+						i := Metadata{Name: name, UID: uid}
+						if flagVars {
+							varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
+							url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, i.UID)
+							err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
+							if err != nil {
+								return
+							}
+							i.Vars = varsRsp.EnvironmentVariables
 						}
-						i.Vars = varsRsp.EnvironmentVariables
+						items = append(items, i)
 					}
-					items = append(items, i)
 				}
 			}
 			appMetadata.Fleets = items
 		}
 	}
 
-	// Enum routes
-	rsp = map[string]interface{}{}
-	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), []byte("{\"req\":\"hub.app.test.route\"}"), "", "", "", "", false, false, nil, &rsp)
-	rsperr, _ = rsp["err"].(string)
-	if rsperr != "" {
-		err = fmt.Errorf("%s", rsperr)
-	}
+	// Routes - Get routes using V1 API
+	routesRsp := map[string]interface{}{}
+	err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+appMetadata.App.UID+"/routes", nil, &routesRsp)
 	if err == nil {
-		body, exists := rsp["body"].(map[string]interface{})
+		routes, exists := routesRsp["routes"].([]interface{})
 		if exists {
 			items := []Metadata{}
-			for k, v := range body {
-				vs, ok := v.(string)
+			for _, v := range routes {
+				route, ok := v.(map[string]interface{})
 				if ok {
-					components := strings.Split(k, "/")
-					if len(components) > 1 {
-						i := Metadata{Name: vs, UID: components[1]}
+					name, nameExists := route["label"].(string)
+					uid, uidExists := route["uid"].(string)
+					if nameExists && uidExists {
+						i := Metadata{Name: name, UID: uid}
 						items = append(items, i)
 					}
 				}
@@ -99,22 +108,27 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 			appMetadata.Routes = items
 		}
 	}
+	// Don't fail the entire function if routes fail, just continue without them
 
 	// Products
-	rsp = map[string]interface{}{}
-	err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+appMetadata.App.UID+"/products", nil, &rsp)
+	productsRsp := map[string]interface{}{}
+	err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+appMetadata.App.UID+"/products", nil, &productsRsp)
 	if err == nil {
-		pi, exists := rsp["products"].([]interface{})
+		pi, exists := productsRsp["products"].([]interface{})
 		if exists {
 			items := []Metadata{}
 			for _, v := range pi {
 				p, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: p["label"].(string), UID: p["uid"].(string)}
-					items = append(items, i)
+					name, nameExists := p["label"].(string)
+					uid, uidExists := p["uid"].(string)
+					if nameExists && uidExists {
+						i := Metadata{Name: name, UID: uid}
+						items = append(items, i)
+					}
 				}
-				appMetadata.Products = items
 			}
+			appMetadata.Products = items
 		}
 	}
 

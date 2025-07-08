@@ -1,0 +1,46 @@
+❯ ./notehub -product com.blues.abucknall:mojodemo -pretty
+{
+    "app": {
+        "name": "mojo-demo",
+        "uid": "app:662bd350-d8b5-406e-b318-6c448ad782e7",
+        "billing_account_uid": "930aca4a-1c8d-4baa-83c3-56c8b794e00b"
+    },
+    "fleets": [
+        {
+            "name": "unused",
+            "uid": "fleet:4f870713-bb4b-42fe-972c-c05fdea2af5d"
+        },
+        {
+            "name": "My fleet",
+            "uid": "fleet:f30c2b79-9725-442f-bc63-e01c04a0e370"
+        }
+    ],
+    "routes": [
+        {
+            "name": "Google Sheets Demo",
+            "uid": "route:6f664deb0b5f558a808c371e0a9b34d6"
+        },
+        {
+            "name": "Fibery Demo",
+            "uid": "route:74ff3e06fdc7b9840ad5c548c9ec6eab"
+        },
+        {
+            "name": "Datacake Demo",
+            "uid": "route:a6305286964288aaffedab1903a4137f"
+        },
+        {
+            "name": "Demo Web Server",
+            "uid": "route:b135abe152587b3bad54f7bdce4bdc4c"
+        },
+        {
+            "name": "Air Table Demo",
+            "uid": "route:c95cb661c45297c7b683407ea5188d58"
+        }
+    ],
+    "products": [
+        {
+            "name": "Default",
+            "uid": "product:com.blues.abucknall:mojodemo"
+        }
+    ]
+}
