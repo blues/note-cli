@@ -94,6 +94,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("commtest"),
 				lib.GetFlagByName("echo"),
 				lib.GetFlagByName("binpack"),
+				lib.GetFlagByName("pcap"),
 			},
 		},
 		{
@@ -232,6 +233,8 @@ func main() {
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
+	var actionPcap string
+	flag.StringVar(&actionPcap, "pcap", "", "enable PCAP mode and stream packets to output file (required: 'usb' or 'aux')")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -244,6 +247,12 @@ func main() {
 	if len(os.Args) == 1 {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 		lib.ConfigShow()
+		fmt.Printf("\n")
+		fmt.Printf("PCAP Usage:\n")
+		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
+		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -portconfig <baud> -output <path.pcap>\n")
+		fmt.Printf("  Example: notecard -port /dev/ttyUSB0 -pcap usb -output capture.pcap\n")
+		fmt.Printf("  Example: notecard -port /dev/ttyAMA0 -pcap aux -portconfig 115200 -output capture.pcap\n")
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
 		if lib.Config.Interface != "" {
@@ -289,6 +298,18 @@ func main() {
 	// Both actionDFUPackage and actionRequest potentially use the 'remaining args' outside the flags
 	if actionDFUPackage != "" && actionRequest != "" {
 		fmt.Printf("-req and -binpack may not be combined into one command")
+		exitFailAndCloseCard()
+	}
+
+	// PCAP mode is exclusive with other actions
+	if actionPcap != "" && (actionRequest != "" || actionDFUPackage != "" || actionTrace || actionPlayground || actionCommtest || actionEcho != 0) {
+		fmt.Printf("-pcap cannot be combined with other actions")
+		exitFailAndCloseCard()
+	}
+
+	// Validate PCAP mode argument
+	if actionPcap != "" && actionPcap != "usb" && actionPcap != "aux" {
+		fmt.Printf("-pcap argument must be 'usb' or 'aux'")
 		exitFailAndCloseCard()
 	}
 
@@ -863,6 +884,10 @@ func main() {
 
 	if err == nil && actionVersion {
 		fmt.Printf("Notecard CLI Version: %s\n", version)
+	}
+
+	if err == nil && actionPcap != "" {
+		err = pcapRecord(actionOutput, actionPcap, card)
 	}
 
 	if err == nil && actionExplore {
