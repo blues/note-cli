@@ -773,20 +773,24 @@ func main() {
 				}
 			}
 		} else if err == nil && req.Req == "card.binary.put" && (req.Body == nil || len(*req.Body) == 0) {
-			payload := *req.Payload
-			actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
-			if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
-				err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
+			if req.Payload == nil {
+				err = fmt.Errorf("card.binary.put requires payload data")
 			} else {
-				req.Status = actualMD5
-				payload, err = notecard.CobsEncode(payload, byte('\n'))
-				if err == nil {
-					req.Payload = nil
-					req.Cobs = int32(len(payload))
-					rsp, err = card.TransactionRequest(req)
+				payload := *req.Payload
+				actualMD5 := fmt.Sprintf("%x", md5.Sum(payload))
+				if req.Status != "" && !strings.EqualFold(req.Status, actualMD5) {
+					err = fmt.Errorf("actual MD5 %s != supplied 'status' field %s", actualMD5, req.Status)
+				} else {
+					req.Status = actualMD5
+					payload, err = notecard.CobsEncode(payload, byte('\n'))
 					if err == nil {
-						payload = append(payload, byte('\n'))
-						err = card.SendBytes(payload)
+						req.Payload = nil
+						req.Cobs = int32(len(payload))
+						rsp, err = card.TransactionRequest(req)
+						if err == nil {
+							payload = append(payload, byte('\n'))
+							err = card.SendBytes(payload)
+						}
 					}
 				}
 			}
