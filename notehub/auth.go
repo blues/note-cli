@@ -22,12 +22,6 @@ import (
 // Sign into the notehub account with a token
 func authSignInToken(token string) (err error) {
 
-	// Sign out
-	_, _, authenticated := lib.ConfigSignedIn()
-	if authenticated {
-		authSignOut()
-	}
-
 	// Print hub if not the default
 	if lib.Config.Hub != "" {
 		fmt.Printf("notehub %s\n", lib.Config.Hub)
