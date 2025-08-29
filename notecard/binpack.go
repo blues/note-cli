@@ -296,6 +296,15 @@ func dfuIsNotecardFirmware(bin *[]byte) (isNotecardImage bool) {
 
 }
 
+// Determines whether or not a firmware image is a Starnote image (see above0
+func dfuIsStarnoteFirmware(bin *[]byte) (isStarnoteImage bool) {
+
+	var StarnoteFirmwareSignature = []byte{0x82, 0x1c, 0x6e, 0xb7, 0x18, 0xec, 0x4e, 0x6f, 0xb3, 0x9e, 0xc1, 0xe9, 0x8f, 0x23, 0xea, 0xf7}
+
+	return bytes.Contains(*bin, StarnoteFirmwareSignature)
+
+}
+
 // Read a nordic ZIP file
 func readZip(hostProcessorType string, path string) (addressArray []int, regionArray []int,
 	filenameArray []string, binArray [][]byte, err error) {

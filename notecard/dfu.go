@@ -54,6 +54,9 @@ func dfuSideload(filename string, verbose bool) (err error) {
 	if dfuIsNotecardFirmware(&bin) {
 		filetype = notehub.UploadTypeNotecardFirmware
 	}
+	if dfuIsStarnoteFirmware(&bin) {
+		filetype = "starnote"
+	}
 
 	// Sideloading on the Notecard requires that the Notecard's time is set.  This means that
 	// in order to sideload, the Notecard might normally need a ProductUID configured and would
