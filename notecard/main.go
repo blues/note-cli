@@ -31,7 +31,7 @@ var version = "development"
 
 // JSON schema control variables
 var validateJSON bool = false
-var jsonSchemaUrl string = "https://raw.githubusercontent.com/blues/notecard-schema/master/notecard.api.json"
+var jsonSchemaUrl string = "https://github.com/blues/notecard-schema/releases/latest/download/notecard.api.json"
 
 // getFlagGroups returns the organized flag groups
 func getFlagGroups() []lib.FlagGroup {
