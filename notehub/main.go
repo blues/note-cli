@@ -5,10 +5,24 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
@@ -100,8 +114,236 @@ func getFlagGroups() []lib.FlagGroup {
 	}
 }
 
+// open opens the specified URL in the default browser of the user.
+func open(url string) error {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start"}
+	case "darwin":
+		cmd = "open"
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = "xdg-open"
+	}
+	args = append(args, url)
+	return exec.Command(cmd, args...).Start()
+}
+
+type AccessToken struct {
+	Host        string
+	Email       string
+	AccessToken string
+	ExpiresAt   time.Time
+}
+
+func login() (*AccessToken, error) {
+	// these are configured on the OAuth Client within Hydra
+	clientId := "notehub_cli"
+	port := 58766
+
+	// this is per-environment
+	notehubHost := "scott.blues.tools"
+
+	// return value
+	var accessToken *AccessToken
+	var accessTokenErr error
+
+	randString := func(n int) string {
+		letterRunes := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+		b := make([]rune, n)
+		for i := range b {
+			b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		}
+		return string(b)
+	}
+
+	state := randString(16)
+	codeVerifier := randString(50) // must be at least 43 characters
+	hash := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+	done := make(chan bool, 1)
+	quit := make(chan os.Signal, 1)
+
+	signal.Notify(quit, os.Interrupt)
+	defer signal.Reset(os.Interrupt)
+
+	router := http.NewServeMux()
+	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		authorizationCode := r.URL.Query().Get("code")
+		callbackState := r.URL.Query().Get("state")
+
+		errHandler := func(msg string) {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "error: %s", msg)
+			fmt.Printf("error: %s\n", msg)
+			accessTokenErr = errors.New(msg)
+		}
+
+		if callbackState != state {
+			errHandler("state mismatch")
+			return
+		}
+
+		///////////////////////////////////////////
+		// Get the access token from the authorization code
+		///////////////////////////////////////////
+
+		tokenResp, err := http.Post(
+			(&url.URL{
+				Scheme: "https",
+				Host:   notehubHost,
+				Path:   "/oauth2/token",
+			}).String(),
+			"application/x-www-form-urlencoded",
+			strings.NewReader(url.Values{
+				"client_id":     {clientId},
+				"code":          {authorizationCode},
+				"code_verifier": {codeVerifier},
+				"grant_type":    {"authorization_code"},
+				"redirect_uri":  {fmt.Sprintf("http://localhost:%d", port)},
+			}.Encode()),
+		)
+
+		if err != nil {
+			errHandler("error on /oauth2/token: " + err.Error())
+			return
+		}
+
+		body, err := io.ReadAll(tokenResp.Body)
+		if err != nil {
+			errHandler("could not read body from /oauth2/token: " + err.Error())
+			return
+		}
+		defer tokenResp.Body.Close()
+
+		var tokenData map[string]interface{}
+		if err := json.Unmarshal(body, &tokenData); err != nil {
+			errHandler("could not unmarshal body from /oauth2/token: " + err.Error())
+			return
+		}
+
+		accessTokenString := tokenData["access_token"].(string)
+		expiresIn := time.Duration(tokenData["expires_in"].(float64)) * time.Second
+
+		///////////////////////////////////////////
+		// Get user's information (specifically email)
+		///////////////////////////////////////////
+
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://%s/userinfo", notehubHost), nil)
+		if err != nil {
+			errHandler("could not create request for /userinfo: " + err.Error())
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+accessTokenString)
+		userinfoResp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			errHandler("could not get userinfo: " + err.Error())
+			return
+		}
+
+		userinfoBody, err := io.ReadAll(userinfoResp.Body)
+		if err != nil {
+			errHandler("could not read body from /userinfo: " + err.Error())
+			return
+		}
+		defer userinfoResp.Body.Close()
+
+		var userinfoData map[string]interface{}
+		if err := json.Unmarshal(userinfoBody, &userinfoData); err != nil {
+			errHandler("could not unmarshal body from /userinfo: " + err.Error())
+			return
+		}
+
+		email := userinfoData["email"].(string)
+
+		///////////////////////////////////////////
+		// Build the access token response
+		///////////////////////////////////////////
+
+		accessToken = &AccessToken{
+			Host:        notehubHost,
+			Email:       email,
+			AccessToken: accessTokenString,
+			ExpiresAt:   time.Now().Add(expiresIn),
+		}
+
+		///////////////////////////////////////////
+		// respond to the browser and quit
+		///////////////////////////////////////////
+
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "<p>Token exchange completed successfully</p><p>You may now close this window and return to the CLI application</p>")
+
+		quit <- os.Interrupt
+	})
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: router,
+	}
+
+	// Wait for OAuth callback to be hit, then shutdown HTTP server
+	go func(server *http.Server, quit <-chan os.Signal, done chan<- bool) {
+		<-quit
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		server.SetKeepAlivesEnabled(false)
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("error: %v", err)
+		}
+		close(done)
+	}(server, quit, done)
+
+	// Start HTTP server waiting for OAuth callback
+	go func(server *http.Server) {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("error: %v", err)
+		}
+	}(server)
+
+	// Open this URL to start the process of authentication
+	authorizeUrl := url.URL{
+		Scheme: "https",
+		Host:   notehubHost,
+		Path:   "/oauth2/auth",
+		RawQuery: url.Values{
+			"client_id":             {clientId},
+			"code_challenge":        {codeChallenge},
+			"code_challenge_method": {"S256"},
+			"redirect_uri":          {fmt.Sprintf("http://localhost:%d", port)},
+			"response_type":         {"code"},
+			"scope":                 {"openid email"},
+			"state":                 {state},
+		}.Encode(),
+	}
+
+	// Open web browser to authorize
+	fmt.Printf("Opening web browser to initiate authentication...\n")
+	open(authorizeUrl.String())
+
+	// Wait for exchange to finish
+	<-done
+
+	return accessToken, accessTokenErr
+}
+
 // Main entry point
 func main() {
+
+	accessToken, err := login()
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Access Token: %+v\n", accessToken)
+	fmt.Printf("Exiting\n")
+	os.Exit(0)
 
 	// Override the default usage function to use our grouped format
 	flag.Usage = func() {
@@ -160,7 +402,7 @@ func main() {
 	flag.BoolVar(&flagProvision, "provision", false, "provision devices")
 
 	// Parse these flags and also the note tool config flags
-	err := lib.FlagParse(false, true)
+	err = lib.FlagParse(false, true)
 	if err != nil {
 		fmt.Printf("%s\n", err)
 		os.Exit(exitFail)

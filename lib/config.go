@@ -329,7 +329,7 @@ func ConfigAuthenticationHeader(httpReq *http.Request) (err error) {
 	}
 
 	// Set the header
-	httpReq.Header.Set("X-Session-Token", token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
 
 	// Done
 	return
