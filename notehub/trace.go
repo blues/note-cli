@@ -128,7 +128,8 @@ traceloop:
 				if args[1] == "-" {
 					args[1] = ""
 				}
-				lib.Config.Hub = args[1]
+				config, _ := lib.GetConfig()
+				config.Hub = args[1]
 			}
 			fmt.Printf("hub is %s\n", flagApp)
 

@@ -5,8 +5,10 @@
 package lib
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -21,8 +23,69 @@ import (
 
 // ConfigCreds are the credentials for a given Notehub
 type ConfigCreds struct {
-	User  string `json:"user,omitempty"`
-	Token string `json:"token,omitempty"`
+	User      string     `json:"user,omitempty"`
+	Token     string     `json:"token,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Hub       string     `json:"-"`
+}
+
+func (creds ConfigCreds) IsOAuthAccessToken() bool {
+	personalAccessTokenPrefixes := []string{"ory_st_", "api_key_"}
+	for _, prefix := range personalAccessTokenPrefixes {
+		if strings.HasPrefix(creds.Token, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+func (creds ConfigCreds) AddHttpAuthHeader(req *http.Request) {
+	req.Header.Set("Authorization", "Bearer "+creds.Token)
+}
+
+func IntrospectToken(hub string, token string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://%s/userinfo", hub), nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	userinfo := map[string]interface{}{}
+	if err := note.JSONUnmarshal(body, &userinfo); err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err := userinfo["err"]
+		return "", fmt.Errorf("%s (http %d)", err, resp.StatusCode)
+	}
+
+	if email, ok := userinfo["email"].(string); !ok || email == "" {
+		fmt.Printf("response: %s\n", userinfo)
+		return "", fmt.Errorf("error introspecting token: no email in response")
+	} else {
+		return email, nil
+	}
+}
+
+func (creds *ConfigCreds) Validate() error {
+	if creds == nil {
+		return errors.New("no credentials specified")
+	}
+	_, err := IntrospectToken(creds.Hub, creds.Token)
+	return err
 }
 
 // Port/PortConfig on a per-interface basis
@@ -41,11 +104,138 @@ type ConfigSettings struct {
 }
 
 // Config are the master config settings
-var Config ConfigSettings
+var config *ConfigSettings
 var configFlagHub string
 var configFlagInterface string
 var configFlagPort string
 var configFlagPortConfig int
+
+func (config *ConfigSettings) Write() error {
+	// Marshal it
+	configJSON, err := note.JSONMarshalIndent(config, "", "    ")
+	if err != nil {
+		return fmt.Errorf("can't marshal configuration: %s", err)
+	}
+
+	// Write the file
+	configPath := configSettingsPath()
+	fd, err := os.OpenFile(configPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	if _, err := fd.Write(configJSON); err != nil {
+		return fmt.Errorf("can't write %s: %s", configPath, err)
+	}
+	return fd.Close()
+}
+
+func (config *ConfigSettings) Print() {
+	fmt.Printf("\nCurrently saved values:\n")
+
+	if config.Hub != "" {
+		fmt.Printf("       hub: %s\n", config.Hub)
+	}
+	if len(config.HubCreds) != 0 {
+		fmt.Printf("     creds:\n")
+		for hub, cred := range config.HubCreds {
+			tokenType := "PAT"
+			if cred.IsOAuthAccessToken() {
+				tokenType = "OAuth"
+			}
+
+			expires := ""
+			if cred.ExpiresAt != nil {
+				if cred.ExpiresAt.Before(time.Now()) {
+					expires = fmt.Sprintf(" (expired)")
+				} else {
+					expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+				}
+			}
+			fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+		}
+	}
+	if config.Interface != "" {
+		fmt.Printf("   -interface %s\n", config.Interface)
+
+		configPort := config.IPort[config.Interface]
+		if configPort.Port == "" {
+			fmt.Printf("   -port -\n")
+			fmt.Printf("   -portconfig -\n")
+		} else {
+			fmt.Printf("   -port %s\n", configPort.Port)
+			fmt.Printf("   -portconfig %d\n", configPort.PortConfig)
+		}
+	}
+}
+
+func (config *ConfigSettings) DefaultCredentials() *ConfigCreds {
+	if creds, present := config.HubCreds[config.Hub]; present && creds.Token != "" && creds.User != "" {
+		creds.Hub = config.Hub
+		return &creds
+	}
+	return nil
+}
+
+func (config *ConfigSettings) SetDefaultCredentials(token string, email string, expiresAt *time.Time) {
+	config.HubCreds[config.Hub] = ConfigCreds{
+		Hub:       config.Hub,
+		User:      email,
+		Token:     token,
+		ExpiresAt: expiresAt,
+	}
+}
+
+func defaultConfig() *ConfigSettings {
+	iface, port, portConfig := notecard.Defaults()
+	return &ConfigSettings{
+		When:     time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		Hub:      notehub.DefaultAPIService,
+		HubCreds: map[string]ConfigCreds{},
+		IPort: map[string]ConfigPort{
+			iface: {
+				Port:       port,
+				PortConfig: portConfig,
+			},
+		},
+	}
+}
+
+// returns (nil, nil) if there's no config file
+// returns (non-nil, nil) if a config file was read from the filesystem successfully
+// returns (nil, non-nil) if there was some any other error
+func readConfigFromFile() (*ConfigSettings, error) {
+	// Read the config file
+	configPath := configSettingsPath()
+	contents, err := os.ReadFile(configPath)
+
+	if os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("can't read %s: %s", configPath, err)
+	}
+
+	var configFromFile ConfigSettings
+	if err := note.JSONUnmarshal(contents, &configFromFile); err != nil {
+		return nil, fmt.Errorf("can't parse %s: %s", configPath, err)
+	}
+
+	return &configFromFile, nil
+}
+
+func GetConfig() (*ConfigSettings, error) {
+	if config == nil {
+		// try reading it from the filesystem
+		// otherwise, use a new default config
+		if configFromFile, err := readConfigFromFile(); err != nil {
+			return nil, err
+		} else if configFromFile != nil {
+			config = configFromFile
+		} else {
+			config = defaultConfig()
+		}
+	}
+	return config, nil
+}
 
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
@@ -55,155 +245,65 @@ func ConfigRead() error {
 	rand.Seed(rand.Int63() ^ time.Now().UnixNano())
 
 	// Read the config file
-	contents, err := os.ReadFile(configSettingsPath())
+	configPath := configSettingsPath()
+	contents, err := os.ReadFile(configPath)
 	if os.IsNotExist(err) {
-		// If no interface has been provided and no saved config, set defaults
-		if Config.Interface == "" {
-			ConfigReset()
-			newConfigPort := Config.IPort[Config.Interface]
-			Config.Interface, newConfigPort.Port, newConfigPort.PortConfig = notecard.Defaults()
-			Config.IPort[Config.Interface] = newConfigPort
-			ConfigWrite()
-		} else {
-			ConfigReset()
-		}
-		err = nil
-	} else if err == nil {
-		err = note.JSONUnmarshal(contents, &Config)
-		if err != nil || Config.When == "" {
-			ConfigReset()
-			if err != nil {
-				err = fmt.Errorf("can't read configuration: %s", err)
-			}
-		}
+		// If no interface has been provided and no saved config,
+		// set it to a default value and write it
+		config = defaultConfig()
+		return config.Write()
+	} else if err != nil {
+		return fmt.Errorf("can't read %s: %s", configPath, err)
 	}
 
-	return err
-
-}
-
-// ConfigWrite updates the file with the current config info
-func ConfigWrite() error {
-
-	// Marshal it
-	configJSON, _ := note.JSONMarshalIndent(Config, "", "    ")
-
-	// Write the file
-	fd, err := os.OpenFile(configSettingsPath(), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0666)
-	if err != nil {
-		return err
+	var newConfig ConfigSettings
+	if err := note.JSONUnmarshal(contents, &newConfig); err != nil {
+		return fmt.Errorf("can't parse %s: %s", configPath, err)
 	}
-	fd.Write(configJSON)
-	fd.Close()
-
-	// Done
-	return err
-
-}
-
-// Reset the comms to default
-func configResetInterface() {
-	Config = ConfigSettings{}
-	Config.HubCreds = map[string]ConfigCreds{}
-	Config.IPort = map[string]ConfigPort{}
-}
-
-// ConfigReset updates the file with the default info
-func ConfigReset() {
-	configResetInterface()
-	ConfigSetHub("-")
-	Config.When = time.Now().UTC().Format("2006-01-02T15:04:05Z")
-}
-
-// ConfigShow displays all current config parameters
-func ConfigShow() error {
-
-	fmt.Printf("\nCurrently saved values:\n")
-
-	if Config.Hub != "" {
-		fmt.Printf("       hub: %s\n", Config.Hub)
-	}
-	if Config.IPort == nil {
-		Config.IPort = map[string]ConfigPort{}
-	}
-	if Config.HubCreds == nil {
-		Config.HubCreds = map[string]ConfigCreds{}
-	}
-	if len(Config.HubCreds) != 0 {
-		fmt.Printf("     creds:\n")
-		for hub, cred := range Config.HubCreds {
-			fmt.Printf("            %s: %s\n", hub, cred.User)
-		}
-	}
-	if Config.Interface != "" {
-		fmt.Printf("   -interface %s\n", Config.Interface)
-		if Config.IPort[Config.Interface].Port == "" {
-			fmt.Printf("   -port -\n")
-			fmt.Printf("   -portconfig -\n")
-		} else {
-			fmt.Printf("   -port %s\n", Config.IPort[Config.Interface].Port)
-			fmt.Printf("   -portconfig %d\n", Config.IPort[Config.Interface].PortConfig)
-		}
-	}
+	config = &newConfig
 
 	return nil
-
 }
 
-// ConfigFlagsProcess processes the registered config flags
+// load current config, apply CLI flag values, and save if appropriate
 func ConfigFlagsProcess() (err error) {
-
-	// Create maps if they don't exist
-	if Config.IPort == nil {
-		Config.IPort = map[string]ConfigPort{}
-	}
-	if Config.HubCreds == nil {
-		Config.HubCreds = map[string]ConfigCreds{}
+	config, err := GetConfig()
+	if err != nil {
+		return
 	}
 
-	// Read if not yet read
-	if Config.When == "" {
-		err = ConfigRead()
-		if err != nil {
-			return
-		}
+	if configFlagInterface == "-" {
+		config = defaultConfig()
+	} else if configFlagInterface != "" {
+		config.Interface = configFlagInterface
 	}
 
 	// Set or reset the flags as desired
 	if configFlagHub != "" {
 		ConfigSetHub(configFlagHub)
 	}
-	if configFlagInterface == "-" {
-		configResetInterface()
-	} else if configFlagInterface != "" {
-		Config.Interface = configFlagInterface
+	if config.Hub == "" {
+		config.Hub = notehub.DefaultAPIService
 	}
+
+	defaultPort := config.IPort[config.Interface]
+
 	if configFlagPort == "-" {
-		temp := Config.IPort[Config.Interface]
-		temp.Port = ""
-		Config.IPort[Config.Interface] = temp
+		defaultPort.Port = ""
 	} else if configFlagPort != "" {
-		temp := Config.IPort[Config.Interface]
-		temp.Port = configFlagPort
-		Config.IPort[Config.Interface] = temp
+		defaultPort.Port = configFlagPort
 	}
+
 	if configFlagPortConfig < 0 {
-		temp := Config.IPort[Config.Interface]
-		temp.PortConfig = 0
-		Config.IPort[Config.Interface] = temp
+		defaultPort.PortConfig = 0
 	} else if configFlagPortConfig != 0 {
-		temp := Config.IPort[Config.Interface]
-		temp.PortConfig = configFlagPortConfig
-		Config.IPort[Config.Interface] = temp
+		defaultPort.PortConfig = configFlagPortConfig
 	}
-	if Config.Interface == "" {
-		configFlagPort = ""
-		configFlagPortConfig = 0
-	}
+
+	config.IPort[config.Interface] = defaultPort
 
 	// Done
 	return nil
-
 }
 
 // ConfigFlagsRegister registers the config-related flags
@@ -256,32 +356,28 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 			}
 		}
 	}
-	if configOnly && Config.Interface != "lease" {
-		fmt.Printf("*** saving configuration ***")
-		ConfigWrite()
-		ConfigShow()
+
+	if configOnly && config.Interface != "lease" {
+		if err := config.Write(); err != nil {
+			return fmt.Errorf("could not write config file: %w", err)
+		}
+		fmt.Printf("configuration file saved\n\n")
+		config.Print()
 	}
 
 	// Override, just for this session, with env vars
-	str := os.Getenv("NOTE_INTERFACE")
-	if str != "" {
-		Config.Interface = str
+	if iface := os.Getenv("NOTE_INTERFACE"); iface != "" {
+		config.Interface = iface
 	}
 
 	// Override via env vars if specified
-	str = os.Getenv("NOTE_PORT")
-	if str != "" {
-		temp := Config.IPort[Config.Interface]
-		temp.Port = str
-		Config.IPort[Config.Interface] = temp
-		str := os.Getenv("NOTE_PORT_CONFIG")
-		strint, err2 := strconv.Atoi(str)
-		if err2 != nil {
-			strint = Config.IPort[Config.Interface].PortConfig
+	if port := os.Getenv("NOTE_PORT"); port != "" {
+		temp := config.IPort[config.Interface]
+		temp.Port = port
+		if portConfig, err := strconv.Atoi(os.Getenv("NOTE_PORT_CONFIG")); err == nil {
+			temp.PortConfig = portConfig
 		}
-		temp = Config.IPort[Config.Interface]
-		temp.PortConfig = strint
-		Config.IPort[Config.Interface] = temp
+		config.IPort[config.Interface] = temp
 	}
 
 	// Done
@@ -290,49 +386,31 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 }
 
 // ConfigSignedIn returns info about whether or not we're signed in
-func ConfigSignedIn() (username string, token string, authenticated bool) {
-	if Config.IPort == nil {
-		Config.IPort = map[string]ConfigPort{}
+//
+// TODO: check credentials by issuing an HTTP request
+// maybe this should return an error if a PAT is expired?
+// what happens if an access token is expired?
+func ConfigSignedIn() *ConfigCreds {
+	if creds, present := config.HubCreds[config.Hub]; present && creds.Token != "" && creds.User != "" {
+		creds.Hub = config.Hub
+		return &creds
 	}
-	if Config.HubCreds == nil {
-		Config.HubCreds = map[string]ConfigCreds{}
-	}
-	hub := Config.Hub
-	if hub == "" {
-		hub = notehub.DefaultAPIService
-	}
-	creds, present := Config.HubCreds[hub]
-	if present {
-		if creds.Token != "" && creds.User != "" {
-			authenticated = true
-			username = creds.User
-			token = creds.Token
-		}
-	}
-
-	return
-
+	return nil
 }
 
 // ConfigAuthenticationHeader sets the authorization field in the header as appropriate
-func ConfigAuthenticationHeader(httpReq *http.Request) (err error) {
-
+func ConfigAuthenticationHeader(httpReq *http.Request) error {
 	// Exit if not signed in
-	_, token, authenticated := ConfigSignedIn()
-	if !authenticated {
-		hub := Config.Hub
-		if hub == "" {
-			hub = notehub.DefaultAPIService
-		}
-		err = fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", hub)
-		return
+	credentials := ConfigSignedIn()
+	if credentials == nil {
+		return fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", config.Hub)
 	}
 
 	// Set the header
-	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Authorization", "Bearer "+credentials.Token)
 
 	// Done
-	return
+	return nil
 
 }
 
@@ -340,7 +418,7 @@ func ConfigAuthenticationHeader(httpReq *http.Request) (err error) {
 // the default Blues API service.  Regardless, it always makes sure that the host has "api." as a prefix.
 // This enables flexibility in what's configured.
 func ConfigAPIHub() (hub string) {
-	hub = Config.Hub
+	hub = config.Hub
 	if hub == "" || hub == "-" {
 		hub = notehub.DefaultAPIService
 	}
@@ -353,7 +431,7 @@ func ConfigAPIHub() (hub string) {
 // ConfigNotecardHub returns the configured notehub, for use as the Notecard host.  If none is configured
 // it returns "".  Regardless, it always makes sure that the host does NOT have "api." as a prefix.
 func ConfigNotecardHub() (hub string) {
-	hub = Config.Hub
+	hub = config.Hub
 	if hub == "" || hub == "-" {
 		hub = notehub.DefaultAPIService
 	}
@@ -363,8 +441,8 @@ func ConfigNotecardHub() (hub string) {
 
 // ConfigSetHub clears the hub
 func ConfigSetHub(hub string) {
-	if hub == "-" {
-		hub = ""
+	if hub == "-" || hub == "" {
+		hub = notehub.DefaultAPIService
 	}
-	Config.Hub = hub
+	config.Hub = hub
 }
