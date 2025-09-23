@@ -176,6 +176,23 @@ func (config *ConfigSettings) DefaultCredentials() *ConfigCreds {
 	return nil
 }
 
+// clear credentials for the currently config.Hub value
+// if the credentials are from OAuth, then revoke the access token
+func (config *ConfigSettings) RemoveDefaultCredentials() error {
+	credentials, present := config.HubCreds[config.Hub]
+	if !present {
+		return fmt.Errorf("not signed in to %s", config.Hub)
+	}
+
+	if !credentials.IsOAuthAccessToken() {
+		notehub.RevokeAccessToken(credentials.Hub, credentials.Token)
+	}
+
+	// remove the credentials, and write the credentials file
+	delete(config.HubCreds, config.Hub)
+	return config.Write()
+}
+
 func (config *ConfigSettings) SetDefaultCredentials(token string, email string, expiresAt *time.Time) {
 	config.HubCreds[config.Hub] = ConfigCreds{
 		Hub:       config.Hub,

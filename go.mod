@@ -4,7 +4,7 @@ go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
 
-// replace github.com/blues/note-go => ./note-go
+replace github.com/blues/note-go => ../hub/note-go
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20240515194341-6ba45582741d
@@ -12,7 +12,6 @@ require (
 	github.com/fatih/color v1.17.0
 	github.com/peterh/liner v1.2.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	golang.org/x/term v0.20.0
 )
 
 require (
@@ -24,6 +23,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
-	go.bug.st/serial v1.6.2 // indirect
+	go.bug.st/serial v1.6.2
+	golang.org/x/sys v0.20.0 // indirect
 	periph.io/x/host/v3 v3.8.2 // indirect
 )

@@ -5,7 +5,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -224,11 +223,9 @@ func main() {
 
 	// Process the sign-out
 	if flagSignOut {
-		if credentials != nil {
-			if err := authRevokeAccessToken(context.Background(), credentials); err != nil {
-				fmt.Printf("%s\n", err)
-				os.Exit(exitFail)
-			}
+		if err := config.RemoveDefaultCredentials(); err != nil {
+			fmt.Printf("%s\n", err)
+			os.Exit(exitFail)
 		}
 		os.Exit(exitOk)
 	}
