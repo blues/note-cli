@@ -70,7 +70,13 @@ func pcapRecord(outputFile string, pcapType string, card *notecard.Context) erro
 
 	// Use the explicit PCAP mode provided by the user
 	pcapMode := "pcap-" + pcapType
-	fmt.Printf("Using PCAP mode: %s (port: %s)\n", pcapMode, lib.Config.IPort[lib.Config.Interface].Port)
+	config, err := lib.GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get configuration: %w", err)
+	}
+	iport := config.IPort[config.Interface]
+
+	fmt.Printf("Using PCAP mode: %s (port: %s)\n", pcapMode, iport.Port)
 
 	// Enable PCAP mode
 	_, err = card.TransactionRequest(notecard.Request{
@@ -88,12 +94,12 @@ func pcapRecord(outputFile string, pcapType string, card *notecard.Context) erro
 	time.Sleep(500 * time.Millisecond)
 
 	// Open the raw serial port for PCAP data streaming
-	fmt.Printf("Opening serial port for PCAP streaming: %s\n", lib.Config.IPort[lib.Config.Interface].Port)
+	fmt.Printf("Opening serial port for PCAP streaming: %s\n", iport.Port)
 
 	// Configure serial port settings
 	baudRate := 115200 // Default baud rate for PCAP
-	if lib.Config.IPort[lib.Config.Interface].PortConfig > 0 {
-		baudRate = lib.Config.IPort[lib.Config.Interface].PortConfig
+	if iport.PortConfig > 0 {
+		baudRate = iport.PortConfig
 	}
 
 	mode := &serial.Mode{
@@ -103,7 +109,7 @@ func pcapRecord(outputFile string, pcapType string, card *notecard.Context) erro
 		StopBits: serial.OneStopBit,
 	}
 
-	port, err := serial.Open(lib.Config.IPort[lib.Config.Interface].Port, mode)
+	port, err := serial.Open(iport.Port, mode)
 	if err != nil {
 		return fmt.Errorf("failed to open serial port: %w", err)
 	}
