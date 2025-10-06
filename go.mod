@@ -4,11 +4,12 @@ go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
 
-replace github.com/blues/note-go => ../hub/note-go
+// uncomment this for easier testing locally
+// replace github.com/blues/note-go => ../hub/note-go
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20240515194341-6ba45582741d
-	github.com/blues/note-go v1.7.2
+	github.com/blues/note-go v1.7.3
 	github.com/fatih/color v1.17.0
 	github.com/peterh/liner v1.2.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
