@@ -166,14 +166,21 @@ func main() {
 		os.Exit(exitFail)
 	}
 
+	// after flags are parsed, get the resulting configuration
+	config, err := lib.GetConfig()
+	if err != nil {
+		fmt.Printf("%s\n", err)
+		os.Exit(exitFail)
+	}
+
 	// If no commands found, just show the config
 	if len(os.Args) == 1 {
 		lib.PrintGroupedFlags(getFlagGroups(), "notehub")
-		lib.ConfigShow()
+		config.Print()
 		os.Exit(exitOk)
 	}
 
-	// Process the sign-in request
+	// Process the interactive sign-in
 	if flagSignIn {
 		err = authSignIn()
 		if err != nil {
@@ -181,6 +188,8 @@ func main() {
 			os.Exit(exitFail)
 		}
 	}
+
+	// Process the sign-in with explicit personal access token
 	if flagSignInToken != "" {
 		err = authSignInToken(flagSignInToken)
 		if err != nil {
@@ -188,35 +197,39 @@ func main() {
 			os.Exit(exitFail)
 		}
 	}
+
+	// Get the current API credentials
+	credentials := config.DefaultCredentials()
+
+	// Process the sign-out
 	if flagSignOut {
-		err = authSignOut()
-		if err != nil {
+		if err := config.RemoveDefaultCredentials(); err != nil {
 			fmt.Printf("%s\n", err)
 			os.Exit(exitFail)
 		}
+		os.Exit(exitOk)
+	}
+
+	// Display the token
+	if flagToken {
+		if credentials == nil {
+			fmt.Printf("please sign in using -signin or -signin-token\n")
+			os.Exit(exitFail)
+		}
+
+		fmt.Printf("%s\n", credentials.Token)
+		os.Exit(exitOk)
+	}
+
+	// Past this point, we need valid credentials, so validate them here
+	if err := credentials.Validate(); err != nil {
+		fmt.Printf("invalid credentials for %s: %s\n\n", config.Hub, err)
+		fmt.Printf("please use 'notehub -signin' or 'notehub -signin-token' to sign into Notehub\n")
+		os.Exit(exitFail)
 	}
 
 	// See if we did something
 	didSomething := false
-
-	// Display the token
-	if flagToken {
-		_, _, authenticated := lib.ConfigSignedIn()
-		if !authenticated {
-			fmt.Printf("please sign in using -signin\n")
-			os.Exit(exitFail)
-		}
-		var token, username string
-		username, token, err = authToken()
-		if err != nil {
-			fmt.Printf("%s\n", err)
-			os.Exit(exitFail)
-		} else {
-			fmt.Printf("To issue HTTP API requests on behalf of %s place the token into the X-Session-Token header field\n", username)
-			fmt.Printf("%s\n", token)
-		}
-		didSomething = true
-	}
 
 	// Create an output function that will be used during -req processing
 	outq := make(chan string)

@@ -243,10 +243,16 @@ func main() {
 		exitFailAndCloseCard()
 	}
 
+	config, err := lib.GetConfig()
+	if err != nil {
+		fmt.Printf("%s\n", err)
+		exitFailAndCloseCard()
+	}
+
 	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
 	if len(os.Args) == 1 {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
-		lib.ConfigShow()
+		config.Print()
 		fmt.Printf("\n")
 		fmt.Printf("PCAP Usage:\n")
 		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
@@ -255,9 +261,9 @@ func main() {
 		fmt.Printf("  Example: notecard -port /dev/ttyAMA0 -pcap aux -portconfig 115200 -output capture.pcap\n")
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
-		if lib.Config.Interface != "" {
-			nInterface = lib.Config.Interface
-			nPort = lib.Config.IPort[lib.Config.Interface].Port
+		if config.Interface != "" {
+			nInterface = config.Interface
+			nPort = config.IPort[config.Interface].Port
 		}
 		var ports []string
 		if nInterface == notecard.NotecardInterfaceSerial {
@@ -270,7 +276,7 @@ func main() {
 			fmt.Printf("Ports on '%s':\n", nInterface)
 			for _, port := range ports {
 				if port == nPort {
-					nPortConfig := lib.Config.IPort[lib.Config.Interface].PortConfig
+					nPortConfig := config.IPort[config.Interface].PortConfig
 					if nPortConfig == 0 {
 						fmt.Printf("   %s ***\n", port)
 					} else {
@@ -314,14 +320,14 @@ func main() {
 	}
 
 	// Open the card, just to make sure errors are reported early
-	configVal := lib.Config.IPort[lib.Config.Interface].PortConfig
+	configVal := config.IPort[config.Interface].PortConfig
 	if actionPlaytime != 0 {
 		configVal = actionPlaytime
 		actionPlayground = true
 	}
 	notecard.InitialDebugMode = actionVerbose
 	notecard.InitialTraceMode = actionTrace
-	card, err = notecard.Open(lib.Config.Interface, lib.Config.IPort[lib.Config.Interface].Port, configVal)
+	card, err = notecard.Open(config.Interface, config.IPort[config.Interface].Port, configVal)
 
 	// Process non-config commands
 	var rsp notecard.Request
