@@ -23,6 +23,7 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
+	github.com/shoenig/go-m1cpu v0.1.7 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	go.bug.st/serial v1.6.2
 	golang.org/x/sys v0.20.0 // indirect
