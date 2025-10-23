@@ -251,6 +251,12 @@ func GetConfig() (*ConfigSettings, error) {
 			config = defaultConfig()
 		}
 	}
+	if config.IPort == nil {
+		config.IPort = make(map[string]ConfigPort)
+	}
+	if config.HubCreds == nil {
+		config.HubCreds = make(map[string]ConfigCreds)
+	}
 	return config, nil
 }
 
@@ -278,6 +284,12 @@ func ConfigRead() error {
 		return fmt.Errorf("can't parse %s: %s", configPath, err)
 	}
 	config = &newConfig
+	if config.IPort == nil {
+		config.IPort = make(map[string]ConfigPort)
+	}
+	if config.HubCreds == nil {
+		config.HubCreds = make(map[string]ConfigCreds)
+	}
 
 	return nil
 }
@@ -378,8 +390,6 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 		if err := config.Write(); err != nil {
 			return fmt.Errorf("could not write config file: %w", err)
 		}
-		fmt.Printf("configuration file saved\n\n")
-		config.Print()
 	}
 
 	// Override, just for this session, with env vars

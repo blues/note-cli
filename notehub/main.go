@@ -100,6 +100,16 @@ func getFlagGroups() []lib.FlagGroup {
 	}
 }
 
+// withCreds validates credentials and then calls the provided function
+func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
+	if err := credentials.Validate(); err != nil {
+		config, _ := lib.GetConfig()
+		fmt.Printf("invalid credentials for %s: %s\n", config.Hub, err)
+		return fmt.Errorf("please use 'notehub -signin' or 'notehub -signin-token' to sign into Notehub")
+	}
+	return fn()
+}
+
 // Main entry point
 func main() {
 
@@ -162,14 +172,14 @@ func main() {
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
 	if err != nil {
-		fmt.Printf("%s\n", err)
+		fmt.Printf("flags: %s\n", err)
 		os.Exit(exitFail)
 	}
 
 	// after flags are parsed, get the resulting configuration
 	config, err := lib.GetConfig()
 	if err != nil {
-		fmt.Printf("%s\n", err)
+		fmt.Printf("config: %s\n", err)
 		os.Exit(exitFail)
 	}
 
@@ -184,7 +194,7 @@ func main() {
 	if flagSignIn {
 		err = authSignIn()
 		if err != nil {
-			fmt.Printf("%s\n", err)
+			fmt.Printf("sign-in: %s\n", err)
 			os.Exit(exitFail)
 		}
 	}
@@ -193,7 +203,7 @@ func main() {
 	if flagSignInToken != "" {
 		err = authSignInToken(flagSignInToken)
 		if err != nil {
-			fmt.Printf("%s\n", err)
+			fmt.Printf("sign-in-token: %s\n", err)
 			os.Exit(exitFail)
 		}
 	}
@@ -204,7 +214,7 @@ func main() {
 	// Process the sign-out
 	if flagSignOut {
 		if err := config.RemoveDefaultCredentials(); err != nil {
-			fmt.Printf("%s\n", err)
+			fmt.Printf("sign-out: %s\n", err)
 			os.Exit(exitFail)
 		}
 		os.Exit(exitOk)
@@ -222,11 +232,6 @@ func main() {
 	}
 
 	// Past this point, we need valid credentials, so validate them here
-	if err := credentials.Validate(); err != nil {
-		fmt.Printf("invalid credentials for %s: %s\n\n", config.Hub, err)
-		fmt.Printf("please use 'notehub -signin' or 'notehub -signin-token' to sign into Notehub\n")
-		os.Exit(exitFail)
-	}
 
 	// See if we did something
 	didSomething := false
@@ -261,10 +266,19 @@ func main() {
 	}
 
 	// Process requests
+	if err == nil && flagVersion {
+		didSomething = true
+		fmt.Printf("Notehub CLI Version: %s\n", version)
+	}
+
 	if flagReq != "" || flagUpload != "" {
-		var rsp []byte
-		rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
-		if err == nil {
+		didSomething = true
+		err = withCreds(credentials, func() (err error) {
+			var rsp []byte
+			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
+			if err != nil {
+				return err
+			}
 			if flagOut == "" {
 				if flagPretty {
 					var rspo map[string]interface{}
@@ -279,103 +293,115 @@ func main() {
 					fmt.Printf("%s", rsp)
 				}
 			} else {
-				outfile, err2 := os.Create(flagOut)
-				if err2 != nil {
-					fmt.Printf("Can't create output file: %s\n", err)
-					os.Exit(exitFail)
+				var outfile *os.File
+				outfile, err = os.Create(flagOut)
+				if err != nil {
+					return err
 				}
 				outfile.Write(rsp)
 				outfile.Close()
 			}
-			didSomething = true
-		}
+			return nil
+		})
 	}
 
 	// Explore the contents of the device
 	if err == nil && flagExplore && flagScope == "" {
-		err = explore(flagReserved, flagVerbose, flagPretty)
 		didSomething = true
+		err = withCreds(credentials, func() error {
+			return explore(flagReserved, flagVerbose, flagPretty)
+		})
 	}
 
 	// Enter trace mode
 	if err == nil && flagTrace {
-		err = trace()
 		didSomething = true
-	}
-
-	if err == nil && flagVersion {
-		fmt.Printf("Notehub CLI Version: %s\n", version)
-		didSomething = true
+		err = withCreds(credentials, func() error {
+			return trace()
+		})
 	}
 
 	// Determine the scope of a later request
 	var scopeDevices, scopeFleets []string
 	var appMetadata AppMetadata
 	if err == nil && flagScope != "" {
-		appMetadata, scopeDevices, scopeFleets, err = appGetScope(flagScope, flagVerbose)
 		didSomething = true
-		if err == nil {
-			if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
-				err = fmt.Errorf("'from' scope may include devices or fleets but not both")
-				fmt.Printf("%d devices and %d fleets\n%v\n%v\n", len(scopeDevices), len(scopeFleets), scopeDevices, scopeFleets)
+		err = withCreds(credentials, func() (err error) {
+			appMetadata, scopeDevices, scopeFleets, err = appGetScope(flagScope, flagVerbose)
+			if err == nil {
+				if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
+					err = fmt.Errorf("'from' scope may include devices or fleets but not both")
+					fmt.Printf("%d devices and %d fleets\n%v\n%v\n", len(scopeDevices), len(scopeFleets), scopeDevices, scopeFleets)
+				}
+				if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
+					err = fmt.Errorf("no devices or fleets found within the specified scope")
+				}
 			}
-			if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
-				err = fmt.Errorf("no devices or fleets found within the specified scope")
-			}
-		}
+			return err
+		})
 	}
 
 	// Provision devices before doing get or set
 	if err == nil && flagProvision {
-		if flagScope == "" {
-			err = fmt.Errorf("use -scope to specify device(s) to be provisioned")
-		} else {
-			if flagProduct == "" {
-				err = fmt.Errorf("productUID must be specified")
-			} else {
-				if len(scopeDevices) != 0 {
-					err = varsProvisionDevices(appMetadata, scopeDevices, flagProduct, flagSn, flagVerbose)
-				} else {
-					err = fmt.Errorf("no devices to provision")
-				}
+		didSomething = true
+		err = withCreds(credentials, func() error {
+			if flagScope == "" {
+				return fmt.Errorf("use -scope to specify device(s) to be provisioned")
 			}
-		}
+			if flagProduct == "" {
+				return fmt.Errorf("productUID must be specified")
+			}
+			if len(scopeDevices) != 0 {
+				return varsProvisionDevices(appMetadata, scopeDevices, flagProduct, flagSn, flagVerbose)
+			}
+			return fmt.Errorf("no devices to provision")
+		})
 	}
 
 	// Perform VarsGet actions based on scope
 	if err == nil && flagScope != "" && flagVarsGet {
-		var vars map[string]Vars
-		var varsJSON []byte
-		if len(scopeDevices) != 0 {
-			vars, err = varsGetFromDevices(appMetadata, scopeDevices, flagVerbose)
-		} else if len(scopeFleets) != 0 {
-			vars, err = varsGetFromFleets(appMetadata, scopeFleets, flagVerbose)
-		}
-		if err == nil {
+		didSomething = true
+		err = withCreds(credentials, func() (err error) {
+			var vars map[string]Vars
+			var varsJSON []byte
+			if len(scopeDevices) != 0 {
+				vars, err = varsGetFromDevices(appMetadata, scopeDevices, flagVerbose)
+			} else if len(scopeFleets) != 0 {
+				vars, err = varsGetFromFleets(appMetadata, scopeFleets, flagVerbose)
+			}
+			if err != nil {
+				return err
+			}
 			if flagPretty {
 				varsJSON, err = note.JSONMarshalIndent(vars, "", "    ")
 			} else {
 				varsJSON, err = note.JSONMarshal(vars)
 			}
-			if err == nil {
-				fmt.Printf("%s\n", varsJSON)
+			if err != nil {
+				return err
 			}
-		}
+			fmt.Printf("%s\n", varsJSON)
+			return nil
+		})
 	}
 
 	// Perform VarsSet actions based on scope
 	if err == nil && flagScope != "" && flagVarsSet != "" {
-		template := Vars{}
-		if strings.HasPrefix(flagVarsSet, "@") {
-			var templateJSON []byte
-			templateJSON, err = os.ReadFile(strings.TrimPrefix(flagVarsSet, "@"))
-			if err == nil {
-				err = note.JSONUnmarshal(templateJSON, &template)
+		didSomething = true
+		err = withCreds(credentials, func() (err error) {
+			template := Vars{}
+			if strings.HasPrefix(flagVarsSet, "@") {
+				var templateJSON []byte
+				templateJSON, err = os.ReadFile(strings.TrimPrefix(flagVarsSet, "@"))
+				if err == nil {
+					err = note.JSONUnmarshal(templateJSON, &template)
+				}
+			} else {
+				err = note.JSONUnmarshal([]byte(flagVarsSet), &template)
 			}
-		} else {
-			err = note.JSONUnmarshal([]byte(flagVarsSet), &template)
-		}
-		if err == nil {
+			if err != nil {
+				return err
+			}
 			var vars map[string]Vars
 			var varsJSON []byte
 			if len(scopeDevices) != 0 {
@@ -383,48 +409,60 @@ func main() {
 			} else if len(scopeFleets) != 0 {
 				vars, err = varsSetFromFleets(appMetadata, scopeFleets, template, flagVerbose)
 			}
-			if err == nil {
-				if flagPretty {
-					varsJSON, err = note.JSONMarshalIndent(vars, "", "    ")
-				} else {
-					varsJSON, err = note.JSONMarshal(vars)
-				}
-				if err == nil {
-					fmt.Printf("%s\n", varsJSON)
-				}
+			if err != nil {
+				return err
 			}
-		}
+			if flagPretty {
+				varsJSON, err = note.JSONMarshalIndent(vars, "", "    ")
+			} else {
+				varsJSON, err = note.JSONMarshal(vars)
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s\n", varsJSON)
+			return nil
+		})
 	}
 
 	// Explore the contents of the device
 	if err == nil && len(scopeDevices) != 0 && flagExplore {
 		didSomething = true
-		for _, deviceUID := range scopeDevices {
-			flagDevice = deviceUID
-			err = explore(flagReserved, flagVerbose, flagPretty)
-			if err != nil {
-				break
+		err = withCreds(credentials, func() (err error) {
+			for _, deviceUID := range scopeDevices {
+				flagDevice = deviceUID
+				err = explore(flagReserved, flagVerbose, flagPretty)
+				if err != nil {
+					return err
+				}
 			}
-		}
+			return nil
+		})
 	}
 
 	// If we didn't do anything and we're just asking about an app, do it
 	if err == nil && !didSomething && (flagApp != "" || flagProduct != "") {
-		appMetadata, err = appGetMetadata(flagVerbose, flagVarsGet)
-		if err == nil {
+		didSomething = true
+		err = withCreds(credentials, func() (err error) {
+			appMetadata, err = appGetMetadata(flagVerbose, flagVarsGet)
+			if err != nil {
+				return err
+			}
 			var metaJSON []byte
 			if flagPretty {
 				metaJSON, err = note.JSONMarshalIndent(appMetadata, "", "    ")
 			} else {
 				metaJSON, err = note.JSONMarshal(appMetadata)
 			}
-			if err == nil {
-				fmt.Printf("%s\n", metaJSON)
+			if err != nil {
+				return err
 			}
-		}
+			fmt.Printf("%s\n", metaJSON)
+			return nil
+		})
 	}
 
-	// Success
+	// Exit
 	if err != nil {
 		fmt.Printf("%s\n", err)
 		os.Exit(exitFail)
