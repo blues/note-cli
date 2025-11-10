@@ -86,7 +86,7 @@ nfpms:
   -
     id: notecard_deb
     package_name: notecard
-    builds:
+    ids:
      - notecard-linux
     vendor: Blues
     homepage: https://blues.com
@@ -99,7 +99,7 @@ nfpms:
   -
     id: notehub_deb
     package_name: notehub
-    builds:
+    ids:
      - notehub-linux
     vendor: Blues
     homepage: https://blues.com
@@ -109,7 +109,7 @@ nfpms:
     formats:
       - deb
 
-brews:
+homebrew_casks:
   - repository:
       owner: blues
       name: homebrew-note-cli
