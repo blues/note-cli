@@ -44,6 +44,10 @@ func (creds ConfigCreds) AddHttpAuthHeader(req *http.Request) {
 }
 
 func IntrospectToken(hub string, token string) (string, error) {
+	if !strings.HasPrefix(hub, "api.") {
+		hub = "api." + hub
+	}
+
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://%s/userinfo", hub), nil)
 	if err != nil {
 		return "", err
