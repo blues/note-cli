@@ -109,8 +109,21 @@ nfpms:
     formats:
       - deb
 
+archives:
+  - id: note-cli
+    ids:
+      - notecard
+      - notehub
+      - notecard-linux
+      - notehub-linux
+
 homebrew_casks:
-  - repository:
+  - ids:
+      - note-cli
+    binaries:
+      - notecard
+      - notehub
+    repository:
       owner: blues
       name: homebrew-note-cli
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
