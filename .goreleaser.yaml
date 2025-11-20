@@ -114,7 +114,6 @@ homebrew_casks:
       owner: blues
       name: homebrew-note-cli
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Formula
     homepage: https://blues.com
     description: Note CLI
     license: MIT
