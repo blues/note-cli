@@ -9,9 +9,11 @@ The Notecard & Notehub CLIs can be installed either with a package manager (`hom
 ### Homebrew
 
 ```bash
-brew tap blues/note-cli
-brew install note-cli
+brew install --cask blues/note-cli/note-cli
 ```
+
+> [!IMPORTANT]
+If you are upgrading from a version older than v1.9.1 to a newer version, using `brew`, you will need to uninstall first using `brew uninstall note-cli`.
 
 ### Downloading the binaries
 

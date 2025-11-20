@@ -130,3 +130,10 @@ homebrew_casks:
     homepage: https://blues.com
     description: Note CLI
     license: MIT
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/notecard"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/notehub"]
+          end
