@@ -1,4 +1,5 @@
 notecard-schema/
 dist/
+bin/
 
 .DS_Store
