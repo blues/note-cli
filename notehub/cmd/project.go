@@ -29,10 +29,10 @@ var projectListCmd = &cobra.Command{
 
 		// Get all projects using V1 API: GET /v1/projects
 		type Project struct {
-			UID                string `json:"uid"`
-			Label              string `json:"label"`
-			BillingAccountUID  string `json:"billing_account_uid"`
-			DisableDevicesByDefault bool `json:"disable_devices_by_default"`
+			UID                     string `json:"uid"`
+			Label                   string `json:"label"`
+			BillingAccountUID       string `json:"billing_account_uid"`
+			DisableDevicesByDefault bool   `json:"disable_devices_by_default"`
 		}
 
 		type ProjectsResponse struct {
@@ -84,7 +84,7 @@ var projectListCmd = &cobra.Command{
 		}
 
 		if currentProject == "" {
-			fmt.Println("No project selected. Use 'notehub project set <name-or-uid>' to select one.\n")
+			fmt.Println("No project selected. Use 'notehub project set <name-or-uid>' to select one.")
 		}
 
 		// Show credentials user
