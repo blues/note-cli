@@ -169,6 +169,27 @@ func appGetScope(scope string, flagVerbose bool) (appMetadata AppMetadata, scope
 	return
 }
 
+// ResolveScopeWithValidation is a convenience wrapper around appGetScope that:
+// 1. Automatically uses GetVerbose() for the verbose flag
+// 2. Validates that at least one device or fleet was found
+// 3. Returns a more user-friendly error message
+//
+// This reduces boilerplate in commands that use scope resolution.
+func ResolveScopeWithValidation(scope string) (appMetadata AppMetadata, scopeDevices []string, scopeFleets []string, err error) {
+	verbose := GetVerbose()
+	appMetadata, scopeDevices, scopeFleets, err = appGetScope(scope, verbose)
+	if err != nil {
+		return
+	}
+
+	if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
+		err = fmt.Errorf("no devices or fleets found within the specified scope")
+		return
+	}
+
+	return
+}
+
 // Recursively add scope
 func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, scopeFleets *[]string, flagVerbose bool) (err error) {
 	if strings.HasPrefix(scope, "dev:") {

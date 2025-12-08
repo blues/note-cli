@@ -46,20 +46,16 @@ Scope can be:
 			return fmt.Errorf("use --scope to specify device(s) or fleet(s)")
 		}
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, scopeFleets, err := appGetScope(flagScope, verbose)
+		appMetadata, scopeDevices, scopeFleets, err := ResolveScopeWithValidation(flagScope)
 		if err != nil {
 			return err
-		}
-
-		if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
-			return fmt.Errorf("no devices or fleets found within the specified scope")
 		}
 
 		if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
 			return fmt.Errorf("scope may include devices or fleets but not both")
 		}
 
+		verbose := GetVerbose()
 		var vars map[string]Vars
 		if len(scopeDevices) != 0 {
 			vars, err = varsGetFromDevices(appMetadata, scopeDevices, verbose)
@@ -104,14 +100,9 @@ Example:
 			return fmt.Errorf("use --scope to specify device(s) or fleet(s)")
 		}
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, scopeFleets, err := appGetScope(flagScope, verbose)
+		appMetadata, scopeDevices, scopeFleets, err := ResolveScopeWithValidation(flagScope)
 		if err != nil {
 			return err
-		}
-
-		if len(scopeDevices) == 0 && len(scopeFleets) == 0 {
-			return fmt.Errorf("no devices or fleets found within the specified scope")
 		}
 
 		if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
@@ -135,6 +126,7 @@ Example:
 			return err
 		}
 
+		verbose := GetVerbose()
 		var vars map[string]Vars
 		if len(scopeDevices) != 0 {
 			vars, err = varsSetFromDevices(appMetadata, scopeDevices, template, verbose)

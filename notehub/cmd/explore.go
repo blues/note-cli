@@ -39,16 +39,13 @@ Example:
 
 		// If scope is specified, iterate over multiple devices
 		if flagScope != "" {
-			verbose := GetVerbose()
-			pretty := GetPretty()
-			appMetadata, scopeDevices, _, err := appGetScope(flagScope, verbose)
+			appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(flagScope)
 			if err != nil {
 				return err
 			}
 
-			if len(scopeDevices) == 0 {
-				return fmt.Errorf("no devices found within the specified scope")
-			}
+			verbose := GetVerbose()
+			pretty := GetPretty()
 
 			for _, deviceUID := range scopeDevices {
 				reqFlagDevice = deviceUID

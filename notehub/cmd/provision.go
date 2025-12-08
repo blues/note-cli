@@ -60,16 +60,12 @@ Examples:
 			return fmt.Errorf("--product must be specified (the product UID to provision devices to)")
 		}
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, _, err := appGetScope(flagScope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(flagScope)
 		if err != nil {
 			return err
 		}
 
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices to provision")
-		}
-
+		verbose := GetVerbose()
 		err = varsProvisionDevices(appMetadata, scopeDevices, product, flagSn, verbose)
 		if err != nil {
 			return err

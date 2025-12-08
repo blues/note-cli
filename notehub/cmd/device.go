@@ -168,17 +168,13 @@ Examples:
 
 		scope := args[0]
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, _, err := appGetScope(scope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
 		if err != nil {
 			return err
 		}
 
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices to enable")
-		}
-
 		// Enable each device
+		verbose := GetVerbose()
 		for _, deviceUID := range scopeDevices {
 			url := fmt.Sprintf("/v1/projects/%s/devices/%s/enable", appMetadata.App.UID, deviceUID)
 			err := reqHubV1(verbose, GetAPIHub(), "POST", url, nil, nil)
@@ -229,17 +225,13 @@ Examples:
 
 		scope := args[0]
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, _, err := appGetScope(scope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
 		if err != nil {
 			return err
 		}
 
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices to disable")
-		}
-
 		// Disable each device
+		verbose := GetVerbose()
 		for _, deviceUID := range scopeDevices {
 			url := fmt.Sprintf("/v1/projects/%s/devices/%s/disable", appMetadata.App.UID, deviceUID)
 			err := reqHubV1(verbose, GetAPIHub(), "POST", url, nil, nil)
@@ -292,14 +284,9 @@ Examples:
 		scope := args[0]
 		targetFleetIdentifier := args[1]
 
-		verbose := GetVerbose()
-		appMetadata, scopeDevices, _, err := appGetScope(scope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
 		if err != nil {
 			return err
-		}
-
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices to move")
 		}
 
 		// Find the target fleet by UID or name
@@ -332,6 +319,8 @@ Examples:
 				Label string `json:"label"`
 			} `json:"fleets"`
 		}
+
+		verbose := GetVerbose()
 
 		// Move each device to the target fleet
 		for _, deviceUID := range scopeDevices {

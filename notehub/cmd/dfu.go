@@ -77,17 +77,13 @@ Examples:
 			return fmt.Errorf("firmware type must be 'host' or 'notecard', got '%s'", firmwareType)
 		}
 
-		verbose := GetVerbose()
-
 		// Resolve scope to device UIDs
-		appMetadata, scopeDevices, _, err := appGetScope(scope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
 		if err != nil {
 			return err
 		}
 
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices found in scope '%s'", scope)
-		}
+		verbose := GetVerbose()
 
 		// Get additional filter flags
 		tags, _ := cmd.Flags().GetString("tag")
@@ -273,17 +269,13 @@ Examples:
 			return fmt.Errorf("firmware type must be 'host' or 'notecard', got '%s'", firmwareType)
 		}
 
-		verbose := GetVerbose()
-
 		// Resolve scope to device UIDs
-		appMetadata, scopeDevices, _, err := appGetScope(scope, verbose)
+		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
 		if err != nil {
 			return err
 		}
 
-		if len(scopeDevices) == 0 {
-			return fmt.Errorf("no devices found in scope '%s'", scope)
-		}
+		verbose := GetVerbose()
 
 		// Get additional filter flags
 		tags, _ := cmd.Flags().GetString("tag")
