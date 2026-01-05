@@ -197,33 +197,28 @@ func handleProjectSelection(projectFlag string) error {
 
 // setProjectByIdentifier sets a project by name or UID (from project.go logic)
 func setProjectByIdentifier(identifier string) error {
-	type Project struct {
-		UID   string `json:"uid"`
-		Label string `json:"label"`
-	}
-
-	type ProjectsResponse struct {
-		Projects []Project `json:"projects"`
+	// Get SDK client
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return err
 	}
 
 	// First, try to use it directly as a UID
-	var selectedProject Project
-	url := fmt.Sprintf("/v1/projects/%s", identifier)
-	err := reqHubV1(false, GetAPIHub(), "GET", url, nil, &selectedProject)
+	project, resp, err := client.ProjectAPI.GetProject(ctx, identifier).Execute()
 
-	// If that failed or returned empty UID, it might be a project name
-	if err != nil || selectedProject.UID == "" {
-		projectsRsp := ProjectsResponse{}
-		err = reqHubV1(false, GetAPIHub(), "GET", "/v1/projects", nil, &projectsRsp)
+	// If that failed, it might be a project name - fetch all projects and search
+	if err != nil || (resp != nil && resp.StatusCode == 404) {
+		projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
 
-		// Search for project by name
+		// Search for project by name (exact match)
 		found := false
-		for _, project := range projectsRsp.Projects {
-			if project.Label == identifier {
-				selectedProject = project
+		for _, proj := range projectsRsp.Projects {
+			if proj.Label == identifier {
+				project = &proj
 				found = true
 				break
 			}
@@ -235,31 +230,28 @@ func setProjectByIdentifier(identifier string) error {
 	}
 
 	// Save to config
-	viper.Set("project", selectedProject.UID)
+	viper.Set("project", project.Uid)
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("\nActive project set to: %s\n", selectedProject.Label)
-	fmt.Printf("Project UID: %s\n\n", selectedProject.UID)
+	fmt.Printf("\nActive project set to: %s\n", project.Label)
+	fmt.Printf("Project UID: %s\n\n", project.Uid)
 
 	return nil
 }
 
 // interactiveProjectSelection prompts the user to select a project interactively
 func interactiveProjectSelection() error {
-	type Project struct {
-		UID   string `json:"uid"`
-		Label string `json:"label"`
-	}
-
-	type ProjectsResponse struct {
-		Projects []Project `json:"projects"`
+	// Get SDK client
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return err
 	}
 
 	// Fetch all projects
-	projectsRsp := ProjectsResponse{}
-	err := reqHubV1(false, GetAPIHub(), "GET", "/v1/projects", nil, &projectsRsp)
+	projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 	if err != nil {
 		// If we can't fetch projects, just show instructions
 		fmt.Println()
@@ -314,14 +306,14 @@ func interactiveProjectSelection() error {
 
 	// Set the selected project
 	selectedProject := projectsRsp.Projects[selection-1]
-	viper.Set("project", selectedProject.UID)
+	viper.Set("project", selectedProject.Uid)
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	fmt.Println()
 	fmt.Printf("Active project set to: %s\n", selectedProject.Label)
-	fmt.Printf("Project UID: %s\n\n", selectedProject.UID)
+	fmt.Printf("Project UID: %s\n\n", selectedProject.Uid)
 
 	return nil
 }

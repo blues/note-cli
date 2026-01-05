@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 )
@@ -34,32 +35,14 @@ var deviceListCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define device types
-		type Device struct {
-			UID            string    `json:"uid"`
-			SerialNumber   string    `json:"serial_number"`
-			ProductUID     string    `json:"product_uid,omitempty"`
-			FleetUIDs      []string  `json:"fleet_uids,omitempty"`
-			LastActivity   time.Time `json:"last_activity,omitempty"`
-			ContactedAt    time.Time `json:"contacted,omitempty"`
-			Provisioned    time.Time `json:"provisioned,omitempty"`
-			LocationName   string    `json:"tower_location_name,omitempty"`
-			LocationWhen   time.Time `json:"tower_when,omitempty"`
-			DeviceType     string    `json:"sku,omitempty"`
-			NotecardVersion string   `json:"notecard_firmware_version,omitempty"`
-			HostVersion    string    `json:"host_firmware_version,omitempty"`
+		// Get devices using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type DevicesResponse struct {
-			Devices    []Device `json:"devices"`
-			HasMore    bool     `json:"has_more"`
-			TotalCount int      `json:"total_count,omitempty"`
-		}
-
-		// Get devices using V1 API: GET /v1/projects/{projectUID}/devices
-		devicesRsp := DevicesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices", projectUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &devicesRsp)
+		devicesResp, _, err := client.DeviceAPI.GetDevices(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list devices: %w", err)
 		}
@@ -69,9 +52,9 @@ var deviceListCmd = &cobra.Command{
 			var output []byte
 			var err error
 			if GetPretty() {
-				output, err = note.JSONMarshalIndent(devicesRsp, "", "  ")
+				output, err = note.JSONMarshalIndent(devicesResp, "", "  ")
 			} else {
-				output, err = note.JSONMarshal(devicesRsp)
+				output, err = note.JSONMarshal(devicesResp)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON: %w", err)
@@ -80,7 +63,7 @@ var deviceListCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(devicesRsp.Devices) == 0 {
+		if len(devicesResp.Devices) == 0 {
 			fmt.Println("No devices found in this project.")
 			return nil
 		}
@@ -89,43 +72,39 @@ var deviceListCmd = &cobra.Command{
 		fmt.Printf("\nDevices in Project:\n")
 		fmt.Printf("===================\n\n")
 
-		for _, device := range devicesRsp.Devices {
-			fmt.Printf("Device: %s\n", device.UID)
-			if device.SerialNumber != "" {
-				fmt.Printf("  Serial Number: %s\n", device.SerialNumber)
+		for _, device := range devicesResp.Devices {
+			fmt.Printf("Device: %s\n", device.Uid)
+			if device.SerialNumber != nil && *device.SerialNumber != "" {
+				fmt.Printf("  Serial Number: %s\n", *device.SerialNumber)
 			}
-			if device.ProductUID != "" {
-				fmt.Printf("  Product: %s\n", device.ProductUID)
+			if device.ProductUid != "" {
+				fmt.Printf("  Product: %s\n", device.ProductUid)
 			}
-			if device.DeviceType != "" {
-				fmt.Printf("  Type: %s\n", device.DeviceType)
+			if device.Sku != nil && *device.Sku != "" {
+				fmt.Printf("  Type: %s\n", *device.Sku)
 			}
-			if device.NotecardVersion != "" {
-				fmt.Printf("  Notecard Firmware: %s\n", device.NotecardVersion)
+			if device.FirmwareNotecard != nil && *device.FirmwareNotecard != "" {
+				fmt.Printf("  Notecard Firmware: %s\n", *device.FirmwareNotecard)
 			}
-			if device.HostVersion != "" {
-				fmt.Printf("  Host Firmware: %s\n", device.HostVersion)
+			if device.FirmwareHost != nil && *device.FirmwareHost != "" {
+				fmt.Printf("  Host Firmware: %s\n", *device.FirmwareHost)
 			}
-			if !device.LastActivity.IsZero() {
-				fmt.Printf("  Last Activity: %s\n", device.LastActivity.Format("2006-01-02 15:04:05 MST"))
-			}
-			if !device.ContactedAt.IsZero() {
-				fmt.Printf("  Last Contact: %s\n", device.ContactedAt.Format("2006-01-02 15:04:05 MST"))
+			if device.LastActivity.IsSet() {
+				if lastActivity := device.LastActivity.Get(); lastActivity != nil && !lastActivity.IsZero() {
+					fmt.Printf("  Last Activity: %s\n", lastActivity.Format("2006-01-02 15:04:05 MST"))
+				}
 			}
 			if !device.Provisioned.IsZero() {
 				fmt.Printf("  Provisioned: %s\n", device.Provisioned.Format("2006-01-02 15:04:05 MST"))
 			}
-			if device.LocationName != "" {
-				fmt.Printf("  Location: %s\n", device.LocationName)
-			}
-			if len(device.FleetUIDs) > 0 {
-				fmt.Printf("  Fleets: %d\n", len(device.FleetUIDs))
+			if device.FleetUids != nil && len(device.FleetUids) > 0 {
+				fmt.Printf("  Fleets: %d\n", len(device.FleetUids))
 			}
 			fmt.Println()
 		}
 
-		fmt.Printf("Total devices: %d\n", len(devicesRsp.Devices))
-		if devicesRsp.HasMore {
+		fmt.Printf("Total devices: %d\n", len(devicesResp.Devices))
+		if devicesResp.HasMore {
 			fmt.Println("(showing first page of results)")
 		}
 		fmt.Println()
@@ -173,11 +152,16 @@ Examples:
 			return err
 		}
 
-		// Enable each device
+		// Enable each device using SDK
 		verbose := GetVerbose()
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
 		for _, deviceUID := range scopeDevices {
-			url := fmt.Sprintf("/v1/projects/%s/devices/%s/enable", appMetadata.App.UID, deviceUID)
-			err := reqHubV1(verbose, GetAPIHub(), "POST", url, nil, nil)
+			_, err := client.DeviceAPI.EnableDevice(ctx, appMetadata.App.UID, deviceUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to enable device %s: %w", deviceUID, err)
 			}
@@ -230,11 +214,16 @@ Examples:
 			return err
 		}
 
-		// Disable each device
+		// Disable each device using SDK
 		verbose := GetVerbose()
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
 		for _, deviceUID := range scopeDevices {
-			url := fmt.Sprintf("/v1/projects/%s/devices/%s/disable", appMetadata.App.UID, deviceUID)
-			err := reqHubV1(verbose, GetAPIHub(), "POST", url, nil, nil)
+			_, err := client.DeviceAPI.DisableDevice(ctx, appMetadata.App.UID, deviceUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to disable device %s: %w", deviceUID, err)
 			}
@@ -308,43 +297,32 @@ Examples:
 			}
 		}
 
-		// Define request body types
-		type FleetRequest struct {
-			FleetUIDs []string `json:"fleet_uids"`
-		}
-
-		type FleetResponse struct {
-			Fleets []struct {
-				UID   string `json:"uid"`
-				Label string `json:"label"`
-			} `json:"fleets"`
-		}
-
 		verbose := GetVerbose()
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
 
-		// Move each device to the target fleet
+		// Move each device to the target fleet using SDK
 		for _, deviceUID := range scopeDevices {
-			url := fmt.Sprintf("/v1/projects/%s/devices/%s/fleets", appMetadata.App.UID, deviceUID)
-
 			// First, get the device's current fleets
-			var currentFleets FleetResponse
-			err := reqHubV1(verbose, GetAPIHub(), "GET", url, nil, &currentFleets)
+			currentFleets, _, err := client.ProjectAPI.GetDeviceFleets(ctx, appMetadata.App.UID, deviceUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to get current fleets for device %s: %w", deviceUID, err)
 			}
 
 			// Remove device from all current fleets if it has any
-			if len(currentFleets.Fleets) > 0 {
+			if currentFleets.Fleets != nil && len(currentFleets.Fleets) > 0 {
 				currentFleetUIDs := make([]string, len(currentFleets.Fleets))
 				for i, fleet := range currentFleets.Fleets {
-					currentFleetUIDs[i] = fleet.UID
+					currentFleetUIDs[i] = fleet.Uid
 				}
-				removeBody := FleetRequest{FleetUIDs: currentFleetUIDs}
-				removeJSON, err := note.JSONMarshal(removeBody)
-				if err != nil {
-					return fmt.Errorf("failed to marshal remove request: %w", err)
-				}
-				err = reqHubV1(verbose, GetAPIHub(), "DELETE", url, removeJSON, nil)
+
+				deleteReq := notehub.NewDeleteDeviceFromFleetsRequest(currentFleetUIDs)
+				_, _, err = client.ProjectAPI.DeleteDeviceFromFleets(ctx, appMetadata.App.UID, deviceUID).
+					DeleteDeviceFromFleetsRequest(*deleteReq).
+					Execute()
 				if err != nil {
 					return fmt.Errorf("failed to remove device %s from current fleets: %w", deviceUID, err)
 				}
@@ -354,12 +332,10 @@ Examples:
 			}
 
 			// Add device to the target fleet
-			addBody := FleetRequest{FleetUIDs: []string{targetFleetUID}}
-			addJSON, err := note.JSONMarshal(addBody)
-			if err != nil {
-				return fmt.Errorf("failed to marshal add request: %w", err)
-			}
-			err = reqHubV1(verbose, GetAPIHub(), "PUT", url, addJSON, nil)
+			addReq := notehub.NewAddDeviceToFleetsRequest([]string{targetFleetUID})
+			_, _, err = client.ProjectAPI.AddDeviceToFleets(ctx, appMetadata.App.UID, deviceUID).
+				AddDeviceToFleetsRequest(*addReq).
+				Execute()
 			if err != nil {
 				return fmt.Errorf("failed to move device %s to fleet: %w", deviceUID, err)
 			}
@@ -400,21 +376,14 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define health log types
-		type HealthLogEntry struct {
-			When  time.Time `json:"when"`
-			Alert bool      `json:"alert"`
-			Text  string    `json:"text"`
+		// Get device health log using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type HealthLogResponse struct {
-			HealthLog []HealthLogEntry `json:"health_log"`
-		}
-
-		// Get device health log using V1 API: GET /v1/projects/{projectUID}/devices/{deviceUID}/health-log
-		healthLogRsp := HealthLogResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/health-log", projectUID, deviceUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &healthLogRsp)
+		healthLogRsp, _, err := client.DeviceAPI.GetDeviceHealthLog(ctx, projectUID, deviceUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to get device health log: %w", err)
 		}
@@ -486,66 +455,14 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define session types
-		type Tower struct {
-			Time   int64   `json:"time,omitempty"`
-			Name   string  `json:"n,omitempty"`
-			Country string `json:"c,omitempty"`
-			Lat    float64 `json:"lat,omitempty"`
-			Lon    float64 `json:"lon,omitempty"`
-			Zone   string  `json:"zone,omitempty"`
+		// Get device sessions using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type Period struct {
-			Since      int64 `json:"since,omitempty"`
-			Duration   int64 `json:"duration,omitempty"`
-			BytesRcvd  int64 `json:"bytes_rcvd,omitempty"`
-			BytesSent  int64 `json:"bytes_sent,omitempty"`
-			SessionsTLS int64 `json:"sessions_tls,omitempty"`
-			NotesSent  int64 `json:"notes_sent,omitempty"`
-		}
-
-		type Session struct {
-			SessionUID       string    `json:"session"`
-			Device           string    `json:"device,omitempty"`
-			Product          string    `json:"product,omitempty"`
-			Fleets           []string  `json:"fleets,omitempty"`
-			When             int64     `json:"when,omitempty"`
-			SessionBegan     int64     `json:"session_began,omitempty"`
-			SessionEnded     int64     `json:"session_ended,omitempty"`
-			WhyOpened        string    `json:"why_session_opened,omitempty"`
-			WhyClosed        string    `json:"why_session_closed,omitempty"`
-			Cell             string    `json:"cell,omitempty"`
-			RSSI             int       `json:"rssi,omitempty"`
-			SINR             int       `json:"sinr,omitempty"`
-			RSRP             int       `json:"rsrp,omitempty"`
-			RSRQ             int       `json:"rsrq,omitempty"`
-			Bars             int       `json:"bars,omitempty"`
-			RAT              string    `json:"rat,omitempty"`
-			Bearer           string    `json:"bearer,omitempty"`
-			IP               string    `json:"ip,omitempty"`
-			ICCID            string    `json:"iccid,omitempty"`
-			APN              string    `json:"apn,omitempty"`
-			Tower            *Tower    `json:"tower,omitempty"`
-			Voltage          float64   `json:"voltage,omitempty"`
-			Temp             float64   `json:"temp,omitempty"`
-			Continuous       bool      `json:"continuous,omitempty"`
-			TLS              bool      `json:"tls,omitempty"`
-			Events           int       `json:"events,omitempty"`
-			Moved            int64     `json:"moved,omitempty"`
-			Orientation      string    `json:"orientation,omitempty"`
-			Period           *Period   `json:"period,omitempty"`
-		}
-
-		type SessionsResponse struct {
-			Sessions []Session `json:"sessions"`
-			HasMore  bool      `json:"has_more"`
-		}
-
-		// Get device sessions using V1 API: GET /v1/projects/{projectUID}/devices/{deviceUID}/sessions
-		sessionsRsp := SessionsResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/sessions", projectUID, deviceUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &sessionsRsp)
+		sessionsRsp, _, err := client.DeviceAPI.GetDeviceSessions(ctx, projectUID, deviceUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to get device sessions: %w", err)
 		}
@@ -581,60 +498,64 @@ Examples:
 			}
 
 			// Session ID and timing
-			fmt.Printf("Session: %s\n", session.SessionUID)
-			if session.When > 0 {
-				sessionTime := time.Unix(session.When, 0)
+			if session.Session != nil {
+				fmt.Printf("Session: %s\n", *session.Session)
+			}
+			if session.When != nil && *session.When > 0 {
+				sessionTime := time.Unix(*session.When, 0)
 				fmt.Printf("  Time: %s\n", sessionTime.Format("2006-01-02 15:04:05 MST"))
 			}
 
 			// Session status
-			if session.WhyOpened != "" {
-				fmt.Printf("  Opened: %s\n", session.WhyOpened)
+			if session.WhySessionOpened != nil && *session.WhySessionOpened != "" {
+				fmt.Printf("  Opened: %s\n", *session.WhySessionOpened)
 			}
-			if session.WhyClosed != "" {
-				fmt.Printf("  Closed: %s\n", session.WhyClosed)
+			if session.WhySessionClosed != nil && *session.WhySessionClosed != "" {
+				fmt.Printf("  Closed: %s\n", *session.WhySessionClosed)
 			}
 
 			// Network information
-			if session.RAT != "" || session.Bearer != "" {
-				fmt.Printf("  Network: %s", session.RAT)
-				if session.Bearer != "" {
-					fmt.Printf(" (%s)", session.Bearer)
+			if (session.Rat != nil && *session.Rat != "") || (session.Bearer != nil && *session.Bearer != "") {
+				if session.Rat != nil {
+					fmt.Printf("  Network: %s", *session.Rat)
+				}
+				if session.Bearer != nil && *session.Bearer != "" {
+					fmt.Printf(" (%s)", *session.Bearer)
 				}
 				fmt.Println()
 			}
 
 			// Signal quality
-			if session.Bars > 0 {
-				fmt.Printf("  Signal: %d bars", session.Bars)
-				if session.RSSI != 0 {
-					fmt.Printf(" (RSSI: %d)", session.RSSI)
+			if session.Bars != nil && *session.Bars > 0 {
+				fmt.Printf("  Signal: %d bars", *session.Bars)
+				if session.Rssi != nil && *session.Rssi != 0 {
+					fmt.Printf(" (RSSI: %d)", *session.Rssi)
 				}
 				fmt.Println()
 			}
 
 			// Location
-			if session.Tower != nil && session.Tower.Name != "" {
-				fmt.Printf("  Location: %s", session.Tower.Name)
-				if session.Tower.Country != "" {
-					fmt.Printf(", %s", session.Tower.Country)
+			if session.Tower != nil && session.Tower.N != nil && *session.Tower.N != "" {
+				fmt.Printf("  Location: %s", *session.Tower.N)
+				if session.Tower.C != nil && *session.Tower.C != "" {
+					fmt.Printf(", %s", *session.Tower.C)
 				}
 				fmt.Println()
 			}
 
 			// Device status
-			if session.Voltage > 0 {
-				fmt.Printf("  Voltage: %.3fV", session.Voltage)
-				if session.Temp > 0 {
-					fmt.Printf(", Temp: %.1f°C", session.Temp)
+			if session.Voltage != nil && *session.Voltage > 0 {
+				fmt.Printf("  Voltage: %.3fV", *session.Voltage)
+				if session.Temp != nil && *session.Temp > 0 {
+					fmt.Printf(", Temp: %.1f°C", *session.Temp)
 				}
 				fmt.Println()
 			}
 
 			// Session stats
-			if session.Events > 0 {
-				fmt.Printf("  Events: %d", session.Events)
-				if session.TLS {
+			if session.Events != nil && *session.Events > 0 {
+				fmt.Printf("  Events: %d", *session.Events)
+				if session.Tls != nil && *session.Tls {
 					fmt.Printf(" (TLS)")
 				}
 				fmt.Println()
@@ -642,10 +563,18 @@ Examples:
 
 			// Data transfer
 			if session.Period != nil {
-				if session.Period.BytesSent > 0 || session.Period.BytesRcvd > 0 {
-					fmt.Printf("  Data: sent %d bytes, received %d bytes", session.Period.BytesSent, session.Period.BytesRcvd)
-					if session.Period.Duration > 0 {
-						fmt.Printf(" (duration: %ds)", session.Period.Duration)
+				if (session.Period.BytesSent != nil && *session.Period.BytesSent > 0) ||
+				   (session.Period.BytesRcvd != nil && *session.Period.BytesRcvd > 0) {
+					var sent, rcvd int64
+					if session.Period.BytesSent != nil {
+						sent = *session.Period.BytesSent
+					}
+					if session.Period.BytesRcvd != nil {
+						rcvd = *session.Period.BytesRcvd
+					}
+					fmt.Printf("  Data: sent %d bytes, received %d bytes", sent, rcvd)
+					if session.Period.Duration != nil && *session.Period.Duration > 0 {
+						fmt.Printf(" (duration: %ds)", *session.Period.Duration)
 					}
 					fmt.Println()
 				}

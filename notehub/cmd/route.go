@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 )
@@ -46,12 +47,14 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
+		// Get routes using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
 
-		// Get routes using V1 API: GET /v1/projects/{projectUID}/routes
-		var routes []map[string]interface{}
-		url := fmt.Sprintf("/v1/projects/%s/routes", projectUID)
-		err := reqHubV1(verbose, GetAPIHub(), "GET", url, nil, &routes)
+		routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list routes: %w", err)
 		}
@@ -82,11 +85,26 @@ Examples:
 		fmt.Printf("============\n\n")
 
 		for _, route := range routes {
-			uid, _ := route["uid"].(string)
-			label, _ := route["label"].(string)
-			routeType, _ := route["type"].(string)
-			modified, _ := route["modified"].(string)
-			disabled, _ := route["disabled"].(bool)
+			uid := ""
+			if route.Uid != nil {
+				uid = *route.Uid
+			}
+			label := ""
+			if route.Label != nil {
+				label = *route.Label
+			}
+			routeType := ""
+			if route.Type != nil {
+				routeType = *route.Type
+			}
+			modified := ""
+			if route.Modified != nil {
+				modified = route.Modified.Format("2006-01-02 15:04:05 MST")
+			}
+			disabled := false
+			if route.Disabled != nil {
+				disabled = *route.Disabled
+			}
 
 			fmt.Printf("UID: %s\n", uid)
 			fmt.Printf("  Label: %s\n", label)
@@ -131,37 +149,51 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
-
-		// Get metadata to resolve route name to UID if needed
-		appMetadata, err := appGetMetadata(verbose, false)
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to get project metadata: %w", err)
+			return err
 		}
 
-		// Find route UID (handle both UID and name)
+		// Determine route UID (handle both UID and name)
 		var routeUID string
+		var selectedRoute *notehub.NotehubRoute
+
+		// First try as UID
 		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
-			routeUID = routeIdentifier
-		} else {
-			// Search for route by name
-			for _, route := range appMetadata.Routes {
-				if route.Name == routeIdentifier {
-					routeUID = route.UID
-					break
+			route, resp, err := client.RouteAPI.GetRoute(ctx, projectUID, routeIdentifier).Execute()
+			if err == nil && resp != nil && resp.StatusCode != 404 {
+				routeUID = routeIdentifier
+				selectedRoute = route
+			}
+		}
+
+		// If not found as UID, search by name
+		if selectedRoute == nil {
+			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			if err != nil {
+				return fmt.Errorf("failed to list routes: %w", err)
+			}
+
+			for _, route := range routes {
+				if route.Label != nil && *route.Label == routeIdentifier {
+					if route.Uid != nil {
+						routeUID = *route.Uid
+						// Get full route details
+						fullRoute, _, err := client.RouteAPI.GetRoute(ctx, projectUID, routeUID).Execute()
+						if err != nil {
+							return fmt.Errorf("failed to get route: %w", err)
+						}
+						selectedRoute = fullRoute
+						break
+					}
 				}
 			}
-			if routeUID == "" {
-				return fmt.Errorf("route '%s' not found", routeIdentifier)
-			}
 		}
 
-		// Get route using V1 API: GET /v1/projects/{projectUID}/routes/{routeUID}
-		var route map[string]interface{}
-		url := fmt.Sprintf("/v1/projects/%s/routes/%s", projectUID, routeUID)
-		err = reqHubV1(verbose, GetAPIHub(), "GET", url, nil, &route)
-		if err != nil {
-			return fmt.Errorf("failed to get route: %w", err)
+		if selectedRoute == nil {
+			return fmt.Errorf("route '%s' not found", routeIdentifier)
 		}
 
 		// Handle JSON output
@@ -169,9 +201,9 @@ Examples:
 			var output []byte
 			var err error
 			if GetPretty() {
-				output, err = note.JSONMarshalIndent(route, "", "  ")
+				output, err = note.JSONMarshalIndent(selectedRoute, "", "  ")
 			} else {
-				output, err = note.JSONMarshal(route)
+				output, err = note.JSONMarshal(selectedRoute)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON: %w", err)
@@ -181,11 +213,26 @@ Examples:
 		}
 
 		// Display route in human-readable format
-		uid, _ := route["uid"].(string)
-		label, _ := route["label"].(string)
-		routeType, _ := route["type"].(string)
-		modified, _ := route["modified"].(string)
-		disabled, _ := route["disabled"].(bool)
+		uid := ""
+		if selectedRoute.Uid != nil {
+			uid = *selectedRoute.Uid
+		}
+		label := ""
+		if selectedRoute.Label != nil {
+			label = *selectedRoute.Label
+		}
+		routeType := ""
+		if selectedRoute.Type != nil {
+			routeType = *selectedRoute.Type
+		}
+		modified := ""
+		if selectedRoute.Modified != nil {
+			modified = selectedRoute.Modified.Format("2006-01-02 15:04:05 MST")
+		}
+		disabled := false
+		if selectedRoute.Disabled != nil {
+			disabled = *selectedRoute.Disabled
+		}
 
 		fmt.Printf("\nRoute Details:\n")
 		fmt.Printf("==============\n\n")
@@ -201,21 +248,19 @@ Examples:
 		fmt.Println()
 
 		// Display type-specific configuration
-		if routeType == "http" {
-			if httpConfig, ok := route["http"].(map[string]interface{}); ok {
-				fmt.Printf("HTTP Configuration:\n")
-				if httpURL, ok := httpConfig["url"].(string); ok {
-					fmt.Printf("  URL: %s\n", httpURL)
-				}
-				if fleets, ok := httpConfig["fleets"].([]interface{}); ok && len(fleets) > 0 {
-					fmt.Printf("  Fleets: %v\n", fleets)
-				}
-				if throttle, ok := httpConfig["throttle_ms"].(float64); ok {
-					fmt.Printf("  Throttle: %.0f ms\n", throttle)
-				}
-				if timeout, ok := httpConfig["timeout"].(float64); ok && timeout > 0 {
-					fmt.Printf("  Timeout: %.0f ms\n", timeout)
-				}
+		if routeType == "http" && selectedRoute.Http != nil {
+			fmt.Printf("HTTP Configuration:\n")
+			if selectedRoute.Http.Url != nil {
+				fmt.Printf("  URL: %s\n", *selectedRoute.Http.Url)
+			}
+			if selectedRoute.Http.Fleets != nil && len(selectedRoute.Http.Fleets) > 0 {
+				fmt.Printf("  Fleets: %v\n", selectedRoute.Http.Fleets)
+			}
+			if selectedRoute.Http.ThrottleMs != nil {
+				fmt.Printf("  Throttle: %d ms\n", *selectedRoute.Http.ThrottleMs)
+			}
+			if selectedRoute.Http.Timeout != nil && *selectedRoute.Http.Timeout > 0 {
+				fmt.Printf("  Timeout: %d ms\n", *selectedRoute.Http.Timeout)
 			}
 		}
 
@@ -265,39 +310,44 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
-
 		// Read config file
 		configBytes, err := os.ReadFile(configFile)
 		if err != nil {
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
 
-		var configData map[string]interface{}
-		err = note.JSONUnmarshal(configBytes, &configData)
+		// Unmarshal into NotehubRoute struct
+		var routeConfig notehub.NotehubRoute
+		err = note.JSONUnmarshal(configBytes, &routeConfig)
 		if err != nil {
 			return fmt.Errorf("failed to parse config file: %w", err)
 		}
 
 		// Override label if provided
-		configData["label"] = label
+		routeConfig.Label = &label
 
-		// Marshal config to JSON
-		reqJSON, err := note.JSONMarshal(configData)
+		// Create route using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
+			return err
 		}
 
-		// Create route using V1 API: POST /v1/projects/{projectUID}/routes
-		var route map[string]interface{}
-		url := fmt.Sprintf("/v1/projects/%s/routes", projectUID)
-		err = reqHubV1(verbose, GetAPIHub(), "POST", url, reqJSON, &route)
+		createdRoute, _, err := client.RouteAPI.CreateRoute(ctx, projectUID).
+			NotehubRoute(routeConfig).
+			Execute()
 		if err != nil {
 			return fmt.Errorf("failed to create route: %w", err)
 		}
 
-		uid, _ := route["uid"].(string)
-		routeType, _ := route["type"].(string)
+		uid := ""
+		if createdRoute.Uid != nil {
+			uid = *createdRoute.Uid
+		}
+		routeType := ""
+		if createdRoute.Type != nil {
+			routeType = *createdRoute.Type
+		}
 
 		fmt.Printf("\nRoute created successfully!\n\n")
 		fmt.Printf("UID: %s\n", uid)
@@ -348,27 +398,38 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
-
-		// Get metadata to resolve route name to UID if needed
-		appMetadata, err := appGetMetadata(verbose, false)
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to get project metadata: %w", err)
+			return err
 		}
 
-		// Find route UID (handle both UID and name)
+		// Determine route UID (handle both UID and name)
 		var routeUID string
+
+		// First try as UID
 		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
 			routeUID = routeIdentifier
 		} else {
-			// Search for route by name
-			for _, route := range appMetadata.Routes {
-				if route.Name == routeIdentifier {
-					routeUID = route.UID
-					break
+			// Search by name
+			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			if err != nil {
+				return fmt.Errorf("failed to list routes: %w", err)
+			}
+
+			found := false
+			for _, route := range routes {
+				if route.Label != nil && *route.Label == routeIdentifier {
+					if route.Uid != nil {
+						routeUID = *route.Uid
+						found = true
+						break
+					}
 				}
 			}
-			if routeUID == "" {
+
+			if !found {
 				return fmt.Errorf("route '%s' not found", routeIdentifier)
 			}
 		}
@@ -379,28 +440,29 @@ Examples:
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
 
-		var configData map[string]interface{}
-		err = note.JSONUnmarshal(configBytes, &configData)
+		// Unmarshal into NotehubRoute struct
+		var routeConfig notehub.NotehubRoute
+		err = note.JSONUnmarshal(configBytes, &routeConfig)
 		if err != nil {
 			return fmt.Errorf("failed to parse config file: %w", err)
 		}
 
-		// Marshal config to JSON
-		reqJSON, err := note.JSONMarshal(configData)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
-		}
-
-		// Update route using V1 API: PUT /v1/projects/{projectUID}/routes/{routeUID}
-		var route map[string]interface{}
-		url := fmt.Sprintf("/v1/projects/%s/routes/%s", projectUID, routeUID)
-		err = reqHubV1(verbose, GetAPIHub(), "PUT", url, reqJSON, &route)
+		// Update route using SDK
+		updatedRoute, _, err := client.RouteAPI.UpdateRoute(ctx, projectUID, routeUID).
+			NotehubRoute(routeConfig).
+			Execute()
 		if err != nil {
 			return fmt.Errorf("failed to update route: %w", err)
 		}
 
-		label, _ := route["label"].(string)
-		routeType, _ := route["type"].(string)
+		label := ""
+		if updatedRoute.Label != nil {
+			label = *updatedRoute.Label
+		}
+		routeType := ""
+		if updatedRoute.Type != nil {
+			routeType = *updatedRoute.Type
+		}
 
 		fmt.Printf("\nRoute updated successfully!\n\n")
 		fmt.Printf("UID: %s\n", routeUID)
@@ -436,43 +498,51 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
-
-		// Get metadata to resolve route name to UID if needed
-		appMetadata, err := appGetMetadata(verbose, false)
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to get project metadata: %w", err)
+			return err
 		}
 
-		// Find route UID (handle both UID and name)
+		// Determine route UID and name (handle both UID and name)
 		var routeUID string
 		var routeName string
+
+		// First try as UID
 		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
 			routeUID = routeIdentifier
-			// Try to find name for better output
-			for _, route := range appMetadata.Routes {
-				if route.UID == routeUID {
-					routeName = route.Name
-					break
-				}
+			// Try to get route details for name
+			route, resp, err := client.RouteAPI.GetRoute(ctx, projectUID, routeUID).Execute()
+			if err == nil && resp != nil && resp.StatusCode != 404 && route.Label != nil {
+				routeName = *route.Label
 			}
 		} else {
-			// Search for route by name
-			routeName = routeIdentifier
-			for _, route := range appMetadata.Routes {
-				if route.Name == routeIdentifier {
-					routeUID = route.UID
-					break
+			// Search by name
+			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			if err != nil {
+				return fmt.Errorf("failed to list routes: %w", err)
+			}
+
+			found := false
+			for _, route := range routes {
+				if route.Label != nil && *route.Label == routeIdentifier {
+					if route.Uid != nil {
+						routeUID = *route.Uid
+						routeName = *route.Label
+						found = true
+						break
+					}
 				}
 			}
-			if routeUID == "" {
+
+			if !found {
 				return fmt.Errorf("route '%s' not found", routeIdentifier)
 			}
 		}
 
-		// Delete route using V1 API: DELETE /v1/projects/{projectUID}/routes/{routeUID}
-		url := fmt.Sprintf("/v1/projects/%s/routes/%s", projectUID, routeUID)
-		err = reqHubV1(verbose, GetAPIHub(), "DELETE", url, nil, nil)
+		// Delete route using SDK
+		_, err = client.RouteAPI.DeleteRoute(ctx, projectUID, routeUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete route: %w", err)
 		}
@@ -521,70 +591,60 @@ Examples:
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		verbose := GetVerbose()
 		pageSize, _ := cmd.Flags().GetInt("page-size")
 		pageNum, _ := cmd.Flags().GetInt("page-num")
 		deviceUID, _ := cmd.Flags().GetString("device")
 
-		// Get metadata to resolve route name to UID if needed
-		appMetadata, err := appGetMetadata(verbose, false)
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to get project metadata: %w", err)
+			return err
 		}
 
-		// Find route UID (handle both UID and name)
+		// Determine route UID (handle both UID and name)
 		var routeUID string
+
+		// First try as UID
 		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
 			routeUID = routeIdentifier
 		} else {
-			// Search for route by name
-			for _, route := range appMetadata.Routes {
-				if route.Name == routeIdentifier {
-					routeUID = route.UID
-					break
+			// Search by name
+			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			if err != nil {
+				return fmt.Errorf("failed to list routes: %w", err)
+			}
+
+			found := false
+			for _, route := range routes {
+				if route.Label != nil && *route.Label == routeIdentifier {
+					if route.Uid != nil {
+						routeUID = *route.Uid
+						found = true
+						break
+					}
 				}
 			}
-			if routeUID == "" {
+
+			if !found {
 				return fmt.Errorf("route '%s' not found", routeIdentifier)
 			}
 		}
 
-		// Build URL with query parameters
-		url := fmt.Sprintf("/v1/projects/%s/routes/%s/route-logs", projectUID, routeUID)
+		// Get route logs using SDK
+		req := client.RouteAPI.GetRouteLogsByRoute(ctx, projectUID, routeUID)
 
-		// Add query parameters
-		firstParam := true
 		if pageSize > 0 {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += fmt.Sprintf("pageSize=%d", pageSize)
+			req = req.PageSize(int32(pageSize))
 		}
 		if pageNum > 0 {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += fmt.Sprintf("pageNum=%d", pageNum)
+			req = req.PageNum(int32(pageNum))
 		}
 		if deviceUID != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += fmt.Sprintf("deviceUID=%s", deviceUID)
+			req = req.DeviceUID([]string{deviceUID})
 		}
 
-		// Get route logs using V1 API: GET /v1/projects/{projectUID}/routes/{routeUID}/route-logs
-		var logs map[string]interface{}
-		err = reqHubV1(verbose, GetAPIHub(), "GET", url, nil, &logs)
+		logs, _, err := req.Execute()
 		if err != nil {
 			return fmt.Errorf("failed to get route logs: %w", err)
 		}
@@ -606,40 +666,48 @@ Examples:
 		}
 
 		// Display logs in human-readable format
-		logEntries, _ := logs["logs"].([]interface{})
-		hasMore, _ := logs["has_more"].(bool)
-
-		if len(logEntries) == 0 {
+		if len(logs) == 0 {
 			fmt.Println("No logs found.")
 			return nil
 		}
 
-		fmt.Printf("\nRoute Logs (%d entries):\n", len(logEntries))
+		fmt.Printf("\nRoute Logs (%d entries):\n", len(logs))
 		fmt.Printf("========================\n\n")
 
-		for i, entry := range logEntries {
-			if logMap, ok := entry.(map[string]interface{}); ok {
-				when, _ := logMap["when"].(string)
-				deviceID, _ := logMap["device_uid"].(string)
-				status, _ := logMap["status"].(string)
-				message, _ := logMap["message"].(string)
+		for i, entry := range logs {
+			fmt.Printf("%d. ", i+1)
 
-				fmt.Printf("%d. %s\n", i+1, when)
-				if deviceID != "" {
-					fmt.Printf("   Device: %s\n", deviceID)
-				}
-				if status != "" {
-					fmt.Printf("   Status: %s\n", status)
-				}
-				if message != "" {
-					fmt.Printf("   Message: %s\n", message)
-				}
+			if entry.Date != nil {
+				fmt.Printf("%s\n", *entry.Date)
+			} else {
 				fmt.Println()
 			}
+
+			if entry.EventUid != nil && *entry.EventUid != "" {
+				fmt.Printf("   Event UID: %s\n", *entry.EventUid)
+			}
+			if entry.Status != nil && *entry.Status != "" {
+				fmt.Printf("   Status: %s\n", *entry.Status)
+			}
+			if entry.Duration != nil {
+				fmt.Printf("   Duration: %d ms\n", *entry.Duration)
+			}
+			if entry.Url != nil && *entry.Url != "" {
+				fmt.Printf("   URL: %s\n", *entry.Url)
+			}
+			if entry.Text != nil && *entry.Text != "" {
+				fmt.Printf("   Response: %s\n", *entry.Text)
+			}
+			if entry.Attn != nil && *entry.Attn {
+				fmt.Printf("   ⚠ Attention Required\n")
+			}
+			fmt.Println()
 		}
 
-		if hasMore {
-			fmt.Printf("More logs available. Use --page-num %d to see next page.\n", pageNum+1)
+		// Note: SDK returns a simple array, pagination info is in response headers
+		// For now, suggest using page-num to paginate
+		if len(logs) >= pageSize && pageSize > 0 {
+			fmt.Printf("Showing page %d (page size: %d). Use --page-num %d to see next page.\n", pageNum, pageSize, pageNum+1)
 		}
 
 		return nil

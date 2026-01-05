@@ -1,6 +1,10 @@
 github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d/go.mod h1:3eOhrUMpNV+6aFIbp5/iudMxNCF27Vw2OZgy4xEx0Fg=
 github.com/blues/note-go v1.7.4 h1:AqeU6HXkCa7FwDsAao49H6DdTTtNNGJYjGwevZi4Shc=
 github.com/blues/note-go v1.7.4/go.mod h1:GfslvbmFus7z05P1YykcbMedTKTuDNTf8ryBb1Qjq/4=
+github.com/blues/notehub-go v0.0.0-20251217210155-025b72380e33 h1:p06KaLsAkiNPG6Ae8Hlng9QgMBmo1VBhXgkUMyhG+dg=
+github.com/blues/notehub-go v0.0.0-20251217210155-025b72380e33/go.mod h1:a8fgPV3iznI6oIPTTzAGrXnq4vBD3d3jvKEnjAWtC/o=
+github.com/blues/notehub-go v0.0.0-20260105133531-1e40c1ed371c h1:C0cH1ggVjJw4chKUF8ZG0Fd24u1F8OZYlYfJJgXwdGI=
+github.com/blues/notehub-go v0.0.0-20260105133531-1e40c1ed371c/go.mod h1:a8fgPV3iznI6oIPTTzAGrXnq4vBD3d3jvKEnjAWtC/o=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/creack/goselect v0.1.2 h1:2DNy14+JPjRBgPzAd1thbQp4BSIihxcBf0IXhQXDRa0=
 github.com/creack/goselect v0.1.2/go.mod h1:a/NhLweNvqIYMuxcMOuWY516Cimucms3DglDzQP3hKY=
@@ -134,6 +138,8 @@ golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8T
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/validator.v2 v2.0.1 h1:xF0KWyGWXm/LM2G1TrEjqOu4pa6coO9AlWSf3msVfDY=
+gopkg.in/validator.v2 v2.0.1/go.mod h1:lIUZBlB3Im4s/eYp39Ry/wkR02yOPhZ9IwIRBjuPuG8=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

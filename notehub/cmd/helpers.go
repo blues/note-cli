@@ -7,13 +7,13 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 
-	"github.com/blues/note-go/note"
-	notegoapi "github.com/blues/note-go/notehub/api"
+	notehub "github.com/blues/notehub-go"
 )
 
 // Type definitions
@@ -33,9 +33,40 @@ type AppMetadata struct {
 	Products []Metadata `json:"products,omitempty"`
 }
 
+// GetNotehubClient creates and returns a configured Notehub API client with authentication
+func GetNotehubClient() *notehub.APIClient {
+	cfg := notehub.NewConfiguration()
+
+	// Set the API server if configured
+	apiHub := GetAPIHub()
+	if apiHub != "" {
+		cfg.Host = apiHub
+		cfg.Scheme = "https"
+	}
+
+	return notehub.NewAPIClient(cfg)
+}
+
+// GetNotehubContext creates a context with authentication for Notehub API calls
+func GetNotehubContext() (context.Context, error) {
+	// Get the authentication credentials
+	creds, err := GetHubCredentials()
+	if err != nil {
+		return nil, err
+	}
+	if creds == nil || creds.Token == "" {
+		return nil, fmt.Errorf("not authenticated: please use 'notehub auth signin' to sign in")
+	}
+
+	// Create context with bearer token authentication
+	ctx := context.WithValue(context.Background(), notehub.ContextAccessToken, creds.Token)
+
+	return ctx, nil
+}
+
 // Load metadata for the app
 func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, err error) {
-	// Get project info using V1 API
+	// Get project info using SDK
 	// First we need to determine the project UID from global flags
 	projectUID := GetProject()
 	if projectUID == "" {
@@ -49,82 +80,71 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 		return appMetadata, fmt.Errorf("project or product UID required")
 	}
 
-	// Get project information using V1 API: GET /v1/projects/{projectOrProductUID}
-	projectRsp := map[string]interface{}{}
-	projectURL := fmt.Sprintf("/v1/projects/%s", projectUID)
-	err = reqHubV1(flagVerbose, GetAPIHub(), "GET", projectURL, nil, &projectRsp)
+	// Initialize SDK client and context
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
 	if err != nil {
-		return
+		return appMetadata, err
 	}
 
-	// App info
-	appMetadata.App.UID, _ = projectRsp["uid"].(string)
-	appMetadata.App.Name, _ = projectRsp["label"].(string)
-	appMetadata.App.BA, _ = projectRsp["billing_account_uid"].(string)
-
-	// Get fleets using V1 API: GET /v1/projects/{projectOrProductUID}/fleets
-	fleetsRsp := map[string]interface{}{}
-	fleetsURL := fmt.Sprintf("/v1/projects/%s/fleets", appMetadata.App.UID)
-	err = reqHubV1(flagVerbose, GetAPIHub(), "GET", fleetsURL, nil, &fleetsRsp)
-	if err == nil {
-		fleetsList, exists := fleetsRsp["fleets"].([]interface{})
-		if exists {
-			items := []Metadata{}
-			for _, v := range fleetsList {
-				fleet, ok := v.(map[string]interface{})
-				if ok {
-					fleetUID, _ := fleet["uid"].(string)
-					fleetLabel, _ := fleet["label"].(string)
-					i := Metadata{Name: fleetLabel, UID: fleetUID}
-
-					if flagVars {
-						varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
-						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
-						err = reqHubV1(flagVerbose, GetAPIHub(), "GET", url, nil, &varsRsp)
-						if err != nil {
-							return
-						}
-						i.Vars = varsRsp.EnvironmentVariables
-					}
-					items = append(items, i)
-				}
-			}
-			appMetadata.Fleets = items
-		}
+	// Get project information using SDK
+	project, _, err := client.ProjectAPI.GetProject(ctx, projectUID).Execute()
+	if err != nil {
+		return appMetadata, fmt.Errorf("failed to get project: %w", err)
 	}
 
-	// Get routes using V1 API: GET /v1/projects/{projectOrProductUID}/routes
-	routesRsp := []map[string]interface{}{}
-	routesURL := fmt.Sprintf("/v1/projects/%s/routes", appMetadata.App.UID)
-	err = reqHubV1(flagVerbose, GetAPIHub(), "GET", routesURL, nil, &routesRsp)
-	if err == nil {
+	// App info - fields are direct values, not pointers
+	appMetadata.App.UID = project.Uid
+	appMetadata.App.Name = project.Label
+	// Note: BillingAccountUid is not in the Project model
+
+	// Get fleets using SDK
+	fleetsResp, _, err := client.ProjectAPI.GetFleets(ctx, appMetadata.App.UID).Execute()
+	if err == nil && fleetsResp.Fleets != nil {
 		items := []Metadata{}
-		for _, route := range routesRsp {
-			routeUID, _ := route["uid"].(string)
-			routeLabel, _ := route["label"].(string)
+		for _, fleet := range fleetsResp.Fleets {
+			i := Metadata{Name: fleet.Label, UID: fleet.Uid}
+
+			if flagVars && fleet.Uid != "" {
+				varsResp, _, err := client.ProjectAPI.GetFleetEnvironmentVariables(ctx, appMetadata.App.UID, fleet.Uid).Execute()
+				if err != nil {
+					return appMetadata, fmt.Errorf("failed to get fleet environment variables: %w", err)
+				}
+				i.Vars = varsResp.EnvironmentVariables
+			}
+			items = append(items, i)
+		}
+		appMetadata.Fleets = items
+	}
+
+	// Get routes using SDK
+	routes, _, err := client.RouteAPI.GetRoutes(ctx, appMetadata.App.UID).Execute()
+	if err == nil && routes != nil {
+		items := []Metadata{}
+		for _, route := range routes {
+			routeUID := ""
+			routeLabel := ""
+			if route.Uid != nil {
+				routeUID = *route.Uid
+			}
+			if route.Label != nil {
+				routeLabel = *route.Label
+			}
 			i := Metadata{Name: routeLabel, UID: routeUID}
 			items = append(items, i)
 		}
 		appMetadata.Routes = items
 	}
 
-	// Get products using V1 API: GET /v1/projects/{projectOrProductUID}/products
-	productsRsp := map[string]interface{}{}
-	productsURL := fmt.Sprintf("/v1/projects/%s/products", appMetadata.App.UID)
-	err = reqHubV1(flagVerbose, GetAPIHub(), "GET", productsURL, nil, &productsRsp)
-	if err == nil {
-		pi, exists := productsRsp["products"].([]interface{})
-		if exists {
-			items := []Metadata{}
-			for _, v := range pi {
-				p, ok := v.(map[string]interface{})
-				if ok {
-					i := Metadata{Name: p["label"].(string), UID: p["uid"].(string)}
-					items = append(items, i)
-				}
-				appMetadata.Products = items
-			}
+	// Get products using SDK
+	productsResp, _, err := client.ProjectAPI.GetProducts(ctx, appMetadata.App.UID).Execute()
+	if err == nil && productsResp.Products != nil {
+		items := []Metadata{}
+		for _, product := range productsResp.Products {
+			i := Metadata{Name: product.Label, UID: product.Uid}
+			items = append(items, i)
 		}
+		appMetadata.Products = items
 	}
 
 	return
@@ -227,59 +247,68 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 	foundFleet := false
 	lookingFor := strings.TrimSpace(indirectScope)
 
+	// Get SDK client for device queries
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
+
 	// Looking for "all devices" or a named fleet
 	if indirectScope == "" {
-		// All devices
-		pageSize := 500
-		pageNum := 0
+		// All devices - use SDK
+		pageSize := int32(500)
+		pageNum := int32(0)
 		for {
 			pageNum++
 
-			devices := notegoapi.GetDevicesResponse{}
-			url := fmt.Sprintf("/v1/projects/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, pageSize, pageNum)
-			err = reqHubV1(flagVerbose, GetAPIHub(), "GET", url, nil, &devices)
+			devicesResp, _, err := client.DeviceAPI.GetDevices(ctx, appMetadata.App.UID).
+				PageSize(pageSize).
+				PageNum(pageNum).
+				Execute()
 			if err != nil {
-				return
+				return err
 			}
 
-			for _, device := range devices.Devices {
-				err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+			for _, device := range devicesResp.Devices {
+				err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 				if err != nil {
 					return err
 				}
 			}
 
-			if !devices.HasMore {
+			if !devicesResp.HasMore {
 				break
 			}
 		}
 		return
 	} else {
-		// Fleet
+		// Fleet - use SDK
 		for _, fleet := range (*appMetadata).Fleets {
 			if lookingFor == fleet.UID || fleetMatchesScope(fleet.Name, lookingFor) {
 				foundFleet = true
 
-				pageSize := 100
-				pageNum := 0
+				pageSize := int32(100)
+				pageNum := int32(0)
 				for {
 					pageNum++
 
-					devices := notegoapi.GetDevicesResponse{}
-					url := fmt.Sprintf("/v1/projects/%s/fleets/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, fleet.UID, pageSize, pageNum)
-					err = reqHubV1(flagVerbose, GetAPIHub(), "GET", url, nil, &devices)
+					devicesResp, _, err := client.DeviceAPI.GetFleetDevices(ctx, appMetadata.App.UID, fleet.UID).
+						PageSize(pageSize).
+						PageNum(pageNum).
+						Execute()
 					if err != nil {
-						return
+						return err
 					}
 
-					for _, device := range devices.Devices {
-						err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+					for _, device := range devicesResp.Devices {
+						err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 						if err != nil {
 							return err
 						}
 					}
 
-					if !devices.HasMore {
+					if !devicesResp.HasMore {
 						break
 					}
 				}
@@ -353,14 +382,18 @@ func fleetMatchesScope(fleetName string, scope string) bool {
 func varsGetFromDevices(appMetadata AppMetadata, uids []string, flagVerbose bool) (vars map[string]Vars, err error) {
 	vars = map[string]Vars{}
 
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
+
 	for _, deviceUID := range uids {
-		varsRsp := notegoapi.GetDeviceEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
-		err = reqHubV1(flagVerbose, GetAPIHub(), "GET", url, nil, &varsRsp)
+		varsResp, _, err := client.DeviceAPI.GetDeviceEnvironmentVariables(ctx, appMetadata.App.UID, deviceUID).Execute()
 		if err != nil {
-			return
+			return vars, err
 		}
-		vars[deviceUID] = varsRsp.EnvironmentVariables
+		vars[deviceUID] = varsResp.EnvironmentVariables
 	}
 
 	return
@@ -370,14 +403,18 @@ func varsGetFromDevices(appMetadata AppMetadata, uids []string, flagVerbose bool
 func varsGetFromFleets(appMetadata AppMetadata, uids []string, flagVerbose bool) (vars map[string]Vars, err error) {
 	vars = map[string]Vars{}
 
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
+
 	for _, fleetUID := range uids {
-		varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
-		err = reqHubV1(flagVerbose, GetAPIHub(), "GET", url, nil, &varsRsp)
+		varsResp, _, err := client.ProjectAPI.GetFleetEnvironmentVariables(ctx, appMetadata.App.UID, fleetUID).Execute()
 		if err != nil {
-			return
+			return vars, err
 		}
-		vars[fleetUID] = varsRsp.EnvironmentVariables
+		vars[fleetUID] = varsResp.EnvironmentVariables
 	}
 
 	return
@@ -387,26 +424,23 @@ func varsGetFromFleets(appMetadata AppMetadata, uids []string, flagVerbose bool)
 func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, flagVerbose bool) (vars map[string]Vars, err error) {
 	vars = map[string]Vars{}
 
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
+
 	for _, deviceUID := range uids {
-		req := notegoapi.PutDeviceEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
-		for k, v := range template {
-			req.EnvironmentVariables[k] = v
-		}
+		envVars := notehub.NewEnvironmentVariables(template)
 
-		var reqJSON []byte
-		reqJSON, err = note.JSONMarshal(req)
+		varsResp, _, err := client.DeviceAPI.SetDeviceEnvironmentVariables(ctx, appMetadata.App.UID, deviceUID).
+			EnvironmentVariables(*envVars).
+			Execute()
 		if err != nil {
-			return
+			return vars, err
 		}
 
-		rspPut := notegoapi.PutDeviceEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
-		err = reqHubV1(flagVerbose, GetAPIHub(), "PUT", url, reqJSON, &rspPut)
-		if err != nil {
-			return
-		}
-
-		vars[deviceUID] = rspPut.EnvironmentVariables
+		vars[deviceUID] = varsResp.EnvironmentVariables
 	}
 
 	return
@@ -416,26 +450,23 @@ func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, f
 func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, flagVerbose bool) (vars map[string]Vars, err error) {
 	vars = map[string]Vars{}
 
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
+
 	for _, fleetUID := range uids {
-		req := notegoapi.PutFleetEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
-		for k, v := range template {
-			req.EnvironmentVariables[k] = v
-		}
+		envVars := notehub.NewEnvironmentVariables(template)
 
-		var reqJSON []byte
-		reqJSON, err = note.JSONMarshal(req)
+		varsResp, _, err := client.ProjectAPI.SetFleetEnvironmentVariables(ctx, appMetadata.App.UID, fleetUID).
+			EnvironmentVariables(*envVars).
+			Execute()
 		if err != nil {
-			return
+			return vars, err
 		}
 
-		rspPut := notegoapi.PutFleetEnvironmentVariablesResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
-		err = reqHubV1(flagVerbose, GetAPIHub(), "PUT", url, reqJSON, &rspPut)
-		if err != nil {
-			return
-		}
-
-		vars[fleetUID] = rspPut.EnvironmentVariables
+		vars[fleetUID] = varsResp.EnvironmentVariables
 	}
 
 	return
@@ -443,17 +474,21 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 
 // Provision devices
 func varsProvisionDevices(appMetadata AppMetadata, uids []string, productUID string, deviceSN string, flagVerbose bool) (err error) {
-	for _, deviceUID := range uids {
-		req := notegoapi.ProvisionDeviceRequest{ProductUID: productUID, DeviceSN: deviceSN}
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return
+	}
 
-		var reqJSON []byte
-		reqJSON, err = note.JSONMarshal(req)
-		if err != nil {
-			return
+	for _, deviceUID := range uids {
+		provReq := notehub.NewProvisionDeviceRequest(productUID)
+		if deviceSN != "" {
+			provReq.SetDeviceSn(deviceSN)
 		}
 
-		url := fmt.Sprintf("/v1/projects/%s/devices/%s/provision", appMetadata.App.UID, deviceUID)
-		err = reqHubV1(flagVerbose, GetAPIHub(), "POST", url, reqJSON, nil)
+		_, _, err = client.DeviceAPI.ProvisionDevice(ctx, appMetadata.App.UID, deviceUID).
+			ProvisionDeviceRequest(*provReq).
+			Execute()
 		if err != nil {
 			return
 		}

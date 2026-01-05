@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 )
@@ -95,103 +96,50 @@ Examples:
 		sku, _ := cmd.Flags().GetString("sku")
 
 		// Build request body
-		type DfuActionRequest struct {
-			Filename string `json:"filename"`
-		}
+		dfuRequest := notehub.NewDfuActionRequest()
+		dfuRequest.SetFilename(filename)
 
-		reqBody := DfuActionRequest{
-			Filename: filename,
-		}
-
-		// Marshal request to JSON
-		reqJSON, err := note.JSONMarshal(reqBody)
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
 		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
+			return err
 		}
 
-		// Build URL with query parameters
-		url := fmt.Sprintf("/v1/projects/%s/dfu/%s/update", appMetadata.App.UID, firmwareType)
+		// Build request with SDK
+		req := client.ProjectAPI.PerformDfuAction(ctx, appMetadata.App.UID, firmwareType, "update").
+			DfuActionRequest(*dfuRequest)
 
-		// Convert resolved device UIDs to comma-separated query parameter
-		deviceUIDs := strings.Join(scopeDevices, ",")
-
-		// Add query parameters
-		firstParam := true
-		if deviceUIDs != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "deviceUID=" + deviceUIDs
+		// Add device UIDs
+		if len(scopeDevices) > 0 {
+			req = req.DeviceUID(scopeDevices)
 		}
+
+		// Add optional filters
 		if tags != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "tag=" + tags
+			req = req.Tag(strings.Split(tags, ","))
 		}
 		if serialNumbers != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "serialNumber=" + serialNumbers
+			req = req.SerialNumber(strings.Split(serialNumbers, ","))
 		}
 		if location != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "location=" + location
+			req = req.Location([]string{location})
 		}
 		if notecardFirmware != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "notecardFirmware=" + notecardFirmware
+			req = req.NotecardFirmware([]string{notecardFirmware})
 		}
 		if hostFirmware != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "hostFirmware=" + hostFirmware
+			req = req.HostFirmware([]string{hostFirmware})
 		}
 		if productUID != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "productUID=" + productUID
+			req = req.ProductUID([]string{productUID})
 		}
 		if sku != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "sku=" + sku
+			req = req.Sku([]string{sku})
 		}
 
-		// Schedule firmware update using V1 API: POST /v1/projects/{projectUID}/dfu/{firmwareType}/update
-		err = reqHubV1(verbose, GetAPIHub(), "POST", url, reqJSON, nil)
+		// Execute the DFU update
+		_, err = req.Execute()
 		if err != nil {
 			return fmt.Errorf("failed to schedule firmware update: %w", err)
 		}
@@ -201,8 +149,8 @@ Examples:
 		fmt.Printf("Filename: %s\n", filename)
 		fmt.Printf("Scope: %s\n", scope)
 		fmt.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
-		if verbose {
-			fmt.Printf("Device UIDs: %s\n", deviceUIDs)
+		if verbose && len(scopeDevices) > 0 {
+			fmt.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
 		}
 		if tags != "" {
 			fmt.Printf("Additional Tag Filter: %s\n", tags)
@@ -281,44 +229,31 @@ Examples:
 		tags, _ := cmd.Flags().GetString("tag")
 		serialNumbers, _ := cmd.Flags().GetString("serial")
 
-		// Build URL with query parameters
-		url := fmt.Sprintf("/v1/projects/%s/dfu/%s/cancel", appMetadata.App.UID, firmwareType)
-
-		// Convert resolved device UIDs to comma-separated query parameter
-		deviceUIDs := strings.Join(scopeDevices, ",")
-
-		// Add query parameters
-		firstParam := true
-		if deviceUIDs != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "deviceUID=" + deviceUIDs
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
+
+		// Build cancel request with SDK
+		req := client.ProjectAPI.PerformDfuAction(ctx, appMetadata.App.UID, firmwareType, "cancel")
+
+		// Add device UIDs
+		if len(scopeDevices) > 0 {
+			req = req.DeviceUID(scopeDevices)
+		}
+
+		// Add optional filters
 		if tags != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "tag=" + tags
+			req = req.Tag(strings.Split(tags, ","))
 		}
 		if serialNumbers != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "serialNumber=" + serialNumbers
+			req = req.SerialNumber(strings.Split(serialNumbers, ","))
 		}
 
-		// Cancel firmware update using V1 API: POST /v1/projects/{projectUID}/dfu/{firmwareType}/cancel
-		err = reqHubV1(verbose, GetAPIHub(), "POST", url, nil, nil)
+		// Execute the DFU cancel
+		_, err = req.Execute()
 		if err != nil {
 			return fmt.Errorf("failed to cancel firmware update: %w", err)
 		}
@@ -327,8 +262,8 @@ Examples:
 		fmt.Printf("Firmware Type: %s\n", firmwareType)
 		fmt.Printf("Scope: %s\n", scope)
 		fmt.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
-		if verbose {
-			fmt.Printf("Device UIDs: %s\n", deviceUIDs)
+		if verbose && len(scopeDevices) > 0 {
+			fmt.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
 		}
 		if tags != "" {
 			fmt.Printf("Additional Tag Filter: %s\n", tags)
@@ -379,85 +314,38 @@ Examples:
 		filename, _ := cmd.Flags().GetString("filename")
 		unpublished, _ := cmd.Flags().GetBool("unpublished")
 
-		// Define firmware info types
-		type FirmwareInfo struct {
-			Filename     string `json:"filename"`
-			Version      string `json:"version,omitempty"`
-			MD5          string `json:"md5,omitempty"`
-			Organization string `json:"organization,omitempty"`
-			Built        string `json:"built,omitempty"`
-			Product      string `json:"product,omitempty"`
-			Description  string `json:"description,omitempty"`
-			Tags         string `json:"tags,omitempty"`
-			Type         string `json:"type,omitempty"`
-			Created      string `json:"created,omitempty"`
-			Target       string `json:"target,omitempty"`
-			Published    bool   `json:"published,omitempty"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		// Build URL with query parameters
-		url := fmt.Sprintf("/v1/projects/%s/firmware", projectUID)
+		// Build request with SDK
+		req := client.ProjectAPI.GetFirmwareInfo(ctx, projectUID)
 
 		// Add query parameters
-		firstParam := true
 		if firmwareType != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "firmwareType=" + firmwareType
+			req = req.FirmwareType(firmwareType)
 		}
 		if productUID != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "product=" + productUID
+			req = req.Product(productUID)
 		}
 		if version != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "version=" + version
+			req = req.Version(version)
 		}
 		if target != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "target=" + target
+			req = req.Target(target)
 		}
 		if filename != "" {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "filename=" + filename
+			req = req.Filename(filename)
 		}
 		if unpublished {
-			if firstParam {
-				url += "?"
-				firstParam = false
-			} else {
-				url += "&"
-			}
-			url += "unpublished=true"
+			req = req.Unpublished(unpublished)
 		}
 
-		// Get firmware list using V1 API: GET /v1/projects/{projectUID}/firmware
-		var firmwareList []FirmwareInfo
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &firmwareList)
+		// Get firmware list using SDK
+		firmwareList, _, err := req.Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list firmware: %w", err)
 		}
@@ -488,14 +376,14 @@ Examples:
 		fmt.Printf("=========================\n\n")
 
 		// Group by type
-		hostFirmware := []FirmwareInfo{}
-		notecardFirmware := []FirmwareInfo{}
-		otherFirmware := []FirmwareInfo{}
+		hostFirmware := []notehub.FirmwareInfo{}
+		notecardFirmware := []notehub.FirmwareInfo{}
+		otherFirmware := []notehub.FirmwareInfo{}
 
 		for _, fw := range firmwareList {
-			if fw.Type == "host" {
+			if fw.Type != nil && *fw.Type == "host" {
 				hostFirmware = append(hostFirmware, fw)
-			} else if fw.Type == "notecard" {
+			} else if fw.Type != nil && *fw.Type == "notecard" {
 				notecardFirmware = append(notecardFirmware, fw)
 			} else {
 				otherFirmware = append(otherFirmware, fw)
@@ -507,22 +395,24 @@ Examples:
 			fmt.Printf("Host Firmware (%d):\n", len(hostFirmware))
 			fmt.Printf("------------------\n")
 			for _, fw := range hostFirmware {
-				fmt.Printf("  %s", fw.Filename)
-				if fw.Version != "" {
-					fmt.Printf(" (v%s)", fw.Version)
+				if fw.Filename != nil {
+					fmt.Printf("  %s", *fw.Filename)
 				}
-				if !fw.Published {
+				if fw.Version != nil && *fw.Version != "" {
+					fmt.Printf(" (v%s)", *fw.Version)
+				}
+				if fw.Published != nil && !*fw.Published {
 					fmt.Printf(" [unpublished]")
 				}
 				fmt.Println()
-				if fw.Description != "" {
-					fmt.Printf("    Description: %s\n", fw.Description)
+				if fw.Description != nil && *fw.Description != "" {
+					fmt.Printf("    Description: %s\n", *fw.Description)
 				}
-				if fw.Built != "" {
-					fmt.Printf("    Built: %s\n", fw.Built)
+				if fw.Built != nil && *fw.Built != "" {
+					fmt.Printf("    Built: %s\n", *fw.Built)
 				}
-				if fw.Target != "" {
-					fmt.Printf("    Target: %s\n", fw.Target)
+				if fw.Target != nil && *fw.Target != "" {
+					fmt.Printf("    Target: %s\n", *fw.Target)
 				}
 				fmt.Println()
 			}
@@ -533,22 +423,24 @@ Examples:
 			fmt.Printf("Notecard Firmware (%d):\n", len(notecardFirmware))
 			fmt.Printf("----------------------\n")
 			for _, fw := range notecardFirmware {
-				fmt.Printf("  %s", fw.Filename)
-				if fw.Version != "" {
-					fmt.Printf(" (v%s)", fw.Version)
+				if fw.Filename != nil {
+					fmt.Printf("  %s", *fw.Filename)
 				}
-				if !fw.Published {
+				if fw.Version != nil && *fw.Version != "" {
+					fmt.Printf(" (v%s)", *fw.Version)
+				}
+				if fw.Published != nil && !*fw.Published {
 					fmt.Printf(" [unpublished]")
 				}
 				fmt.Println()
-				if fw.Description != "" {
-					fmt.Printf("    Description: %s\n", fw.Description)
+				if fw.Description != nil && *fw.Description != "" {
+					fmt.Printf("    Description: %s\n", *fw.Description)
 				}
-				if fw.Built != "" {
-					fmt.Printf("    Built: %s\n", fw.Built)
+				if fw.Built != nil && *fw.Built != "" {
+					fmt.Printf("    Built: %s\n", *fw.Built)
 				}
-				if fw.Target != "" {
-					fmt.Printf("    Target: %s\n", fw.Target)
+				if fw.Target != nil && *fw.Target != "" {
+					fmt.Printf("    Target: %s\n", *fw.Target)
 				}
 				fmt.Println()
 			}
@@ -559,25 +451,27 @@ Examples:
 			fmt.Printf("Other Firmware (%d):\n", len(otherFirmware))
 			fmt.Printf("-------------------\n")
 			for _, fw := range otherFirmware {
-				fmt.Printf("  %s", fw.Filename)
-				if fw.Version != "" {
-					fmt.Printf(" (v%s)", fw.Version)
+				if fw.Filename != nil {
+					fmt.Printf("  %s", *fw.Filename)
 				}
-				if fw.Type != "" {
-					fmt.Printf(" [%s]", fw.Type)
+				if fw.Version != nil && *fw.Version != "" {
+					fmt.Printf(" (v%s)", *fw.Version)
 				}
-				if !fw.Published {
+				if fw.Type != nil && *fw.Type != "" {
+					fmt.Printf(" [%s]", *fw.Type)
+				}
+				if fw.Published != nil && !*fw.Published {
 					fmt.Printf(" [unpublished]")
 				}
 				fmt.Println()
-				if fw.Description != "" {
-					fmt.Printf("    Description: %s\n", fw.Description)
+				if fw.Description != nil && *fw.Description != "" {
+					fmt.Printf("    Description: %s\n", *fw.Description)
 				}
-				if fw.Built != "" {
-					fmt.Printf("    Built: %s\n", fw.Built)
+				if fw.Built != nil && *fw.Built != "" {
+					fmt.Printf("    Built: %s\n", *fw.Built)
 				}
-				if fw.Target != "" {
-					fmt.Printf("    Target: %s\n", fw.Target)
+				if fw.Target != nil && *fw.Target != "" {
+					fmt.Printf("    Target: %s\n", *fw.Target)
 				}
 				fmt.Println()
 			}

@@ -7,6 +7,7 @@ package cmd
 import (
 	"fmt"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -27,20 +28,14 @@ var projectListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentials := GetCredentials() // Validates and exits if not authenticated
 
-		// Get all projects using V1 API: GET /v1/projects
-		type Project struct {
-			UID                     string `json:"uid"`
-			Label                   string `json:"label"`
-			BillingAccountUID       string `json:"billing_account_uid"`
-			DisableDevicesByDefault bool   `json:"disable_devices_by_default"`
+		// Get all projects using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type ProjectsResponse struct {
-			Projects []Project `json:"projects"`
-		}
-
-		projectsRsp := ProjectsResponse{}
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", "/v1/projects", nil, &projectsRsp)
+		projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
@@ -74,12 +69,12 @@ var projectListCmd = &cobra.Command{
 		fmt.Println("\nAvailable Projects:")
 		fmt.Println("===================")
 		for _, project := range projectsRsp.Projects {
-			if project.UID == currentProject {
+			if project.Uid == currentProject {
 				fmt.Printf("* %s (current)\n", project.Label)
-				fmt.Printf("  %s\n\n", project.UID)
+				fmt.Printf("  %s\n\n", project.Uid)
 			} else {
 				fmt.Printf("  %s\n", project.Label)
-				fmt.Printf("  %s\n\n", project.UID)
+				fmt.Printf("  %s\n\n", project.Uid)
 			}
 		}
 
@@ -105,34 +100,29 @@ var projectSetCmd = &cobra.Command{
 
 		projectIdentifier := args[0]
 
-		// Define project types
-		type Project struct {
-			UID   string `json:"uid"`
-			Label string `json:"label"`
-		}
-
-		type ProjectsResponse struct {
-			Projects []Project `json:"projects"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
 		// First, try to use it directly as a UID
-		var selectedProject Project
-		url := fmt.Sprintf("/v1/projects/%s", projectIdentifier)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &selectedProject)
+		var selectedProject notehub.Project
+		project, resp, err := client.ProjectAPI.GetProject(ctx, projectIdentifier).Execute()
 
-		// If that failed or returned empty UID, it might be a project name - fetch all projects and search
-		if err != nil || selectedProject.UID == "" {
-			projectsRsp := ProjectsResponse{}
-			err = reqHubV1(GetVerbose(), GetAPIHub(), "GET", "/v1/projects", nil, &projectsRsp)
+		// If that failed, it might be a project name - fetch all projects and search
+		if err != nil || (resp != nil && resp.StatusCode == 404) {
+			projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to list projects: %w", err)
 			}
 
 			// Search for project by name (exact match)
 			found := false
-			for _, project := range projectsRsp.Projects {
-				if project.Label == projectIdentifier {
-					selectedProject = project
+			for _, proj := range projectsRsp.Projects {
+				if proj.Label == projectIdentifier {
+					selectedProject = proj
 					found = true
 					break
 				}
@@ -141,16 +131,18 @@ var projectSetCmd = &cobra.Command{
 			if !found {
 				return fmt.Errorf("project '%s' not found. Use 'notehub project list' to see available projects", projectIdentifier)
 			}
+		} else {
+			selectedProject = *project
 		}
 
 		// Save to config
-		viper.Set("project", selectedProject.UID)
+		viper.Set("project", selectedProject.Uid)
 		if err := SaveConfig(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
 		fmt.Printf("Active project set to: %s\n", selectedProject.Label)
-		fmt.Printf("Project UID: %s\n", selectedProject.UID)
+		fmt.Printf("Project UID: %s\n", selectedProject.Uid)
 		fmt.Println("\nThis project will now be used as the default for all commands.")
 
 		return nil
@@ -184,6 +176,13 @@ Examples:
 
 		var projectUID string
 
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
 		// If project specified, use that; otherwise use active project
 		if len(args) > 0 {
 			projectIdentifier := args[0]
@@ -193,17 +192,7 @@ Examples:
 				projectUID = projectIdentifier
 			} else {
 				// It might be a project name - fetch all projects and search
-				type Project struct {
-					UID   string `json:"uid"`
-					Label string `json:"label"`
-				}
-
-				type ProjectsResponse struct {
-					Projects []Project `json:"projects"`
-				}
-
-				projectsRsp := ProjectsResponse{}
-				err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", "/v1/projects", nil, &projectsRsp)
+				projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 				if err != nil {
 					return fmt.Errorf("failed to list projects: %w", err)
 				}
@@ -212,7 +201,7 @@ Examples:
 				found := false
 				for _, project := range projectsRsp.Projects {
 					if project.Label == projectIdentifier {
-						projectUID = project.UID
+						projectUID = project.Uid
 						found = true
 						break
 					}
@@ -230,12 +219,8 @@ Examples:
 			}
 		}
 
-		verbose := GetVerbose()
-
-		// Get project details using V1 API: GET /v1/projects/{projectUID}
-		var project map[string]interface{}
-		url := fmt.Sprintf("/v1/projects/%s", projectUID)
-		err := reqHubV1(verbose, GetAPIHub(), "GET", url, nil, &project)
+		// Get project details using SDK
+		project, _, err := client.ProjectAPI.GetProject(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to get project: %w", err)
 		}
@@ -257,30 +242,25 @@ Examples:
 		}
 
 		// Display project in human-readable format
-		uid, _ := project["uid"].(string)
-		label, _ := project["label"].(string)
-		billingAccountUID, _ := project["billing_account_uid"].(string)
-		disableDevicesByDefault, _ := project["disable_devices_by_default"].(bool)
-
 		// Check if this is the active project
 		currentProject := GetProject()
-		isActive := (uid == currentProject)
+		isActive := (project.Uid == currentProject)
 
 		fmt.Printf("\nProject Details:\n")
 		fmt.Printf("================\n\n")
-		fmt.Printf("Name: %s", label)
+		fmt.Printf("Name: %s", project.Label)
 		if isActive {
 			fmt.Printf(" (active)")
 		}
 		fmt.Println()
-		fmt.Printf("UID: %s\n", uid)
-		if billingAccountUID != "" {
-			fmt.Printf("Billing Account: %s\n", billingAccountUID)
+		fmt.Printf("UID: %s\n", project.Uid)
+		if !project.Created.IsZero() {
+			fmt.Printf("Created: %s\n", project.Created.Format("2006-01-02 15:04:05 MST"))
 		}
-		if disableDevicesByDefault {
-			fmt.Printf("Disable Devices by Default: Yes\n")
-		} else {
-			fmt.Printf("Disable Devices by Default: No\n")
+		if project.Role.IsSet() {
+			if role := project.Role.Get(); role != nil {
+				fmt.Printf("Role: %s\n", string(*role))
+			}
 		}
 		fmt.Println()
 

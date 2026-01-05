@@ -7,6 +7,7 @@ package cmd
 import (
 	"fmt"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 )
@@ -32,20 +33,14 @@ var productListCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define product types
-		type Product struct {
-			UID   string `json:"uid"`
-			Label string `json:"label"`
+		// Get products using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type ProductsResponse struct {
-			Products []Product `json:"products"`
-		}
-
-		// Get products using V1 API: GET /v1/projects/{projectUID}/products
-		productsRsp := ProductsResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/products", projectUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &productsRsp)
+		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list products: %w", err)
 		}
@@ -77,7 +72,7 @@ var productListCmd = &cobra.Command{
 
 		for _, product := range productsRsp.Products {
 			fmt.Printf("  %s\n", product.Label)
-			fmt.Printf("  %s\n\n", product.UID)
+			fmt.Printf("  %s\n\n", product.Uid)
 		}
 
 		fmt.Printf("Total products: %d\n\n", len(productsRsp.Products))
@@ -103,28 +98,23 @@ var productGetCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define product type
-		type Product struct {
-			UID   string `json:"uid"`
-			Label string `json:"label"`
-		}
-
-		type ProductsResponse struct {
-			Products []Product `json:"products"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
 		// Get all products and find the matching one
-		productsRsp := ProductsResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/products", projectUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &productsRsp)
+		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list products: %w", err)
 		}
 
 		// Find the product by UID or name
-		var foundProduct *Product
+		var foundProduct *notehub.Product
 		for _, product := range productsRsp.Products {
-			if product.UID == productIdentifier || product.Label == productIdentifier {
+			if product.Uid == productIdentifier || product.Label == productIdentifier {
 				foundProduct = &product
 				break
 			}
@@ -154,7 +144,7 @@ var productGetCmd = &cobra.Command{
 		fmt.Printf("\nProduct Details:\n")
 		fmt.Printf("================\n\n")
 		fmt.Printf("Name: %s\n", foundProduct.Label)
-		fmt.Printf("UID: %s\n", foundProduct.UID)
+		fmt.Printf("UID: %s\n", foundProduct.Uid)
 		fmt.Println()
 
 		return nil

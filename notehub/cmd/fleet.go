@@ -6,8 +6,8 @@ package cmd
 
 import (
 	"fmt"
-	"time"
 
+	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
 	"github.com/spf13/cobra"
 )
@@ -33,28 +33,14 @@ var fleetListCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define fleet types
-		type ConnectivityAssurance struct {
-			Enabled bool `json:"enabled"`
+		// Get fleets using SDK
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type Fleet struct {
-			UID                   string                 `json:"uid"`
-			Label                 string                 `json:"label"`
-			Created               time.Time              `json:"created,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          int                    `json:"watchdog_mins,omitempty"`
-		}
-
-		type FleetsResponse struct {
-			Fleets []Fleet `json:"fleets"`
-		}
-
-		// Get fleets using V1 API: GET /v1/projects/{projectUID}/fleets
-		fleetsRsp := FleetsResponse{}
-		url := fmt.Sprintf("/v1/projects/%s/fleets", projectUID)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &fleetsRsp)
+		fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to list fleets: %w", err)
 		}
@@ -86,22 +72,24 @@ var fleetListCmd = &cobra.Command{
 
 		for _, fleet := range fleetsRsp.Fleets {
 			fmt.Printf("Fleet: %s\n", fleet.Label)
-			fmt.Printf("  UID: %s\n", fleet.UID)
+			fmt.Printf("  UID: %s\n", fleet.Uid)
 			if !fleet.Created.IsZero() {
 				fmt.Printf("  Created: %s\n", fleet.Created.Format("2006-01-02 15:04:05 MST"))
 			}
-			if fleet.SmartRule != "" {
-				fmt.Printf("  Smart Rule: %s\n", fleet.SmartRule)
+			if fleet.HasSmartRule() {
+				fmt.Printf("  Smart Rule: %s\n", *fleet.SmartRule)
 			}
-			if fleet.ConnectivityAssurance != nil {
+			if fleet.HasConnectivityAssurance() {
 				status := "disabled"
-				if fleet.ConnectivityAssurance.Enabled {
-					status = "enabled"
+				if ca := fleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
+					if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
+						status = "enabled"
+					}
 				}
 				fmt.Printf("  Connectivity Assurance: %s\n", status)
 			}
-			if fleet.WatchdogMins > 0 {
-				fmt.Printf("  Watchdog: %d minutes\n", fleet.WatchdogMins)
+			if fleet.HasWatchdogMins() && *fleet.WatchdogMins > 0 {
+				fmt.Printf("  Watchdog: %d minutes\n", *fleet.WatchdogMins)
 			}
 			fmt.Println()
 		}
@@ -129,44 +117,29 @@ var fleetGetCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define fleet types
-		type ConnectivityAssurance struct {
-			Enabled bool `json:"enabled"`
-		}
-
-		type Fleet struct {
-			UID                   string                 `json:"uid"`
-			Label                 string                 `json:"label"`
-			Created               time.Time              `json:"created,omitempty"`
-			EnvironmentVariables  map[string]string      `json:"environment_variables,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          int                    `json:"watchdog_mins,omitempty"`
-		}
-
-		type FleetsResponse struct {
-			Fleets []Fleet `json:"fleets"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
 		// First, try to use it directly as a UID
-		var selectedFleet Fleet
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s", projectUID, fleetIdentifier)
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &selectedFleet)
+		var selectedFleet *notehub.Fleet
+		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
 
-		// If that failed or returned empty UID, it might be a fleet name - fetch all fleets and search
-		if err != nil || selectedFleet.UID == "" {
-			fleetsRsp := FleetsResponse{}
-			listURL := fmt.Sprintf("/v1/projects/%s/fleets", projectUID)
-			err = reqHubV1(GetVerbose(), GetAPIHub(), "GET", listURL, nil, &fleetsRsp)
+		// If that failed or returned 404, it might be a fleet name - fetch all fleets and search
+		if err != nil || (resp != nil && resp.StatusCode == 404) {
+			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to list fleets: %w", err)
 			}
 
 			// Search for fleet by name (exact match)
 			found := false
-			for _, fleet := range fleetsRsp.Fleets {
-				if fleet.Label == fleetIdentifier {
-					selectedFleet = fleet
+			for _, f := range fleetsRsp.Fleets {
+				if f.Label == fleetIdentifier {
+					selectedFleet = &f
 					found = true
 					break
 				}
@@ -175,6 +148,8 @@ var fleetGetCmd = &cobra.Command{
 			if !found {
 				return fmt.Errorf("fleet '%s' not found in project", fleetIdentifier)
 			}
+		} else {
+			selectedFleet = fleet
 		}
 
 		// Handle JSON output
@@ -197,29 +172,34 @@ var fleetGetCmd = &cobra.Command{
 		fmt.Printf("\nFleet Details:\n")
 		fmt.Printf("==============\n\n")
 		fmt.Printf("Name: %s\n", selectedFleet.Label)
-		fmt.Printf("UID: %s\n", selectedFleet.UID)
+		fmt.Printf("UID: %s\n", selectedFleet.Uid)
 		if !selectedFleet.Created.IsZero() {
 			fmt.Printf("Created: %s\n", selectedFleet.Created.Format("2006-01-02 15:04:05 MST"))
 		}
-		if selectedFleet.SmartRule != "" {
-			fmt.Printf("Smart Rule: %s\n", selectedFleet.SmartRule)
+		if selectedFleet.HasSmartRule() {
+			fmt.Printf("Smart Rule: %s\n", *selectedFleet.SmartRule)
 		}
-		if selectedFleet.ConnectivityAssurance != nil {
+		if selectedFleet.HasConnectivityAssurance() {
 			status := "disabled"
-			if selectedFleet.ConnectivityAssurance.Enabled {
-				status = "enabled"
+			if ca := selectedFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
+				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
+					status = "enabled"
+				}
 			}
 			fmt.Printf("Connectivity Assurance: %s\n", status)
 		}
-		if selectedFleet.WatchdogMins > 0 {
-			fmt.Printf("Watchdog: %d minutes\n", selectedFleet.WatchdogMins)
+		if selectedFleet.HasWatchdogMins() && *selectedFleet.WatchdogMins > 0 {
+			fmt.Printf("Watchdog: %d minutes\n", *selectedFleet.WatchdogMins)
 		}
 
 		// Display environment variables if any
-		if len(selectedFleet.EnvironmentVariables) > 0 {
-			fmt.Printf("\nEnvironment Variables:\n")
-			for key, value := range selectedFleet.EnvironmentVariables {
-				fmt.Printf("  %s: %s\n", key, value)
+		if selectedFleet.HasEnvironmentVariables() {
+			envVars := selectedFleet.GetEnvironmentVariables()
+			if len(envVars) > 0 {
+				fmt.Printf("\nEnvironment Variables:\n")
+				for key, value := range envVars {
+					fmt.Printf("  %s: %s\n", key, value)
+				}
 			}
 		}
 
@@ -250,52 +230,31 @@ var fleetCreateCmd = &cobra.Command{
 		smartRule, _ := cmd.Flags().GetString("smart-rule")
 		connectivityAssurance, _ := cmd.Flags().GetBool("connectivity-assurance")
 
-		// Define fleet types
-		type ConnectivityAssurance struct {
-			Enabled bool `json:"enabled"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
-		type CreateFleetRequest struct {
-			Label                 string                 `json:"label"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-		}
-
-		type Fleet struct {
-			UID                   string                 `json:"uid"`
-			Label                 string                 `json:"label"`
-			Created               time.Time              `json:"created,omitempty"`
-			EnvironmentVariables  map[string]string      `json:"environment_variables,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          int                    `json:"watchdog_mins,omitempty"`
-		}
-
-		// Build create request
-		createReq := CreateFleetRequest{
-			Label: fleetName,
-		}
+		// Build create request using SDK
+		createReq := notehub.NewCreateFleetRequest()
+		createReq.SetLabel(fleetName)
 
 		if smartRule != "" {
-			createReq.SmartRule = smartRule
+			createReq.SetSmartRule(smartRule)
 		}
 
 		if cmd.Flags().Changed("connectivity-assurance") {
-			createReq.ConnectivityAssurance = &ConnectivityAssurance{
-				Enabled: connectivityAssurance,
-			}
+			ca := notehub.NewFleetConnectivityAssurance()
+			ca.Enabled.Set(&connectivityAssurance)
+			createReq.SetConnectivityAssurance(*ca)
 		}
 
-		// Marshal request to JSON
-		reqBody, err := note.JSONMarshal(createReq)
-		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
-		}
-
-		// Create fleet using V1 API: POST /v1/projects/{projectUID}/fleets
-		createdFleet := Fleet{}
-		url := fmt.Sprintf("/v1/projects/%s/fleets", projectUID)
-		err = reqHubV1(GetVerbose(), GetAPIHub(), "POST", url, reqBody, &createdFleet)
+		// Create fleet using SDK
+		createdFleet, _, err := client.ProjectAPI.CreateFleet(ctx, projectUID).
+			CreateFleetRequest(*createReq).
+			Execute()
 		if err != nil {
 			return fmt.Errorf("failed to create fleet: %w", err)
 		}
@@ -319,17 +278,19 @@ var fleetCreateCmd = &cobra.Command{
 		// Display success message
 		fmt.Printf("\nFleet created successfully!\n\n")
 		fmt.Printf("Name: %s\n", createdFleet.Label)
-		fmt.Printf("UID: %s\n", createdFleet.UID)
+		fmt.Printf("UID: %s\n", createdFleet.Uid)
 		if !createdFleet.Created.IsZero() {
 			fmt.Printf("Created: %s\n", createdFleet.Created.Format("2006-01-02 15:04:05 MST"))
 		}
-		if createdFleet.SmartRule != "" {
-			fmt.Printf("Smart Rule: %s\n", createdFleet.SmartRule)
+		if createdFleet.HasSmartRule() {
+			fmt.Printf("Smart Rule: %s\n", *createdFleet.SmartRule)
 		}
-		if createdFleet.ConnectivityAssurance != nil {
+		if createdFleet.HasConnectivityAssurance() {
 			status := "disabled"
-			if createdFleet.ConnectivityAssurance.Enabled {
-				status = "enabled"
+			if ca := createdFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
+				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
+					status = "enabled"
+				}
 			}
 			fmt.Printf("Connectivity Assurance: %s\n", status)
 		}
@@ -356,23 +317,11 @@ var fleetDeleteCmd = &cobra.Command{
 			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
-		// Define fleet types
-		type ConnectivityAssurance struct {
-			Enabled bool `json:"enabled"`
-		}
-
-		type Fleet struct {
-			UID                   string                 `json:"uid"`
-			Label                 string                 `json:"label"`
-			Created               time.Time              `json:"created,omitempty"`
-			EnvironmentVariables  map[string]string      `json:"environment_variables,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          int                    `json:"watchdog_mins,omitempty"`
-		}
-
-		type FleetsResponse struct {
-			Fleets []Fleet `json:"fleets"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
 		// Determine the fleet UID
@@ -380,29 +329,25 @@ var fleetDeleteCmd = &cobra.Command{
 		var fleetName string
 
 		// First, try to use it directly as a UID
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s", projectUID, fleetIdentifier)
-		var testFleet Fleet
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &testFleet)
+		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
 
-		if err == nil && testFleet.UID != "" {
+		if err == nil && resp != nil && resp.StatusCode != 404 {
 			// It's a valid UID
-			fleetUID = testFleet.UID
-			fleetName = testFleet.Label
+			fleetUID = fleet.Uid
+			fleetName = fleet.Label
 		} else {
 			// Try to find by name
-			fleetsRsp := FleetsResponse{}
-			listURL := fmt.Sprintf("/v1/projects/%s/fleets", projectUID)
-			err = reqHubV1(GetVerbose(), GetAPIHub(), "GET", listURL, nil, &fleetsRsp)
+			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to list fleets: %w", err)
 			}
 
 			// Search for fleet by name (exact match)
 			found := false
-			for _, fleet := range fleetsRsp.Fleets {
-				if fleet.Label == fleetIdentifier {
-					fleetUID = fleet.UID
-					fleetName = fleet.Label
+			for _, f := range fleetsRsp.Fleets {
+				if f.Label == fleetIdentifier {
+					fleetUID = f.Uid
+					fleetName = f.Label
 					found = true
 					break
 				}
@@ -413,9 +358,8 @@ var fleetDeleteCmd = &cobra.Command{
 			}
 		}
 
-		// Delete fleet using V1 API: DELETE /v1/projects/{projectUID}/fleets/{fleetUID}
-		deleteURL := fmt.Sprintf("/v1/projects/%s/fleets/%s", projectUID, fleetUID)
-		err = reqHubV1(GetVerbose(), GetAPIHub(), "DELETE", deleteURL, nil, nil)
+		// Delete fleet using SDK
+		_, err = client.ProjectAPI.DeleteFleet(ctx, projectUID, fleetUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete fleet: %w", err)
 		}
@@ -457,57 +401,34 @@ var fleetUpdateCmd = &cobra.Command{
 			return fmt.Errorf("no update flags provided. Use --name, --smart-rule, --connectivity-assurance, or --watchdog-mins")
 		}
 
-		// Define fleet types
-		type ConnectivityAssurance struct {
-			Enabled bool `json:"enabled"`
-		}
-
-		type Fleet struct {
-			UID                   string                 `json:"uid"`
-			Label                 string                 `json:"label"`
-			Created               time.Time              `json:"created,omitempty"`
-			EnvironmentVariables  map[string]string      `json:"environment_variables,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          int                    `json:"watchdog_mins,omitempty"`
-		}
-
-		type FleetsResponse struct {
-			Fleets []Fleet `json:"fleets"`
-		}
-
-		type UpdateFleetRequest struct {
-			Label                 string                 `json:"label,omitempty"`
-			SmartRule             string                 `json:"smart_rule,omitempty"`
-			ConnectivityAssurance *ConnectivityAssurance `json:"connectivity_assurance,omitempty"`
-			WatchdogMins          *int                   `json:"watchdog_mins,omitempty"`
+		// Get SDK client
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
 		}
 
 		// Determine the fleet UID
 		var fleetUID string
 
 		// First, try to use it directly as a UID
-		url := fmt.Sprintf("/v1/projects/%s/fleets/%s", projectUID, fleetIdentifier)
-		var testFleet Fleet
-		err := reqHubV1(GetVerbose(), GetAPIHub(), "GET", url, nil, &testFleet)
+		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
 
-		if err == nil && testFleet.UID != "" {
+		if err == nil && resp != nil && resp.StatusCode != 404 {
 			// It's a valid UID
-			fleetUID = testFleet.UID
+			fleetUID = fleet.Uid
 		} else {
 			// Try to find by name
-			fleetsRsp := FleetsResponse{}
-			listURL := fmt.Sprintf("/v1/projects/%s/fleets", projectUID)
-			err = reqHubV1(GetVerbose(), GetAPIHub(), "GET", listURL, nil, &fleetsRsp)
+			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
 			if err != nil {
 				return fmt.Errorf("failed to list fleets: %w", err)
 			}
 
 			// Search for fleet by name (exact match)
 			found := false
-			for _, fleet := range fleetsRsp.Fleets {
-				if fleet.Label == fleetIdentifier {
-					fleetUID = fleet.UID
+			for _, f := range fleetsRsp.Fleets {
+				if f.Label == fleetIdentifier {
+					fleetUID = f.Uid
 					found = true
 					break
 				}
@@ -518,37 +439,31 @@ var fleetUpdateCmd = &cobra.Command{
 			}
 		}
 
-		// Build update request
-		updateReq := UpdateFleetRequest{}
+		// Build update request using SDK
+		updateReq := notehub.NewUpdateFleetRequest()
 
 		if cmd.Flags().Changed("name") {
-			updateReq.Label = newName
+			updateReq.SetLabel(newName)
 		}
 
 		if cmd.Flags().Changed("smart-rule") {
-			updateReq.SmartRule = smartRule
+			updateReq.SetSmartRule(smartRule)
 		}
 
 		if cmd.Flags().Changed("connectivity-assurance") {
-			updateReq.ConnectivityAssurance = &ConnectivityAssurance{
-				Enabled: connectivityAssurance,
-			}
+			ca := notehub.NewFleetConnectivityAssurance()
+			ca.Enabled.Set(&connectivityAssurance)
+			updateReq.SetConnectivityAssurance(*ca)
 		}
 
 		if cmd.Flags().Changed("watchdog-mins") {
-			updateReq.WatchdogMins = &watchdogMins
+			updateReq.SetWatchdogMins(int64(watchdogMins))
 		}
 
-		// Marshal request to JSON
-		reqBody, err := note.JSONMarshal(updateReq)
-		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
-		}
-
-		// Update fleet using V1 API: PUT /v1/projects/{projectUID}/fleets/{fleetUID}
-		updatedFleet := Fleet{}
-		updateURL := fmt.Sprintf("/v1/projects/%s/fleets/%s", projectUID, fleetUID)
-		err = reqHubV1(GetVerbose(), GetAPIHub(), "PUT", updateURL, reqBody, &updatedFleet)
+		// Update fleet using SDK
+		updatedFleet, _, err := client.ProjectAPI.UpdateFleet(ctx, projectUID, fleetUID).
+			UpdateFleetRequest(*updateReq).
+			Execute()
 		if err != nil {
 			return fmt.Errorf("failed to update fleet: %w", err)
 		}
@@ -572,22 +487,24 @@ var fleetUpdateCmd = &cobra.Command{
 		// Display success message
 		fmt.Printf("\nFleet updated successfully!\n\n")
 		fmt.Printf("Name: %s\n", updatedFleet.Label)
-		fmt.Printf("UID: %s\n", updatedFleet.UID)
+		fmt.Printf("UID: %s\n", updatedFleet.Uid)
 		if !updatedFleet.Created.IsZero() {
 			fmt.Printf("Created: %s\n", updatedFleet.Created.Format("2006-01-02 15:04:05 MST"))
 		}
-		if updatedFleet.SmartRule != "" {
-			fmt.Printf("Smart Rule: %s\n", updatedFleet.SmartRule)
+		if updatedFleet.HasSmartRule() {
+			fmt.Printf("Smart Rule: %s\n", *updatedFleet.SmartRule)
 		}
-		if updatedFleet.ConnectivityAssurance != nil {
+		if updatedFleet.HasConnectivityAssurance() {
 			status := "disabled"
-			if updatedFleet.ConnectivityAssurance.Enabled {
-				status = "enabled"
+			if ca := updatedFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
+				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
+					status = "enabled"
+				}
 			}
 			fmt.Printf("Connectivity Assurance: %s\n", status)
 		}
-		if updatedFleet.WatchdogMins > 0 {
-			fmt.Printf("Watchdog: %d minutes\n", updatedFleet.WatchdogMins)
+		if updatedFleet.HasWatchdogMins() && *updatedFleet.WatchdogMins > 0 {
+			fmt.Printf("Watchdog: %d minutes\n", *updatedFleet.WatchdogMins)
 		}
 		fmt.Println()
 

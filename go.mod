@@ -19,6 +19,7 @@ require (
 )
 
 require (
+	github.com/blues/notehub-go v0.0.0-20260105133531-1e40c1ed371c // indirect
 	github.com/creack/goselect v0.1.2 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
@@ -36,6 +37,7 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/text v0.28.0 // indirect
+	gopkg.in/validator.v2 v2.0.1 // indirect
 	periph.io/x/conn/v3 v3.7.0 // indirect
 )
 
