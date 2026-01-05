@@ -1,8 +1,8 @@
-// Copyright 2021 Blues Inc.  All rights reserved.
+// Copyright 2025 Blues Inc.  All rights reserved.
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-package main
+package cmd
 
 import (
 	"bufio"
@@ -11,8 +11,39 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/blues/note-cli/lib"
+	"github.com/spf13/cobra"
 )
+
+// traceCmd represents the trace command
+var traceCmd = &cobra.Command{
+	Use:   "trace",
+	Short: "Enter interactive trace mode",
+	Long: `Enter an interactive trace mode to send requests to Notehub.
+
+In trace mode, you can:
+  - Set project, product, and device context
+  - Send JSON requests
+  - Make HTTPS GET, POST, PUT, DELETE requests
+  - Ping the Notehub
+  - Type ? for help
+
+Example:
+  notehub trace --project app:xxxx --device dev:yyyy`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		GetCredentials() // Validate credentials
+
+		// Set initial context
+		reqFlagApp = GetProject()
+		reqFlagProduct = GetProduct()
+		reqFlagDevice = GetDevice()
+
+		return traceMode()
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(traceCmd)
+}
 
 // Command definitions
 type cmdDef struct {
@@ -21,7 +52,8 @@ type cmdDef struct {
 }
 
 func validCommands() []cmdDef {
-	return []cmdDef{{"product", "set productUID for requests made in this session"},
+	return []cmdDef{
+		{"product", "set productUID for requests made in this session"},
 		{"project", "set projectUID (appUID) for requests made in this session"},
 		{"device", "set deviceUID for requests made in this session"},
 		{"hub", "set notehub domain for requests made in this session"},
@@ -35,8 +67,7 @@ func validCommands() []cmdDef {
 }
 
 // Enter a diagnostic trace mode
-func trace() error {
-
+func traceMode() error {
 	// Create a scanner to watch stdin
 	scanner := bufio.NewScanner(os.Stdin)
 	var cmd string
@@ -58,7 +89,7 @@ traceloop:
 
 		// Process JSON requests
 		if strings.HasPrefix(cmd, "{") {
-			_, err := reqHubV0JSON(true, lib.ConfigAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
+			_, err := reqHubV0JSON(true, GetAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 			}
@@ -66,21 +97,21 @@ traceloop:
 		}
 
 		// Create clean IDs to work with in the commands
-		cleanProduct := flagProduct
+		cleanProduct := reqFlagProduct
 		if cleanProduct != "" && !strings.HasPrefix(cleanProduct, "product:") {
-			cleanProduct = "product:" + flagProduct
+			cleanProduct = "product:" + reqFlagProduct
 		}
-		cleanApp := flagApp
+		cleanApp := reqFlagApp
 		if !strings.HasPrefix(cleanApp, "app:") {
 			if cleanApp == "" {
 				cleanApp = cleanProduct
 			} else {
-				cleanApp = "app:" + flagApp
+				cleanApp = "app:" + reqFlagApp
 			}
 		}
-		cleanDevice := flagDevice
+		cleanDevice := reqFlagDevice
 		if !strings.HasPrefix(cleanDevice, "dev:") {
-			cleanDevice = "dev:" + flagDevice
+			cleanDevice = "dev:" + reqFlagDevice
 		}
 		cmdAfter0 = strings.Replace(cmdAfter0, "{productUID}", cleanProduct, -1)
 		cmdAfter0 = strings.Replace(cmdAfter0, "{projectUID}", cleanApp, -1)
@@ -99,9 +130,9 @@ traceloop:
 				if args[1] == "-" {
 					args[1] = ""
 				}
-				flagProduct = args[1]
+				reqFlagProduct = args[1]
 			}
-			fmt.Printf("productUID is %s\n", flagProduct)
+			fmt.Printf("productUID is %s\n", reqFlagProduct)
 
 		case "project":
 			fallthrough
@@ -110,28 +141,28 @@ traceloop:
 				if args[1] == "-" {
 					args[1] = ""
 				}
-				flagApp = args[1]
+				reqFlagApp = args[1]
 			}
-			fmt.Printf("projectUID is %s\n", flagApp)
+			fmt.Printf("projectUID is %s\n", reqFlagApp)
 
 		case "device":
 			if args[1] != "" {
 				if args[1] == "-" {
 					args[1] = ""
 				}
-				flagDevice = args[1]
+				reqFlagDevice = args[1]
 			}
-			fmt.Printf("deviceUID is %s\n", flagDevice)
+			fmt.Printf("deviceUID is %s\n", reqFlagDevice)
 
 		case "hub":
 			if args[1] != "" {
 				if args[1] == "-" {
 					args[1] = ""
 				}
-				config, _ := lib.GetConfig()
-				config.Hub = args[1]
+				SetHub(args[1])
+				SaveConfig()
 			}
-			fmt.Printf("hub is %s\n", flagApp)
+			fmt.Printf("hub is %s\n", GetHub())
 
 		case "get":
 			fallthrough
@@ -158,20 +189,20 @@ traceloop:
 			}
 
 			// Perform the transaction
-			_, err := reqHubV1JSON(true, lib.ConfigAPIHub(), args[0], url, bodyJSON)
+			_, err := reqHubV1JSON(true, GetAPIHub(), args[0], url, bodyJSON)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 				return err
 			}
 		case "ping":
-			_, err := reqHubV1JSON(true, lib.ConfigAPIHub(), "GET", "/ping", nil)
+			_, err := reqHubV1JSON(true, GetAPIHub(), "GET", "/ping", nil)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 				return err
 			}
 			if cleanApp != "" {
 				url := "/v1/products/" + cleanApp + "/products"
-				_, err = reqHubV1JSON(true, lib.ConfigAPIHub(), "GET", url, nil)
+				_, err = reqHubV1JSON(true, GetAPIHub(), "GET", url, nil)
 				if err != nil {
 					fmt.Printf("error: %s\n", err)
 					return err
