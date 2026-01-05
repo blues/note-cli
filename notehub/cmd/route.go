@@ -1,4 +1,4 @@
-// Copyright 2024 Blues Inc.  All rights reserved.
+// Copyright 2025 Blues Inc.  All rights reserved.
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
+	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
 

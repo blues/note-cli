@@ -1,4 +1,4 @@
-// Copyright 2024 Blues Inc.  All rights reserved.
+// Copyright 2025 Blues Inc.  All rights reserved.
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	notehub "github.com/blues/notehub-go"
 	"github.com/blues/note-go/note"
+	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
 
@@ -564,7 +564,7 @@ Examples:
 			// Data transfer
 			if session.Period != nil {
 				if (session.Period.BytesSent != nil && *session.Period.BytesSent > 0) ||
-				   (session.Period.BytesRcvd != nil && *session.Period.BytesRcvd > 0) {
+					(session.Period.BytesRcvd != nil && *session.Period.BytesRcvd > 0) {
 					var sent, rcvd int64
 					if session.Period.BytesSent != nil {
 						sent = *session.Period.BytesSent
