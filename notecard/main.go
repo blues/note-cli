@@ -98,6 +98,15 @@ func getFlagGroups() []lib.FlagGroup {
 			},
 		},
 		{
+			Name:        "upload",
+			Description: "File Upload",
+			Flags: []*flag.Flag{
+				lib.GetFlagByName("upload"),
+				lib.GetFlagByName("route"),
+				lib.GetFlagByName("topic"),
+			},
+		},
+		{
 			Name:        "notefile",
 			Description: "Notefile Management",
 			Flags: []*flag.Flag{
@@ -236,6 +245,14 @@ func main() {
 	var actionPcap string
 	flag.StringVar(&actionPcap, "pcap", "", "enable PCAP mode and stream packets to output file (required: 'usb' or 'aux')")
 
+	// Upload flags - for efficient binary file upload via web.post
+	var actionUpload string
+	flag.StringVar(&actionUpload, "upload", "", "upload a file to Notehub via a proxy route using efficient binary transfer")
+	var actionRoute string
+	flag.StringVar(&actionRoute, "route", "", "Notehub proxy route alias for upload (required with -upload)")
+	var actionTopic string
+	flag.StringVar(&actionTopic, "topic", "", "optional URL path appended to the route (becomes 'name' in web.post)")
+
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
 	if err != nil {
@@ -253,6 +270,12 @@ func main() {
 	if len(os.Args) == 1 {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 		config.Print()
+		fmt.Printf("\n")
+		fmt.Printf("Upload Usage:\n")
+		fmt.Printf("  notecard -upload <filepath> -route <route_alias>\n")
+		fmt.Printf("  notecard -upload <filepath> -route <route_alias> -topic <url_path>\n")
+		fmt.Printf("  Example: notecard -upload ./data.bin -route MyRoute\n")
+		fmt.Printf("  Example: notecard -upload ./firmware.bin -route Upload -topic /devices/dev123\n")
 		fmt.Printf("\n")
 		fmt.Printf("PCAP Usage:\n")
 		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
@@ -717,6 +740,10 @@ func main() {
 
 	if err == nil && actionSideload != "" && actionScan == "" {
 		err = dfuSideload(actionSideload, actionVerbose)
+	}
+
+	if err == nil && actionUpload != "" {
+		err = uploadFile(actionUpload, actionRoute, actionTopic)
 	}
 
 	if err == nil && actionDFUPackage != "" {
