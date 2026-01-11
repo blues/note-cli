@@ -33,24 +33,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/blues/note-go/notecard"
 )
+
+// maxUploadChunkBytes is the maximum chunk size we'll use for uploads,
+// regardless of what the Notecard reports as its buffer capacity.
+const maxUploadChunkBytes = 131072
 
 // uploadFile performs a binary file upload to a Notehub proxy route.
 //
 // Parameters:
 //   - filename: Path to the file to upload
 //   - route: The Notehub proxy route alias (required)
-//   - topic: Optional URL path appended to the route (becomes "name" in web.post)
+//   - target: Optional URL path appended to the route (becomes "name" in web.post);
+//     if it contains "[filename]", that substring is replaced with the uploaded filename
 //
 // The function uploads the file in chunks sized to the Notecard's binary buffer
 // capacity. Each chunk is verified via MD5 checksum before transmission to Notehub.
 // Progress statistics are written to stderr after each chunk.
 //
 // Returns an error if the upload fails at any stage.
-func uploadFile(filename string, route string, topic string) error {
+func uploadFile(filename string, route string, target string) error {
 
 	// =========================================================================
 	// STEP 1: Validate required parameters
@@ -81,6 +87,11 @@ func uploadFile(filename string, route string, topic string) error {
 	// Extract just the filename for display purposes (strip directory path)
 	displayName := filepath.Base(filename)
 
+	// Substitute [filename] placeholder in target with the actual filename
+	if strings.Contains(target, "[filename]") {
+		target = strings.ReplaceAll(target, "[filename]", displayName)
+	}
+
 	fmt.Fprintf(os.Stderr, "uploading '%s' (%d bytes) to route '%s'\n", displayName, totalSize, route)
 
 	// =========================================================================
@@ -89,11 +100,13 @@ func uploadFile(filename string, route string, topic string) error {
 	// The card.binary request returns information about the Notecard's binary
 	// buffer, including the maximum size it can accept. This value is fixed
 	// for a given Notecard type and doesn't change, so we only query it once.
+	// Note that the "reset" is essential so that it terminates any previous
+	// binary upload that may still be in progress from the notecard's perspective.
 	//
 	// The response includes:
 	//   - max: Maximum number of bytes the binary buffer can hold
 	//   - length: Current number of bytes in the buffer (should be 0)
-	rsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary"})
+	rsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary", Reset: true})
 	if err != nil {
 		return fmt.Errorf("failed to query card.binary capacity: %w", err)
 	}
@@ -103,7 +116,13 @@ func uploadFile(filename string, route string, topic string) error {
 		return fmt.Errorf("notecard does not support binary transfers (card.binary returned max=0)")
 	}
 
-	fmt.Fprintf(os.Stderr, "notecard binary buffer capacity: %d bytes\n", binaryMax)
+	// Use the smaller of the notecard's buffer capacity or our configured max
+	chunkMax := binaryMax
+	if maxUploadChunkBytes < chunkMax {
+		chunkMax = maxUploadChunkBytes
+	}
+
+	fmt.Fprintf(os.Stderr, "notecard binary buffer capacity: %d bytes, using chunk size: %d bytes\n", binaryMax, chunkMax)
 
 	// =========================================================================
 	// STEP 4: Set content type for binary upload
@@ -114,9 +133,9 @@ func uploadFile(filename string, route string, topic string) error {
 	// =========================================================================
 	// STEP 5: Initialize upload state and statistics
 	// =========================================================================
-	offset := 0                                            // Current byte offset in the file
-	chunkNumber := 0                                       // Current chunk number (1-based for display)
-	totalChunks := (totalSize + binaryMax - 1) / binaryMax // Ceiling division
+	offset := 0                                          // Current byte offset in the file
+	chunkNumber := 0                                     // Current chunk number (1-based for display)
+	totalChunks := (totalSize + chunkMax - 1) / chunkMax // Ceiling division
 	uploadStartTime := time.Now()
 
 	// =========================================================================
@@ -130,8 +149,8 @@ func uploadFile(filename string, route string, topic string) error {
 		// 6a: Calculate chunk boundaries
 		// ---------------------------------------------------------------------
 		// Determine how many bytes to send in this chunk. The last chunk may
-		// be smaller than binaryMax if the file size isn't evenly divisible.
-		chunkSize := binaryMax
+		// be smaller than chunkMax if the file size isn't evenly divisible.
+		chunkSize := chunkMax
 		remaining := totalSize - offset
 		if remaining < chunkSize {
 			chunkSize = remaining
@@ -222,7 +241,7 @@ func uploadFile(filename string, route string, topic string) error {
 		webReq.Status = chunkMD5
 
 		// Set the 'name' field (URL path appended to the route)
-		webReq.Name = topic
+		webReq.Name = target
 
 		// Execute the web.post request (synchronous - waits for response)
 		webRsp, err := card.TransactionRequest(webReq)
@@ -232,7 +251,8 @@ func uploadFile(filename string, route string, topic string) error {
 
 		// Check for HTTP-level errors in the response
 		// The 'result' field contains the HTTP status code from the server
-		if webRsp.Result != 0 && (webRsp.Result < 200 || webRsp.Result >= 300) {
+		// Note: 1xx (informational) and 2xx (success) responses are acceptable
+		if webRsp.Result >= 300 {
 			return fmt.Errorf("chunk %d: server returned HTTP %d", chunkNumber, webRsp.Result)
 		}
 

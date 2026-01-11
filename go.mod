@@ -3,6 +3,7 @@ module github.com/note-cli
 go 1.15
 
 replace github.com/blues/note-cli/lib => ./lib
+replace github.com/blues/note-go => ../hub/note-go
 
 // uncomment this for easier testing locally
 // replace github.com/blues/note-go => ../hub/note-go

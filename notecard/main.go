@@ -103,7 +103,7 @@ func getFlagGroups() []lib.FlagGroup {
 			Flags: []*flag.Flag{
 				lib.GetFlagByName("upload"),
 				lib.GetFlagByName("route"),
-				lib.GetFlagByName("topic"),
+				lib.GetFlagByName("target"),
 			},
 		},
 		{
@@ -250,8 +250,8 @@ func main() {
 	flag.StringVar(&actionUpload, "upload", "", "upload a file to Notehub via a proxy route using efficient binary transfer")
 	var actionRoute string
 	flag.StringVar(&actionRoute, "route", "", "Notehub proxy route alias for upload (required with -upload)")
-	var actionTopic string
-	flag.StringVar(&actionTopic, "topic", "", "optional URL path appended to the route (becomes 'name' in web.post)")
+	var actionTarget string
+	flag.StringVar(&actionTarget, "target", "", "optional URL path appended to the route (becomes 'name' in web.post); use [filename] for the uploaded filename")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(true, false)
@@ -273,9 +273,9 @@ func main() {
 		fmt.Printf("\n")
 		fmt.Printf("Upload Usage:\n")
 		fmt.Printf("  notecard -upload <filepath> -route <route_alias>\n")
-		fmt.Printf("  notecard -upload <filepath> -route <route_alias> -topic <url_path>\n")
+		fmt.Printf("  notecard -upload <filepath> -route <route_alias> -target <url_path>\n")
 		fmt.Printf("  Example: notecard -upload ./data.bin -route MyRoute\n")
-		fmt.Printf("  Example: notecard -upload ./firmware.bin -route Upload -topic /devices/dev123\n")
+		fmt.Printf("  Example: notecard -upload ./firmware.bin -route Upload -target /devices/[filename]\n")
 		fmt.Printf("\n")
 		fmt.Printf("PCAP Usage:\n")
 		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
@@ -377,7 +377,7 @@ func main() {
 				fmt.Printf("%s\n", err)
 				break
 			}
-			if strings.Contains(rsp.Status, note.ErrTransportDisconnected) {
+			if strings.Contains(rsp.Status, note.StatusTransportDisconnected) {
 				break
 			}
 			fmt.Printf("%s\n", rsp.Status)
@@ -743,7 +743,7 @@ func main() {
 	}
 
 	if err == nil && actionUpload != "" {
-		err = uploadFile(actionUpload, actionRoute, actionTopic)
+		err = uploadFile(actionUpload, actionRoute, actionTarget)
 	}
 
 	if err == nil && actionDFUPackage != "" {
