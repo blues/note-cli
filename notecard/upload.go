@@ -41,7 +41,11 @@ import (
 
 // maxUploadChunkBytes is the maximum chunk size we'll use for uploads,
 // regardless of what the Notecard reports as its buffer capacity.
-const maxUploadChunkBytes = 131072
+// The only reason to lower this below the Notecard's capacity (which
+// is about 250KB for a v2 (black) Notecard) is if the communications
+// between the host and notecard might be slow and you want to reduce
+// the size of each individual COBS transfer for host responsiveness.
+const maxUploadChunkBytes = 0
 
 // uploadFile performs a binary file upload to a Notehub proxy route.
 //
@@ -118,7 +122,7 @@ func uploadFile(filename string, route string, target string) error {
 
 	// Use the smaller of the notecard's buffer capacity or our configured max
 	chunkMax := binaryMax
-	if maxUploadChunkBytes < chunkMax {
+	if maxUploadChunkBytes != 0 && maxUploadChunkBytes < chunkMax {
 		chunkMax = maxUploadChunkBytes
 	}
 
