@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notecard"
 )
 
@@ -183,81 +184,105 @@ func uploadFile(filename string, route string, target string) error {
 		}
 
 		// ---------------------------------------------------------------------
-		// 6d: Stage the chunk in the Notecard's binary buffer
+		// 6d-6f: Transfer binary and send via web.post with retry logic
 		// ---------------------------------------------------------------------
-		// The card.binary.put request prepares the Notecard to receive binary
-		// data. The 'cobs' field indicates the size of the COBS-encoded data
-		// that will follow.
-		req := notecard.Request{Req: "card.binary.put"}
-		req.Cobs = int32(len(encodedData))
-
-		_, err = card.TransactionRequest(req)
-		if err != nil {
-			return fmt.Errorf("chunk %d: card.binary.put failed: %w", chunkNumber, err)
-		}
-
-		// Send the COBS-encoded data followed by a newline delimiter
-		// The newline signals the end of the binary data to the Notecard
-		encodedData = append(encodedData, byte('\n'))
-		err = card.SendBytes(encodedData)
-		if err != nil {
-			return fmt.Errorf("chunk %d: SendBytes failed: %w", chunkNumber, err)
-		}
-
-		// ---------------------------------------------------------------------
-		// 6e: Verify the chunk was received correctly by the Notecard
-		// ---------------------------------------------------------------------
-		// Query card.binary to confirm the Notecard received the expected
-		// number of bytes. This catches any serial transmission errors before
-		// we attempt to send to Notehub.
-		verifyRsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary"})
-		if err != nil {
-			return fmt.Errorf("chunk %d: card.binary verification failed: %w", chunkNumber, err)
-		}
-
-		if int(verifyRsp.Length) != chunkSize {
-			return fmt.Errorf("chunk %d: size mismatch - sent %d bytes, notecard received %d bytes",
-				chunkNumber, chunkSize, verifyRsp.Length)
-		}
-
-		// ---------------------------------------------------------------------
-		// 6f: Send the chunk to Notehub via web.post
-		// ---------------------------------------------------------------------
-		// Now that the chunk is staged in the Notecard's binary buffer, we
-		// issue a web.post request to send it to Notehub. Key fields:
+		// This section handles both binary transfer to the Notecard and the
+		// subsequent web.post to Notehub. Both operations have retry logic:
+		//   - Binary transfer errors ({bad-bin}, {io}) retry indefinitely
+		//   - web.post errors wait 15 seconds, re-transfer binary, and retry
 		//
-		//   - route: The proxy route alias configured in Notehub
-		//   - name: Optional URL path (from -topic flag)
-		//   - binary: true indicates data should come from the binary buffer
-		//   - content: MIME type for the request
-		//   - offset: Byte offset of this chunk within the complete file
-		//   - total: Total size of the complete file
-		//   - status: MD5 checksum of this chunk for verification
-		//
-		// The offset/total fields allow the server to reassemble chunks in
-		// the correct order, regardless of network issues or retries.
-		webReq := notecard.Request{Req: "web.post"}
-		webReq.RouteUID = route
-		webReq.Binary = true
-		webReq.Content = contentType
-		webReq.Offset = int32(offset)
-		webReq.Total = int32(totalSize)
-		webReq.Status = chunkMD5
+		// We use a labeled loop so web.post failures can restart the entire
+		// chunk upload process (binary transfer + web.post).
 
-		// Set the 'name' field (URL path appended to the route)
-		webReq.Name = target
+		encodedDataWithNewline := append(encodedData, byte('\n'))
 
-		// Execute the web.post request (synchronous - waits for response)
-		webRsp, err := card.TransactionRequest(webReq)
-		if err != nil {
-			return fmt.Errorf("chunk %d: web.post failed: %w", chunkNumber, err)
-		}
+	chunkRetry:
+		for {
+			// -----------------------------------------------------------------
+			// Binary transfer with retry on {bad-bin}/{io} errors
+			// -----------------------------------------------------------------
+			for {
+				// Stage the chunk in the Notecard's binary buffer
+				req := notecard.Request{Req: "card.binary.put"}
+				req.Cobs = int32(len(encodedData))
 
-		// Check for HTTP-level errors in the response
-		// The 'result' field contains the HTTP status code from the server
-		// Note: 1xx (informational) and 2xx (success) responses are acceptable
-		if webRsp.Result >= 300 {
-			return fmt.Errorf("chunk %d: server returned HTTP %d", chunkNumber, webRsp.Result)
+				_, err = card.TransactionRequest(req)
+				if err != nil {
+					if note.ErrorContains(err, note.ErrCardIo) {
+						fmt.Fprintf(os.Stderr, "binary transfer error, retrying: %s\n", err)
+						continue
+					}
+					return fmt.Errorf("chunk %d: card.binary.put failed: %w", chunkNumber, err)
+				}
+
+				// Send the COBS-encoded data followed by a newline delimiter
+				err = card.SendBytes(encodedDataWithNewline)
+				if err != nil {
+					if note.ErrorContains(err, note.ErrCardIo) {
+						fmt.Fprintf(os.Stderr, "binary transfer error, retrying: %s\n", err)
+						continue
+					}
+					return fmt.Errorf("chunk %d: SendBytes failed: %w", chunkNumber, err)
+				}
+
+				// Verify the chunk was received correctly by the Notecard
+				verifyRsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary"})
+				if err != nil {
+					if note.ErrorContains(err, note.ErrCardIo) {
+						fmt.Fprintf(os.Stderr, "binary transfer error, retrying: %s\n", err)
+						continue
+					}
+					return fmt.Errorf("chunk %d: card.binary verification failed: %w", chunkNumber, err)
+				}
+
+				// Check for error in response (e.g., "binary receive prematurely terminated {bad-bin}{io}")
+				if verifyRsp.Err != "" {
+					if strings.Contains(verifyRsp.Err, "{bad-bin}") || strings.Contains(verifyRsp.Err, "{io}") {
+						fmt.Fprintf(os.Stderr, "binary transfer error, retrying: %s\n", verifyRsp.Err)
+						continue
+					}
+					return fmt.Errorf("chunk %d: card.binary error: %s", chunkNumber, verifyRsp.Err)
+				}
+
+				// Verify size matches
+				if int(verifyRsp.Length) != chunkSize {
+					fmt.Fprintf(os.Stderr, "chunk %d: size mismatch (sent %d, received %d), retrying\n",
+						chunkNumber, chunkSize, verifyRsp.Length)
+					continue
+				}
+
+				break // Binary transfer successful
+			}
+
+			// -----------------------------------------------------------------
+			// Send the chunk to Notehub via web.post
+			// -----------------------------------------------------------------
+			// Now that the chunk is staged in the Notecard's binary buffer, we
+			// issue a web.post request to send it to Notehub.
+			webReq := notecard.Request{Req: "web.post"}
+			webReq.RouteUID = route
+			webReq.Binary = true
+			webReq.Content = contentType
+			webReq.Offset = int32(offset)
+			webReq.Total = int32(totalSize)
+			webReq.Status = chunkMD5
+			webReq.Name = target
+
+			webRsp, err := card.TransactionRequest(webReq)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "web.post failed: %s, waiting 15s then retrying\n", err)
+				time.Sleep(15 * time.Second)
+				continue chunkRetry // Re-transfer binary and retry web.post
+			}
+
+			// Check for HTTP-level errors (3xx, 4xx, 5xx)
+			if webRsp.Result >= 300 {
+				fmt.Fprintf(os.Stderr, "server returned HTTP %d, waiting 15s then retrying\n", webRsp.Result)
+				time.Sleep(15 * time.Second)
+				continue chunkRetry // Re-transfer binary and retry web.post
+			}
+
+			break chunkRetry // Chunk upload successful
 		}
 
 		// ---------------------------------------------------------------------
