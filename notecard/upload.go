@@ -258,10 +258,15 @@ func uploadFile(filename string, route string, target string) error {
 			webReq.Binary = true
 			webReq.Content = contentType
 			webReq.Offset = int32(offset)
-			webReq.Total = int32(totalSize)
 			webReq.Status = chunkMD5
 			webReq.Name = target
 			webReq.Label = displayName
+
+			// If (and only if) we require more than one chunk, set the total field which
+			// indicates to the notehub that we want to do segmented upload.
+			if totalChunks > 1 {
+				webReq.Total = int32(totalSize)
+			}
 
 			webRsp, err := card.TransactionRequest(webReq)
 			if err != nil {
@@ -321,16 +326,20 @@ func uploadFile(filename string, route string, target string) error {
 
 		// Output one line per chunk to stderr with comprehensive statistics
 		// Format: chunk X/Y: BYTES bytes (XX.X%) @ XX.X KB/s (avg XX.X KB/s) ETA Xm Xs
-		fmt.Fprintf(os.Stderr, "chunk %d/%d: %d/%d bytes (%.1f%%) @ %.1f KB/s (avg %.1f KB/s) %s\n",
-			chunkNumber,
-			totalChunks,
-			bytesCompleted,
-			totalSize,
-			percentComplete,
-			chunkBytesPerSec/1024.0,
-			overallBytesPerSec/1024.0,
-			etaStr,
-		)
+		if totalChunks == 1 {
+			fmt.Fprintf(os.Stderr, "%d bytes @ %.1f KB/s\n", bytesCompleted, overallBytesPerSec/1024.0)
+		} else {
+			fmt.Fprintf(os.Stderr, "chunk %d/%d: %d/%d bytes (%.1f%%) @ %.1f KB/s (avg %.1f KB/s) %s\n",
+				chunkNumber,
+				totalChunks,
+				bytesCompleted,
+				totalSize,
+				percentComplete,
+				chunkBytesPerSec/1024.0,
+				overallBytesPerSec/1024.0,
+				etaStr,
+			)
+		}
 
 		// ---------------------------------------------------------------------
 		// 6h: Advance to the next chunk
