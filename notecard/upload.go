@@ -53,8 +53,7 @@ const maxUploadChunkBytes = 0
 // Parameters:
 //   - filename: Path to the file to upload
 //   - route: The Notehub proxy route alias (required)
-//   - target: Optional URL path appended to the route (becomes "name" in web.post);
-//     if it contains "[filename]", that substring is replaced with the uploaded filename
+//   - target: Optional URL path appended to the route (becomes "name" in web.post)
 //
 // The function uploads the file in chunks sized to the Notecard's binary buffer
 // capacity. Each chunk is verified via MD5 checksum before transmission to Notehub.
@@ -91,11 +90,6 @@ func uploadFile(filename string, route string, target string) error {
 
 	// Extract just the filename for display purposes (strip directory path)
 	displayName := filepath.Base(filename)
-
-	// Substitute [filename] placeholder in target with the actual filename
-	if strings.Contains(target, "[filename]") {
-		target = strings.ReplaceAll(target, "[filename]", displayName)
-	}
 
 	fmt.Fprintf(os.Stderr, "uploading '%s' (%d bytes) to route '%s'\n", displayName, totalSize, route)
 
@@ -267,6 +261,7 @@ func uploadFile(filename string, route string, target string) error {
 			webReq.Total = int32(totalSize)
 			webReq.Status = chunkMD5
 			webReq.Name = target
+			webReq.Label = displayName
 
 			webRsp, err := card.TransactionRequest(webReq)
 			if err != nil {
