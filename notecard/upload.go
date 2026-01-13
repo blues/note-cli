@@ -272,7 +272,20 @@ func uploadFile(filename string, route string, target string) error {
 
 			// Check for HTTP-level errors (3xx, 4xx, 5xx)
 			if webRsp.Result >= 300 {
-				fmt.Fprintf(os.Stderr, "server returned HTTP %d, waiting 15s then retrying\n", webRsp.Result)
+				errMsg := webRsp.Err
+				if errMsg == "" {
+					// Try to extract error from response body
+					if webRsp.Body != nil {
+						if errField, ok := (*webRsp.Body)["err"].(string); ok && errField != "" {
+							errMsg = errField
+						}
+					}
+				}
+				if errMsg != "" {
+					fmt.Fprintf(os.Stderr, "server returned HTTP %d: \"%s\"\nwaiting 15s then retrying\n", webRsp.Result, errMsg)
+				} else {
+					fmt.Fprintf(os.Stderr, "server returned HTTP %d, waiting 15s then retrying\n", webRsp.Result)
+				}
 				time.Sleep(15 * time.Second)
 				continue chunkRetry // Re-transfer binary and retry web.post
 			}
