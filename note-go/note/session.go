@@ -1,0 +1,161 @@
+// Copyright 2019 Blues Inc.  All rights reserved.
+// Use of this source code is governed by licenses granted by the
+// copyright holder including that found in the LICENSE file.
+
+package note
+
+// DeviceSession is the basic unit of recorded device usage history
+type DeviceSession struct {
+	// Session ID that can be mapped to the events created during that session
+	SessionUID string `json:"session,omitempty"`
+	// When the session was initially opened
+	SessionBegan int64 `json:"session_began,omitempty"`
+	// When a persistent session was last updated
+	SessionUpdated int64 `json:"session_updated,omitempty"`
+	// Why a session was opened
+	WhySessionOpened string `json:"why_session_opened,omitempty"`
+	// When the session was initially opened
+	SessionEnded int64 `json:"session_ended,omitempty"`
+	// Why the session was closed
+	WhySessionClosed string `json:"why_session_closed,omitempty"`
+	// Log key for this session
+	SessionLogKey string `json:"session_log_key,omitempty"`
+	// Info from the device structure
+	DeviceUID  string   `json:"device,omitempty"`
+	DeviceSN   string   `json:"sn,omitempty"`
+	ProductUID string   `json:"product,omitempty"`
+	FleetUIDs  []string `json:"fleets,omitempty"`
+	// Protocol:IP:port address of the handler serving the session
+	Handler string `json:"handler,omitempty"`
+	// Cell ID where the session originated and quality ("mcc,mnc,lac,cellid")
+	CellID string `json:"cell,omitempty"`
+	// Elevation of cell tower if known
+	Elevation float64 `json:"elevation,omitempty"`
+	// Parameters passed by device as a result of scanning towers/APs
+	ScanResults *[]byte                 `json:"scan,omitempty"`
+	Triangulate *map[string]interface{} `json:"triangulate,omitempty"`
+	// Network connection information sent by the notecard
+	Rssi   int    `json:"rssi,omitempty"`
+	Sinr   int    `json:"sinr,omitempty"`
+	Rsrp   int    `json:"rsrp,omitempty"`
+	Rsrq   int    `json:"rsrq,omitempty"`
+	Bars   int    `json:"bars,omitempty"`
+	Rat    string `json:"rat,omitempty"`
+	Bearer string `json:"bearer,omitempty"`
+	Ip     string `json:"ip,omitempty"`
+	Bssid  string `json:"bssid,omitempty"`
+	Ssid   string `json:"ssid,omitempty"`
+	Iccid  string `json:"iccid,omitempty"`
+	Apn    string `json:"apn,omitempty"`
+	// Composed by wire.go for use in Request.Transport && Event.Transport
+	Transport string `json:"transport,omitempty"`
+	// Last known tower and triangulated location as determined at the start of session
+	Tower TowerLocation `json:"tower,omitempty"`
+	Tri   TowerLocation `json:"tri,omitempty"`
+	// Last known capture time of a note routed through this session
+	When int64 `json:"when,omitempty"`
+	// Last known GPS location of a note routed through this session
+	WhereWhen     int64   `json:"where_when,omitempty"`
+	WhereOLC      string  `json:"where,omitempty"`
+	WhereLat      float64 `json:"where_lat,omitempty"`
+	WhereLon      float64 `json:"where_lon,omitempty"`
+	WhereLocation string  `json:"where_location,omitempty"`
+	WhereCountry  string  `json:"where_country,omitempty"`
+	WhereTimeZone string  `json:"where_timezone,omitempty"`
+	// Flag indicating whether the usage data is based on actual stats from the device
+	IsUsageActual bool `json:"usage_actual,omitempty"`
+	// Physical device info
+	Voltage float64 `json:"voltage,omitempty"`
+	Temp    float64 `json:"temp,omitempty"`
+	// Type of session
+	ContinuousSession bool `json:"continuous,omitempty"`
+	TLSSession        bool `json:"tls,omitempty"`
+	// For keeping track of when the last work was done for a session
+	LastWorkDone int64 `json:"work,omitempty"`
+	// Number of Events routed
+	EventCount int64 `json:"events,omitempty"`
+	// Motion of the notecard
+	Moved       int64  `json:"moved,omitempty"`
+	Orientation string `json:"orientation,omitempty"`
+	// Last known power stats at start of session
+	HighPowerSecsTotal   uint32 `json:"hp_secs_total,omitempty"`
+	HighPowerSecsData    uint32 `json:"hp_secs_data,omitempty"`
+	HighPowerSecsGPS     uint32 `json:"hp_secs_gps,omitempty"`
+	HighPowerCyclesTotal uint32 `json:"hp_cycles_total,omitempty"`
+	HighPowerCyclesData  uint32 `json:"hp_cycles_data,omitempty"`
+	HighPowerCyclesGPS   uint32 `json:"hp_cycles_gps,omitempty"`
+	// Amount of packet usage within the session, keyed by PSID
+	PacketUsage map[string]PacketUsage `json:"packet_usage,omitempty"`
+	// Total device usage at the beginning of the period
+	ThisPtr *DeviceUsage `json:"this,omitempty"`
+	// Total device usage at the beginning of the next period, whenever it happens to occur
+	NextPtr *DeviceUsage `json:"next,omitempty"`
+	// Usage during the period - initially estimated, but then corrected when we get to the next period
+	PeriodPtr *DeviceUsage `json:"period,omitempty"`
+	// NotecardPowerSource flags
+	PowerCharging bool `json:"power_charging,omitempty"`
+	PowerUsb      bool `json:"power_usb,omitempty"`
+	PowerPrimary  bool `json:"power_primary,omitempty"`
+	// Mojo power usage
+	PowerMahUsed float64 `json:"power_mah,omitempty"`
+	// Information about failed connections PRIOR to this one
+	PenaltySecs    uint32 `json:"penalty_secs,omitempty"`
+	FailedConnects uint32 `json:"failed_connects,omitempty"`
+	// Socket-relate
+	SocketAlias        string `json:"socket_alias,omitempty"`
+	SocketConnectError string `json:"socket_connect_error,omitempty"`
+	SocketBytesSent    int64  `json:"socket_bytes_sent,omitempty"`
+	SocketBytesRcvd    int64  `json:"socket_bytes_rcvd,omitempty"`
+}
+
+func (s *DeviceSession) This() *DeviceUsage {
+	if s.ThisPtr == nil {
+		s.ThisPtr = &DeviceUsage{}
+	}
+	return s.ThisPtr
+}
+
+func (s *DeviceSession) Next() *DeviceUsage {
+	if s.NextPtr == nil {
+		s.NextPtr = &DeviceUsage{}
+	}
+	return s.NextPtr
+}
+
+func (s *DeviceSession) Period() *DeviceUsage {
+	if s.PeriodPtr == nil {
+		s.PeriodPtr = &DeviceUsage{}
+	}
+	return s.PeriodPtr
+}
+
+// Indication of the packet usage within a session
+type PacketUsage struct {
+	Updated                   int64 `json:"updated,omitempty"`
+	DownlinkPackets           int64 `json:"dl_p,omitempty"`
+	DownlinkBytes             int64 `json:"dl_b,omitempty"`
+	DownlinkBytesBillable     int64 `json:"dl_bb,omitempty"`
+	UplinkPackets             int64 `json:"ul_p,omitempty"`
+	UplinkBytes               int64 `json:"ul_b,omitempty"`
+	UplinkBytesBillable       int64 `json:"ul_bb,omitempty"`
+	BillableMinBytesPerPacket int64 `json:"bmbpp,omitempty"`
+}
+
+// TowerLocation is a location structure generated by a lookup
+type TowerLocation struct {
+	Source      string  `json:"source,omitempty"` // source of this location
+	When        int64   `json:"time,omitempty"`   // time when this location was ascertained
+	Name        string  `json:"n,omitempty"`      // name of the location
+	CountryCode string  `json:"c,omitempty"`      // country code
+	Lat         float64 `json:"lat,omitempty"`    // latitude
+	Lon         float64 `json:"lon,omitempty"`    // longitude
+	TimeZone    string  `json:"zone,omitempty"`   // timezone name
+	MCC         int     `json:"mcc,omitempty"`
+	MNC         int     `json:"mnc,omitempty"`
+	LAC         int     `json:"lac,omitempty"`
+	CID         int     `json:"cid,omitempty"`
+	OLC         string  `json:"l,omitempty"`      // open location code
+	TimeZoneID  int     `json:"z,omitempty"`      // timezone id (see tz.go)
+	Deprecated  int64   `json:"count,omitempty"`  // (no longer used or supported)
+	Towers      int     `json:"towers,omitempty"` // number of triangulation points
+}
