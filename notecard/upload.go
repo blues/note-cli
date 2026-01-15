@@ -172,10 +172,16 @@ func uploadFile(filename string, route string, target string) error {
 		// COBS (Consistent Overhead Byte Stuffing) encoding ensures the binary
 		// data can be safely transmitted over the serial connection without
 		// conflicting with the newline character used as a packet delimiter.
-		encodedData, err := notecard.CobsEncode(chunkData, byte('\n'))
+		//
+		// Using CobsEncodeAppend to encode and append newline in one operation,
+		// which avoids a reallocation that would occur with separate encode + append.
+		encodedDataWithNewline, err := notecard.CobsEncodeAppend(chunkData, byte('\n'), byte('\n'))
 		if err != nil {
 			return fmt.Errorf("chunk %d: COBS encoding failed: %w", chunkNumber, err)
 		}
+
+		// Length of encoded data without the trailing newline (for card.binary.put)
+		encodedLen := len(encodedDataWithNewline) - 1
 
 		// ---------------------------------------------------------------------
 		// 6d-6f: Transfer binary and send via web.post with retry logic
@@ -188,8 +194,6 @@ func uploadFile(filename string, route string, target string) error {
 		// We use a labeled loop so web.post failures can restart the entire
 		// chunk upload process (binary transfer + web.post).
 
-		encodedDataWithNewline := append(encodedData, byte('\n'))
-
 	chunkRetry:
 		for {
 			// -----------------------------------------------------------------
@@ -198,7 +202,7 @@ func uploadFile(filename string, route string, target string) error {
 			for {
 				// Stage the chunk in the Notecard's binary buffer
 				req := notecard.Request{Req: "card.binary.put"}
-				req.Cobs = int32(len(encodedData))
+				req.Cobs = int32(encodedLen)
 
 				_, err = card.TransactionRequest(req)
 				if err != nil {
