@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-go/note"
 	notegoapi "github.com/blues/note-go/notehub/api"
 )
 
@@ -298,6 +299,29 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 	err = scanner.Err()
 	return
 
+}
+
+// List all projects accessible to the authenticated user
+func appListProjects(flagVerbose bool) (projects []Metadata, err error) {
+	rsp, err := reqHubV1JSON(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects", nil)
+	if err != nil {
+		return
+	}
+	var parsed map[string]interface{}
+	err = note.JSONUnmarshal(rsp, &parsed)
+	if err != nil {
+		return
+	}
+	items, _ := parsed["projects"].([]interface{})
+	for _, v := range items {
+		p, ok := v.(map[string]interface{})
+		if ok {
+			uid, _ := p["uid"].(string)
+			label, _ := p["label"].(string)
+			projects = append(projects, Metadata{Name: label, UID: uid})
+		}
+	}
+	return
 }
 
 // Sort and remove duplicates in a string slice

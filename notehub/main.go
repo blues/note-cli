@@ -43,6 +43,7 @@ func getFlagGroups() []lib.FlagGroup {
 			Name:        "scope",
 			Description: "Project & Device Scope",
 			Flags: []*flag.Flag{
+				lib.GetFlagByName("projects"),
 				lib.GetFlagByName("project"),
 				lib.GetFlagByName("provision"),
 				lib.GetFlagByName("product"),
@@ -168,6 +169,8 @@ func main() {
 	flag.StringVar(&flagSn, "sn", "", "serial number")
 	var flagProvision bool
 	flag.BoolVar(&flagProvision, "provision", false, "provision devices")
+	var flagProjects bool
+	flag.BoolVar(&flagProjects, "projects", false, "list all projects")
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
@@ -269,6 +272,27 @@ func main() {
 	if err == nil && flagVersion {
 		didSomething = true
 		fmt.Printf("Notehub CLI Version: %s\n", version)
+	}
+
+	if err == nil && flagProjects {
+		didSomething = true
+		err = withCreds(credentials, func() (err error) {
+			projects, err := appListProjects(flagVerbose)
+			if err != nil {
+				return err
+			}
+			var projectsJSON []byte
+			if flagPretty {
+				projectsJSON, err = note.JSONMarshalIndent(projects, "", "    ")
+			} else {
+				projectsJSON, err = note.JSONMarshal(projects)
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s\n", projectsJSON)
+			return nil
+		})
 	}
 
 	if flagReq != "" || flagUpload != "" {
