@@ -301,8 +301,15 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 
 }
 
+// ProjectInfo represents a project with its products
+type ProjectInfo struct {
+	Name     string     `json:"name,omitempty"`
+	UID      string     `json:"uid,omitempty"`
+	Products []Metadata `json:"products,omitempty"`
+}
+
 // List all projects accessible to the authenticated user
-func appListProjects(flagVerbose bool) (projects []Metadata, err error) {
+func appListProjects(flagVerbose bool) (projects []ProjectInfo, err error) {
 	rsp, err := reqHubV1JSON(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects", nil)
 	if err != nil {
 		return
@@ -315,11 +322,33 @@ func appListProjects(flagVerbose bool) (projects []Metadata, err error) {
 	items, _ := parsed["projects"].([]interface{})
 	for _, v := range items {
 		p, ok := v.(map[string]interface{})
-		if ok {
-			uid, _ := p["uid"].(string)
-			label, _ := p["label"].(string)
-			projects = append(projects, Metadata{Name: label, UID: uid})
+		if !ok {
+			continue
 		}
+		uid, _ := p["uid"].(string)
+		label, _ := p["label"].(string)
+		info := ProjectInfo{Name: label, UID: uid}
+
+		// Fetch products for this project
+		productsRsp := map[string]interface{}{}
+		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+uid+"/products", nil, &productsRsp)
+		if err == nil {
+			pi, exists := productsRsp["products"].([]interface{})
+			if exists {
+				for _, pv := range pi {
+					pp, ok := pv.(map[string]interface{})
+					if ok {
+						info.Products = append(info.Products, Metadata{
+							Name: pp["label"].(string),
+							UID:  pp["uid"].(string),
+						})
+					}
+				}
+			}
+		}
+		err = nil // don't fail the whole listing if one project's products can't be fetched
+
+		projects = append(projects, info)
 	}
 	return
 }
