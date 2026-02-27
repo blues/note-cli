@@ -283,28 +283,40 @@ func main() {
 		fmt.Printf("  Example: notecard -port /dev/ttyUSB0 -pcap usb -output capture.pcap\n")
 		fmt.Printf("  Example: notecard -port /dev/ttyAMA0 -pcap aux -portconfig 115200 -output capture.pcap\n")
 		fmt.Printf("\n")
-		nInterface, nPort, _ := notecard.Defaults()
+		nInterface, _, _ := notecard.Defaults()
 		if config.Interface != "" {
 			nInterface = config.Interface
-			nPort = config.IPort[config.Interface].Port
 		}
+		nPort := config.IPort[nInterface].Port
 		var ports []string
+		var notecardPorts []string
 		if nInterface == notecard.NotecardInterfaceSerial {
-			ports, _, _, _ = notecard.SerialPorts()
+			ports, _, notecardPorts, _ = notecard.SerialPorts()
 		}
 		if nInterface == notecard.NotecardInterfaceI2C {
-			ports, _, _, _ = notecard.I2CPorts()
+			ports, _, notecardPorts, _ = notecard.I2CPorts()
 		}
 		if len(ports) != 0 {
-			fmt.Printf("Ports on '%s':\n", nInterface)
+			if nPort == "" {
+				fmt.Printf("Ports on '%s' (auto-detect enabled):\n", nInterface)
+			} else {
+				fmt.Printf("Ports on '%s':\n", nInterface)
+			}
+			// Build a set of notecard ports for quick lookup
+			ncPortSet := make(map[string]bool)
+			for _, p := range notecardPorts {
+				ncPortSet[p] = true
+			}
 			for _, port := range ports {
 				if port == nPort {
-					nPortConfig := config.IPort[config.Interface].PortConfig
+					nPortConfig := config.IPort[nInterface].PortConfig
 					if nPortConfig == 0 {
 						fmt.Printf("   %s ***\n", port)
 					} else {
 						fmt.Printf("   %s (%d) ***\n", port, nPortConfig)
 					}
+				} else if nPort == "" && ncPortSet[port] {
+					fmt.Printf("   %s (notecard) ***\n", port)
 				} else {
 					fmt.Printf("   %s\n", port)
 				}
@@ -351,6 +363,18 @@ func main() {
 	notecard.InitialDebugMode = actionVerbose
 	notecard.InitialTraceMode = actionTrace
 	card, err = notecard.Open(config.Interface, config.IPort[config.Interface].Port, configVal)
+
+	// If auto-detect was used, backfill the resolved port into in-memory config
+	// so that PCAP mode (which reads config.IPort[].Port for raw serial.Open()) works.
+	if err == nil && config.IPort[config.Interface].Port == "" {
+		_, resolvedPort, resolvedPortConfig := card.Identify()
+		temp := config.IPort[config.Interface]
+		temp.Port = resolvedPort
+		if temp.PortConfig == 0 {
+			temp.PortConfig = resolvedPortConfig
+		}
+		config.IPort[config.Interface] = temp
+	}
 
 	// Process non-config commands
 	var rsp notecard.Request
