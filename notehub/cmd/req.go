@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/blues/note-go/note"
-	"github.com/blues/note-go/notehub"
 )
 
 // Used by req functions
@@ -37,40 +36,6 @@ func addQuery(in string, key string, value string) (out string) {
 		out += "\""
 	}
 	return
-}
-
-// Perform a hub transaction using V0 Notecard API format, and promote the returned err response to an error to this method
-// Note: This is used for device-specific Notecard communication APIs (file.changes, note.changes, etc.)
-// which are distinct from Notehub project management APIs that use V1 REST endpoints.
-func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehub.HubRequest, err error) {
-	var reqJSON []byte
-	reqJSON, err = note.JSONMarshal(request)
-	if err != nil {
-		return
-	}
-	err = reqHubV0(verbose, GetAPIHub(), reqJSON, "", "", "", "", false, false, nil, &rsp)
-	if err != nil {
-		return
-	}
-	if rsp.Err != "" {
-		err = fmt.Errorf("%s", rsp.Err)
-	}
-	return
-}
-
-// Process a V0 HTTPS request and unmarshal into an object
-// Note: V0 API is used for device-specific Notecard communication (file.changes, note.changes, etc.)
-// For Notehub project management operations, use reqHubV1 instead.
-func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
-	var response []byte
-	response, err = reqHubV0JSON(verbose, hub, request, requestFile, filetype, filetags, filenotes, overwrite, dropNonJSON, outq)
-	if err != nil {
-		return
-	}
-	if object == nil {
-		return
-	}
-	return note.JSONUnmarshal(response, object)
 }
 
 // Perform a V0 HTTP request
@@ -142,7 +107,11 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	httpClient := &http.Client{}
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
-		err = err2
+		if isNetworkError(err2) {
+			err = fmt.Errorf("unable to connect to %s: %w", hub, err2)
+		} else {
+			err = err2
+		}
 		return
 	}
 
@@ -197,21 +166,6 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	return
 }
 
-// Process a V1 HTTPS request and unmarshal into an object
-// Note: V1 REST API is used for Notehub project management operations (projects, devices, fleets, routes, etc.)
-// For device-specific Notecard communication, use reqHubV0 instead.
-func reqHubV1(verbose bool, hub string, verb string, url string, body []byte, object interface{}) (err error) {
-	var response []byte
-	response, err = reqHubV1JSON(verbose, hub, verb, url, body)
-	if err != nil {
-		return
-	}
-	if object == nil {
-		return
-	}
-	return note.JSONUnmarshal(response, object)
-}
-
 // Process an HTTPS request
 func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte) (response []byte, err error) {
 	verb = strings.ToUpper(verb)
@@ -242,7 +196,11 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 	httpClient := &http.Client{}
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
-		err = err2
+		if isNetworkError(err2) {
+			err = fmt.Errorf("unable to connect to %s: %w", hub, err2)
+		} else {
+			err = err2
+		}
 		return
 	}
 	if verbose {

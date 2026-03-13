@@ -7,7 +7,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
@@ -25,17 +24,7 @@ var productListCmd = &cobra.Command{
 	Short: "List all products in a project",
 	Long:  `List all products in the current project or a specified project.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get products using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
@@ -46,38 +35,15 @@ var productListCmd = &cobra.Command{
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(productsRsp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(productsRsp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, productsRsp)
 		}
 
 		if len(productsRsp.Products) == 0 {
-			fmt.Println("No products found in this project.")
+			cmd.Println("No products found in this project.")
 			return nil
 		}
-
-		// Display products in human-readable format
-		fmt.Printf("\nProducts in Project:\n")
-		fmt.Printf("====================\n\n")
-
-		for _, product := range productsRsp.Products {
-			fmt.Printf("  %s\n", product.Label)
-			fmt.Printf("  %s\n\n", product.Uid)
-		}
-
-		fmt.Printf("Total products: %d\n\n", len(productsRsp.Products))
-
-		return nil
+		return printHuman(cmd, productsRsp)
 	},
 }
 
@@ -85,24 +51,27 @@ var productListCmd = &cobra.Command{
 var productGetCmd = &cobra.Command{
 	Use:   "get [product-uid-or-name]",
 	Short: "Get details about a specific product",
-	Long:  `Get detailed information about a specific product by UID or name.`,
-	Args:  cobra.ExactArgs(1),
+	Long:  `Get detailed information about a specific product by UID or name. If no argument is provided, uses the active product (set with 'product set'). If no active product is configured, an interactive picker will be shown.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		productIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
+		}
+
+		var productIdentifier string
+		if len(args) > 0 {
+			productIdentifier = args[0]
+		} else if def := GetProduct(); def != "" {
+			productIdentifier = def
+		} else {
+			productIdentifier, err = pickProduct(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 		}
 
 		// Get all products and find the matching one
@@ -124,30 +93,137 @@ var productGetCmd = &cobra.Command{
 			return fmt.Errorf("product '%s' not found in project", productIdentifier)
 		}
 
-		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(foundProduct, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(foundProduct)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		return printResult(cmd, foundProduct)
+	},
+}
+
+var productCreateCmd = &cobra.Command{
+	Use:   "create [label] [product-uid]",
+	Short: "Create a new product",
+	Long:  `Create a new product in the current project. The product UID will be prefixed with the user's reversed email.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		label := args[0]
+		productUID := args[1]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
 		}
 
-		// Display product in human-readable format
-		fmt.Printf("\nProduct Details:\n")
-		fmt.Printf("================\n\n")
-		fmt.Printf("Name: %s\n", foundProduct.Label)
-		fmt.Printf("UID: %s\n", foundProduct.Uid)
-		fmt.Println()
+		createReq := notehub.NewCreateProductRequest(label, productUID)
+
+		createdProduct, _, err := client.ProjectAPI.CreateProduct(ctx, projectUID).
+			CreateProductRequest(*createReq).
+			Execute()
+		if err != nil {
+			return fmt.Errorf("failed to create product: %w", err)
+		}
+
+		if wantJSON() {
+			return printJSON(cmd, createdProduct)
+		}
+
+		cmd.Println("Product created successfully!")
+		return printHuman(cmd, createdProduct)
+	},
+}
+
+var productDeleteCmd = &cobra.Command{
+	Use:   "delete [product-uid]",
+	Short: "Delete a product",
+	Long:  `Delete a product from the current project. If no argument is provided, an interactive picker will be shown.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		var productUID string
+		if len(args) > 0 {
+			productUID = args[0]
+		} else {
+			productUID, err = pickProduct(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		_, err = client.ProjectAPI.DeleteProduct(ctx, projectUID, productUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to delete product: %w", err)
+		}
+
+		cmd.Printf("\nProduct '%s' deleted successfully.\n\n", productUID)
 
 		return nil
+	},
+}
+
+// productSetCmd represents the product set command
+var productSetCmd = &cobra.Command{
+	Use:   "set [product-uid-or-name]",
+	Short: "Set the active product",
+	Long: `Set the active product in the configuration. You can specify either the product name or UID.
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to list products: %w", err)
+		}
+
+		var selectedProduct *notehub.Product
+		if len(args) > 0 {
+			for _, p := range productsRsp.Products {
+				if p.Uid == args[0] || p.Label == args[0] {
+					selectedProduct = &p
+					break
+				}
+			}
+			if selectedProduct == nil {
+				return fmt.Errorf("product '%s' not found in project", args[0])
+			}
+		} else {
+			if len(productsRsp.Products) == 0 {
+				return fmt.Errorf("no products found in this project. Create one with 'notehub product create <label> <uid>'")
+			}
+			items := make([]PickerItem, len(productsRsp.Products))
+			for i, p := range productsRsp.Products {
+				items[i] = PickerItem{Label: p.Label, Value: p.Uid}
+			}
+			picked := pickOne("Select a product", items)
+			if picked == nil {
+				return nil
+			}
+			for _, p := range productsRsp.Products {
+				if p.Uid == picked.Value {
+					selectedProduct = &p
+					break
+				}
+			}
+		}
+
+		return setDefault(cmd, "product", selectedProduct.Uid, selectedProduct.Label)
+	},
+}
+
+// productClearCmd represents the product clear command
+var productClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the active product",
+	Long:  `Clear the active product from the configuration.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return clearDefault(cmd, "product", "notehub product set <name-or-uid>")
 	},
 }
 
@@ -155,4 +231,8 @@ func init() {
 	rootCmd.AddCommand(productCmd)
 	productCmd.AddCommand(productListCmd)
 	productCmd.AddCommand(productGetCmd)
+	productCmd.AddCommand(productCreateCmd)
+	productCmd.AddCommand(productDeleteCmd)
+	productCmd.AddCommand(productSetCmd)
+	productCmd.AddCommand(productClearCmd)
 }

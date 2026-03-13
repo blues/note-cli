@@ -7,7 +7,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,8 +25,6 @@ var projectListCmd = &cobra.Command{
 	Short: "List all projects",
 	Long:  `List all Notehub projects for the authenticated user.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		credentials := GetCredentials() // Validates and exits if not authenticated
-
 		// Get all projects using SDK
 		client := GetNotehubClient()
 		ctx, err := GetNotehubContext()
@@ -41,51 +38,16 @@ var projectListCmd = &cobra.Command{
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(projectsRsp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(projectsRsp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, projectsRsp)
 		}
 
 		if len(projectsRsp.Projects) == 0 {
-			fmt.Println("No projects found.")
-			fmt.Println("\nYou can create a new project at https://notehub.io")
+			cmd.Println("No projects found.")
+			cmd.Println("\nYou can create a new project at https://notehub.io")
 			return nil
 		}
-
-		// Check current project
-		currentProject := GetProject()
-
-		// Display projects in human-readable format
-		fmt.Println("\nAvailable Projects:")
-		fmt.Println("===================")
-		for _, project := range projectsRsp.Projects {
-			if project.Uid == currentProject {
-				fmt.Printf("* %s (current)\n", project.Label)
-				fmt.Printf("  %s\n\n", project.Uid)
-			} else {
-				fmt.Printf("  %s\n", project.Label)
-				fmt.Printf("  %s\n\n", project.Uid)
-			}
-		}
-
-		if currentProject == "" {
-			fmt.Println("No project selected. Use 'notehub project set <name-or-uid>' to select one.")
-		}
-
-		// Show credentials user
-		fmt.Printf("Signed in as: %s\n\n", credentials.User)
-
-		return nil
+		return printHuman(cmd, projectsRsp)
 	},
 }
 
@@ -93,10 +55,14 @@ var projectListCmd = &cobra.Command{
 var projectSetCmd = &cobra.Command{
 	Use:   "set [project-name-or-uid]",
 	Short: "Set the active project",
-	Long:  `Set the active project in the configuration. You can specify either the project name or UID.`,
-	Args:  cobra.ExactArgs(1),
+	Long: `Set the active project in the configuration. You can specify either the project name or UID.
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
+		// If no args, show interactive picker
+		if len(args) == 0 {
+			return interactiveProjectSelection(cmd)
+		}
 
 		projectIdentifier := args[0]
 
@@ -137,13 +103,14 @@ var projectSetCmd = &cobra.Command{
 
 		// Save to config
 		viper.Set("project", selectedProject.Uid)
+		viper.Set("project_label", selectedProject.Label)
 		if err := SaveConfig(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		fmt.Printf("Active project set to: %s\n", selectedProject.Label)
-		fmt.Printf("Project UID: %s\n", selectedProject.Uid)
-		fmt.Println("\nThis project will now be used as the default for all commands.")
+		cmd.Printf("Active project set to: %s\n", selectedProject.Label)
+		cmd.Printf("Project UID: %s\n", selectedProject.Uid)
+		cmd.Println("\nThis project will now be used as the default for all commands.")
 
 		return nil
 	},
@@ -172,8 +139,6 @@ Examples:
   notehub project get --pretty`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		var projectUID string
 
 		// Get SDK client
@@ -225,46 +190,7 @@ Examples:
 			return fmt.Errorf("failed to get project: %w", err)
 		}
 
-		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(project, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(project)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
-		}
-
-		// Display project in human-readable format
-		// Check if this is the active project
-		currentProject := GetProject()
-		isActive := (project.Uid == currentProject)
-
-		fmt.Printf("\nProject Details:\n")
-		fmt.Printf("================\n\n")
-		fmt.Printf("Name: %s", project.Label)
-		if isActive {
-			fmt.Printf(" (active)")
-		}
-		fmt.Println()
-		fmt.Printf("UID: %s\n", project.Uid)
-		if !project.Created.IsZero() {
-			fmt.Printf("Created: %s\n", project.Created.Format("2006-01-02 15:04:05 MST"))
-		}
-		if project.Role.IsSet() {
-			if role := project.Role.Get(); role != nil {
-				fmt.Printf("Role: %s\n", string(*role))
-			}
-		}
-		fmt.Println()
-
-		return nil
+		return printResult(cmd, project)
 	},
 }
 
@@ -276,20 +202,163 @@ var projectClearCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		currentProject := GetProject()
 		if currentProject == "" {
-			fmt.Println("No project is currently set.")
+			cmd.Println("No project is currently set.")
 			return nil
 		}
 
 		// Clear from config
 		viper.Set("project", "")
+		viper.Set("project_label", "")
 		if err := SaveConfig(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		fmt.Println("Active project cleared.")
-		fmt.Println("You can set a new project with 'notehub project set <name-or-uid>'")
+		cmd.Println("Active project cleared.")
+		cmd.Println("You can set a new project with 'notehub project set <name-or-uid>'")
 
 		return nil
+	},
+}
+
+// projectCreateCmd represents the project create command
+var projectCreateCmd = &cobra.Command{
+	Use:   "create [label] [billing-account-uid]",
+	Short: "Create a new project",
+	Long:  `Create a new Notehub project within a billing account.`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		label := args[0]
+		billingAccountUID := args[1]
+
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
+		createReq := notehub.NewCreateProjectRequest(billingAccountUID, label)
+
+		createdProject, _, err := client.ProjectAPI.CreateProject(ctx).
+			CreateProjectRequest(*createReq).
+			Execute()
+		if err != nil {
+			return fmt.Errorf("failed to create project: %w", err)
+		}
+
+		if wantJSON() {
+			return printJSON(cmd, createdProject)
+		}
+
+		cmd.Println("Project created successfully!")
+		return printHuman(cmd, createdProject)
+	},
+}
+
+// projectDeleteCmd represents the project delete command
+var projectDeleteCmd = &cobra.Command{
+	Use:   "delete [project-uid]",
+	Short: "Delete a project",
+	Long:  `Delete a Notehub project. This action cannot be undone.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		projectUID := args[0]
+
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
+		_, err = client.ProjectAPI.DeleteProject(ctx, projectUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to delete project: %w", err)
+		}
+
+		cmd.Printf("\nProject '%s' deleted successfully.\n\n", projectUID)
+
+		return nil
+	},
+}
+
+// projectCloneCmd represents the project clone command
+var projectCloneCmd = &cobra.Command{
+	Use:   "clone [source-project-uid] [new-label] [billing-account-uid]",
+	Short: "Clone a project",
+	Long: `Clone an existing Notehub project to create a new one.
+By default, fleets and routes are cloned. Use flags to disable.`,
+	Args: cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sourceProjectUID := args[0]
+		newLabel := args[1]
+		billingAccountUID := args[2]
+
+		client := GetNotehubClient()
+		ctx, err := GetNotehubContext()
+		if err != nil {
+			return err
+		}
+
+		cloneReq := notehub.NewCloneProjectRequest(billingAccountUID, newLabel)
+
+		if noFleets, _ := cmd.Flags().GetBool("no-fleets"); noFleets {
+			cloneReq.SetDisableCloneFleets(true)
+		}
+		if noRoutes, _ := cmd.Flags().GetBool("no-routes"); noRoutes {
+			cloneReq.SetDisableCloneRoutes(true)
+		}
+
+		clonedProject, _, err := client.ProjectAPI.CloneProject(ctx, sourceProjectUID).
+			CloneProjectRequest(*cloneReq).
+			Execute()
+		if err != nil {
+			return fmt.Errorf("failed to clone project: %w", err)
+		}
+
+		if wantJSON() {
+			return printJSON(cmd, clonedProject)
+		}
+
+		cmd.Println("Project cloned successfully!")
+		return printHuman(cmd, clonedProject)
+	},
+}
+
+// projectMembersCmd represents the project members command
+var projectMembersCmd = &cobra.Command{
+	Use:   "members",
+	Short: "List project members",
+	Long: `List all members of the current project, showing their name, email, and role.
+
+Examples:
+  # List members of the active project
+  notehub project members
+
+  # List members with JSON output
+  notehub project members --json
+
+  # List members with pretty JSON
+  notehub project members --pretty`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		membersRsp, _, err := client.ProjectAPI.GetProjectMembers(ctx, projectUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get project members: %w", err)
+		}
+
+		// Handle JSON output
+		if wantJSON() {
+			return printJSON(cmd, membersRsp)
+		}
+
+		if len(membersRsp.Members) == 0 {
+			cmd.Println("No members found for this project.")
+			return nil
+		}
+		return printHuman(cmd, membersRsp)
 	},
 }
 
@@ -299,4 +368,11 @@ func init() {
 	projectCmd.AddCommand(projectGetCmd)
 	projectCmd.AddCommand(projectSetCmd)
 	projectCmd.AddCommand(projectClearCmd)
+	projectCmd.AddCommand(projectCreateCmd)
+	projectCmd.AddCommand(projectDeleteCmd)
+	projectCmd.AddCommand(projectCloneCmd)
+	projectCmd.AddCommand(projectMembersCmd)
+
+	projectCloneCmd.Flags().Bool("no-fleets", false, "Do not clone fleets from the source project")
+	projectCloneCmd.Flags().Bool("no-routes", false, "Do not clone routes from the source project")
 }

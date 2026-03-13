@@ -39,17 +39,7 @@ Examples:
   # List with pretty JSON
   notehub route list --pretty`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get routes using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
@@ -60,65 +50,15 @@ Examples:
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(routes, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(routes)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, routes)
 		}
 
 		if len(routes) == 0 {
-			fmt.Println("No routes found.")
+			cmd.Println("No routes found.")
 			return nil
 		}
-
-		// Display routes in human-readable format
-		fmt.Printf("\nRoutes (%d):\n", len(routes))
-		fmt.Printf("============\n\n")
-
-		for _, route := range routes {
-			uid := ""
-			if route.Uid != nil {
-				uid = *route.Uid
-			}
-			label := ""
-			if route.Label != nil {
-				label = *route.Label
-			}
-			routeType := ""
-			if route.Type != nil {
-				routeType = *route.Type
-			}
-			modified := ""
-			if route.Modified != nil {
-				modified = route.Modified.Format("2006-01-02 15:04:05 MST")
-			}
-			disabled := false
-			if route.Disabled != nil {
-				disabled = *route.Disabled
-			}
-
-			fmt.Printf("UID: %s\n", uid)
-			fmt.Printf("  Label: %s\n", label)
-			fmt.Printf("  Type: %s\n", routeType)
-			fmt.Printf("  Modified: %s\n", modified)
-			if disabled {
-				fmt.Printf("  Status: Disabled\n")
-			} else {
-				fmt.Printf("  Status: Enabled\n")
-			}
-			fmt.Println()
-		}
-
-		return nil
+		return printHuman(cmd, routes)
 	},
 }
 
@@ -136,135 +76,40 @@ Examples:
   notehub route get "My Route"
 
   # Get with pretty JSON
-  notehub route get "My Route" --pretty`,
-	Args: cobra.ExactArgs(1),
+  notehub route get "My Route" --pretty
+
+If no argument is provided, uses the active route (set with 'route set'). If no active route is configured, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		routeIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		// Determine route UID (handle both UID and name)
-		var routeUID string
-		var selectedRoute *notehub.NotehubRoute
-
-		// First try as UID
-		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
-			route, resp, err := client.RouteAPI.GetRoute(ctx, projectUID, routeIdentifier).Execute()
-			if err == nil && resp != nil && resp.StatusCode != 404 {
-				routeUID = routeIdentifier
-				selectedRoute = route
-			}
-		}
-
-		// If not found as UID, search by name
-		if selectedRoute == nil {
-			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
-			if err != nil {
-				return fmt.Errorf("failed to list routes: %w", err)
-			}
-
-			for _, route := range routes {
-				if route.Label != nil && *route.Label == routeIdentifier {
-					if route.Uid != nil {
-						routeUID = *route.Uid
-						// Get full route details
-						fullRoute, _, err := client.RouteAPI.GetRoute(ctx, projectUID, routeUID).Execute()
-						if err != nil {
-							return fmt.Errorf("failed to get route: %w", err)
-						}
-						selectedRoute = fullRoute
-						break
-					}
-				}
-			}
-		}
-
-		if selectedRoute == nil {
-			return fmt.Errorf("route '%s' not found", routeIdentifier)
-		}
-
-		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(selectedRoute, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(selectedRoute)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
-		}
-
-		// Display route in human-readable format
-		uid := ""
-		if selectedRoute.Uid != nil {
-			uid = *selectedRoute.Uid
-		}
-		label := ""
-		if selectedRoute.Label != nil {
-			label = *selectedRoute.Label
-		}
-		routeType := ""
-		if selectedRoute.Type != nil {
-			routeType = *selectedRoute.Type
-		}
-		modified := ""
-		if selectedRoute.Modified != nil {
-			modified = selectedRoute.Modified.Format("2006-01-02 15:04:05 MST")
-		}
-		disabled := false
-		if selectedRoute.Disabled != nil {
-			disabled = *selectedRoute.Disabled
-		}
-
-		fmt.Printf("\nRoute Details:\n")
-		fmt.Printf("==============\n\n")
-		fmt.Printf("UID: %s\n", uid)
-		fmt.Printf("Label: %s\n", label)
-		fmt.Printf("Type: %s\n", routeType)
-		fmt.Printf("Modified: %s\n", modified)
-		if disabled {
-			fmt.Printf("Status: Disabled\n")
+		var routeIdentifier string
+		if len(args) > 0 {
+			routeIdentifier = args[0]
+		} else if def := GetRoute(); def != "" {
+			routeIdentifier = def
 		} else {
-			fmt.Printf("Status: Enabled\n")
-		}
-		fmt.Println()
-
-		// Display type-specific configuration
-		if routeType == "http" && selectedRoute.Http != nil {
-			fmt.Printf("HTTP Configuration:\n")
-			if selectedRoute.Http.Url != nil {
-				fmt.Printf("  URL: %s\n", *selectedRoute.Http.Url)
+			routeIdentifier, err = pickRoute(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
 			}
-			if selectedRoute.Http.Fleets != nil && len(selectedRoute.Http.Fleets) > 0 {
-				fmt.Printf("  Fleets: %v\n", selectedRoute.Http.Fleets)
-			}
-			if selectedRoute.Http.ThrottleMs != nil {
-				fmt.Printf("  Throttle: %d ms\n", *selectedRoute.Http.ThrottleMs)
-			}
-			if selectedRoute.Http.Timeout != nil && *selectedRoute.Http.Timeout > 0 {
-				fmt.Printf("  Timeout: %d ms\n", *selectedRoute.Http.Timeout)
+			if err != nil {
+				return err
 			}
 		}
 
-		return nil
+		fullRoute, summary, err := resolveRoute(client, ctx, projectUID, routeIdentifier)
+		if err != nil {
+			return err
+		}
+
+		if fullRoute != nil {
+			return printResult(cmd, fullRoute)
+		}
+		return printResult(cmd, summary)
 	},
 }
 
@@ -295,19 +140,16 @@ Examples:
   }`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
 
 		label := args[0]
 		configFile, _ := cmd.Flags().GetString("config")
 
 		if configFile == "" {
 			return fmt.Errorf("--config flag is required to specify route configuration JSON file")
-		}
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
 		}
 
 		// Read config file
@@ -327,12 +169,6 @@ Examples:
 		routeConfig.Label = &label
 
 		// Create route using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
-		if err != nil {
-			return err
-		}
-
 		createdRoute, _, err := client.RouteAPI.CreateRoute(ctx, projectUID).
 			NotehubRoute(routeConfig).
 			Execute()
@@ -340,22 +176,8 @@ Examples:
 			return fmt.Errorf("failed to create route: %w", err)
 		}
 
-		uid := ""
-		if createdRoute.Uid != nil {
-			uid = *createdRoute.Uid
-		}
-		routeType := ""
-		if createdRoute.Type != nil {
-			routeType = *createdRoute.Type
-		}
-
-		fmt.Printf("\nRoute created successfully!\n\n")
-		fmt.Printf("UID: %s\n", uid)
-		fmt.Printf("Label: %s\n", label)
-		fmt.Printf("Type: %s\n", routeType)
-		fmt.Println()
-
-		return nil
+		cmd.Println("Route created successfully!")
+		return printHuman(cmd, createdRoute)
 	},
 }
 
@@ -380,58 +202,37 @@ Examples:
       "url": "https://newexample.com/webhook",
       "throttle_ms": 50
     }
-  }`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
+  }
 
-		routeIdentifier := args[0]
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		var routeIdentifier string
+		if len(args) > 0 {
+			routeIdentifier = args[0]
+		} else {
+			routeIdentifier, err = pickRoute(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		}
 		configFile, _ := cmd.Flags().GetString("config")
 
 		if configFile == "" {
 			return fmt.Errorf("--config flag is required to specify route configuration JSON file")
 		}
 
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		routeUID, err := resolveRouteUID(client, ctx, projectUID, routeIdentifier)
 		if err != nil {
 			return err
-		}
-
-		// Determine route UID (handle both UID and name)
-		var routeUID string
-
-		// First try as UID
-		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
-			routeUID = routeIdentifier
-		} else {
-			// Search by name
-			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
-			if err != nil {
-				return fmt.Errorf("failed to list routes: %w", err)
-			}
-
-			found := false
-			for _, route := range routes {
-				if route.Label != nil && *route.Label == routeIdentifier {
-					if route.Uid != nil {
-						routeUID = *route.Uid
-						found = true
-						break
-					}
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("route '%s' not found", routeIdentifier)
-			}
 		}
 
 		// Read config file
@@ -455,22 +256,8 @@ Examples:
 			return fmt.Errorf("failed to update route: %w", err)
 		}
 
-		label := ""
-		if updatedRoute.Label != nil {
-			label = *updatedRoute.Label
-		}
-		routeType := ""
-		if updatedRoute.Type != nil {
-			routeType = *updatedRoute.Type
-		}
-
-		fmt.Printf("\nRoute updated successfully!\n\n")
-		fmt.Printf("UID: %s\n", routeUID)
-		fmt.Printf("Label: %s\n", label)
-		fmt.Printf("Type: %s\n", routeType)
-		fmt.Println()
-
-		return nil
+		cmd.Println("Route updated successfully!")
+		return printHuman(cmd, updatedRoute)
 	},
 }
 
@@ -485,60 +272,32 @@ Examples:
   notehub route delete route:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
   # Delete route by name
-  notehub route delete "My Route"`,
-	Args: cobra.ExactArgs(1),
+  notehub route delete "My Route"
+
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		routeIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		// Determine route UID and name (handle both UID and name)
-		var routeUID string
-		var routeName string
-
-		// First try as UID
-		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
-			routeUID = routeIdentifier
-			// Try to get route details for name
-			route, resp, err := client.RouteAPI.GetRoute(ctx, projectUID, routeUID).Execute()
-			if err == nil && resp != nil && resp.StatusCode != 404 && route.Label != nil {
-				routeName = *route.Label
-			}
+		var routeIdentifier string
+		if len(args) > 0 {
+			routeIdentifier = args[0]
 		} else {
-			// Search by name
-			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			routeIdentifier, err = pickRoute(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
 			if err != nil {
-				return fmt.Errorf("failed to list routes: %w", err)
+				return err
 			}
+		}
 
-			found := false
-			for _, route := range routes {
-				if route.Label != nil && *route.Label == routeIdentifier {
-					if route.Uid != nil {
-						routeUID = *route.Uid
-						routeName = *route.Label
-						found = true
-						break
-					}
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("route '%s' not found", routeIdentifier)
-			}
+		routeUID, err := resolveRouteUID(client, ctx, projectUID, routeIdentifier)
+		if err != nil {
+			return err
 		}
 
 		// Delete route using SDK
@@ -547,12 +306,7 @@ Examples:
 			return fmt.Errorf("failed to delete route: %w", err)
 		}
 
-		fmt.Printf("\nRoute deleted successfully!\n\n")
-		fmt.Printf("UID: %s\n", routeUID)
-		if routeName != "" {
-			fmt.Printf("Label: %s\n", routeName)
-		}
-		fmt.Println()
+		cmd.Printf("\nRoute '%s' deleted successfully.\n\n", routeUID)
 
 		return nil
 	},
@@ -571,146 +325,164 @@ Examples:
   # Get logs by UID
   notehub route logs route:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
-  # Get logs with pagination
-  notehub route logs "My Route" --page-size 100 --page-num 1
+  # Get more logs
+  notehub route logs "My Route" --limit 100
 
   # Filter logs by device
   notehub route logs "My Route" --device dev:864475046552567
 
   # Get logs with JSON output
-  notehub route logs "My Route" --json`,
-	Args: cobra.ExactArgs(1),
+  notehub route logs "My Route" --json
+
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		routeIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		pageSize, _ := cmd.Flags().GetInt("page-size")
-		pageNum, _ := cmd.Flags().GetInt("page-num")
-		deviceUID, _ := cmd.Flags().GetString("device")
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		// Determine route UID (handle both UID and name)
-		var routeUID string
-
-		// First try as UID
-		if len(routeIdentifier) > 6 && routeIdentifier[:6] == "route:" {
-			routeUID = routeIdentifier
+		var routeIdentifier string
+		if len(args) > 0 {
+			routeIdentifier = args[0]
 		} else {
-			// Search by name
-			routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+			routeIdentifier, err = pickRoute(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
 			if err != nil {
-				return fmt.Errorf("failed to list routes: %w", err)
-			}
-
-			found := false
-			for _, route := range routes {
-				if route.Label != nil && *route.Label == routeIdentifier {
-					if route.Uid != nil {
-						routeUID = *route.Uid
-						found = true
-						break
-					}
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("route '%s' not found", routeIdentifier)
+				return err
 			}
 		}
 
-		// Get route logs using SDK
-		req := client.RouteAPI.GetRouteLogsByRoute(ctx, projectUID, routeUID)
+		deviceUID, _ := cmd.Flags().GetString("device")
 
-		if pageSize > 0 {
-			req = req.PageSize(int32(pageSize))
-		}
-		if pageNum > 0 {
-			req = req.PageNum(int32(pageNum))
-		}
-		if deviceUID != "" {
-			req = req.DeviceUID([]string{deviceUID})
-		}
-
-		logs, _, err := req.Execute()
+		routeUID, err := resolveRouteUID(client, ctx, projectUID, routeIdentifier)
 		if err != nil {
-			return fmt.Errorf("failed to get route logs: %w", err)
+			return err
+		}
+
+		pageSize, maxResults := getPaginationConfig(cmd)
+
+		var allLogs []notehub.RouteLog
+		pageNum := int32(1)
+		for {
+			req := client.RouteAPI.GetRouteLogsByRoute(ctx, projectUID, routeUID).
+				PageSize(pageSize).
+				PageNum(pageNum)
+
+			if deviceUID != "" {
+				req = req.DeviceUID([]string{deviceUID})
+			}
+
+			logs, _, err := req.Execute()
+			if err != nil {
+				return fmt.Errorf("failed to get route logs: %w", err)
+			}
+
+			allLogs = append(allLogs, logs...)
+
+			if len(logs) < int(pageSize) {
+				break
+			}
+			if maxResults > 0 && len(allLogs) >= maxResults {
+				allLogs = allLogs[:maxResults]
+				break
+			}
+			pageNum++
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(logs, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(logs)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
+		if wantJSON() {
+			return printJSON(cmd, allLogs)
+		}
+
+		if len(allLogs) == 0 {
+			cmd.Println("No logs found.")
 			return nil
 		}
+		return printHuman(cmd, allLogs)
+	},
+}
 
-		// Display logs in human-readable format
-		if len(logs) == 0 {
-			fmt.Println("No logs found.")
-			return nil
+// routeSetCmd represents the route set command
+var routeSetCmd = &cobra.Command{
+	Use:   "set [route-uid-or-name]",
+	Short: "Set the active route",
+	Long: `Set the active route in the configuration. You can specify either the route name or UID.
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
 		}
 
-		fmt.Printf("\nRoute Logs (%d entries):\n", len(logs))
-		fmt.Printf("========================\n\n")
-
-		for i, entry := range logs {
-			fmt.Printf("%d. ", i+1)
-
-			if entry.Date != nil {
-				fmt.Printf("%s\n", *entry.Date)
-			} else {
-				fmt.Println()
-			}
-
-			if entry.EventUid != nil && *entry.EventUid != "" {
-				fmt.Printf("   Event UID: %s\n", *entry.EventUid)
-			}
-			if entry.Status != nil && *entry.Status != "" {
-				fmt.Printf("   Status: %s\n", *entry.Status)
-			}
-			if entry.Duration != nil {
-				fmt.Printf("   Duration: %d ms\n", *entry.Duration)
-			}
-			if entry.Url != nil && *entry.Url != "" {
-				fmt.Printf("   URL: %s\n", *entry.Url)
-			}
-			if entry.Text != nil && *entry.Text != "" {
-				fmt.Printf("   Response: %s\n", *entry.Text)
-			}
-			if entry.Attn != nil && *entry.Attn {
-				fmt.Printf("   ⚠ Attention Required\n")
-			}
-			fmt.Println()
+		routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to list routes: %w", err)
 		}
 
-		// Note: SDK returns a simple array, pagination info is in response headers
-		// For now, suggest using page-num to paginate
-		if len(logs) >= pageSize && pageSize > 0 {
-			fmt.Printf("Showing page %d (page size: %d). Use --page-num %d to see next page.\n", pageNum, pageSize, pageNum+1)
+		var selectedUID, selectedLabel string
+		if len(args) > 0 {
+			for _, r := range routes {
+				rUID := ""
+				rLabel := ""
+				if r.Uid != nil {
+					rUID = *r.Uid
+				}
+				if r.Label != nil {
+					rLabel = *r.Label
+				}
+				if rUID == args[0] || rLabel == args[0] {
+					selectedUID = rUID
+					selectedLabel = rLabel
+					break
+				}
+			}
+			if selectedUID == "" {
+				return fmt.Errorf("route '%s' not found in project", args[0])
+			}
+		} else {
+			if len(routes) == 0 {
+				return fmt.Errorf("no routes found in this project. Create one with 'notehub route create <label> --config <file>'")
+			}
+			items := make([]PickerItem, 0, len(routes))
+			for _, r := range routes {
+				label := ""
+				uid := ""
+				if r.Label != nil {
+					label = *r.Label
+				}
+				if r.Uid != nil {
+					uid = *r.Uid
+				}
+				if uid != "" {
+					if label == "" {
+						label = uid
+					}
+					items = append(items, PickerItem{Label: label, Value: uid})
+				}
+			}
+			picked := pickOne("Select a route", items)
+			if picked == nil {
+				return nil
+			}
+			selectedUID = picked.Value
+			selectedLabel = picked.Label
 		}
 
-		return nil
+		return setDefault(cmd, "route", selectedUID, selectedLabel)
+	},
+}
+
+// routeClearCmd represents the route clear command
+var routeClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the active route",
+	Long:  `Clear the active route from the configuration.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return clearDefault(cmd, "route", "notehub route set <name-or-uid>")
 	},
 }
 
@@ -722,6 +494,8 @@ func init() {
 	routeCmd.AddCommand(routeUpdateCmd)
 	routeCmd.AddCommand(routeDeleteCmd)
 	routeCmd.AddCommand(routeLogsCmd)
+	routeCmd.AddCommand(routeSetCmd)
+	routeCmd.AddCommand(routeClearCmd)
 
 	// Add flags for route create
 	routeCreateCmd.Flags().String("config", "", "Path to JSON configuration file (required)")
@@ -732,7 +506,6 @@ func init() {
 	routeUpdateCmd.MarkFlagRequired("config")
 
 	// Add flags for route logs
-	routeLogsCmd.Flags().Int("page-size", 50, "Number of logs to return per page")
-	routeLogsCmd.Flags().Int("page-num", 1, "Page number to retrieve")
+	addPaginationFlags(routeLogsCmd, 50)
 	routeLogsCmd.Flags().String("device", "", "Filter logs by device UID")
 }

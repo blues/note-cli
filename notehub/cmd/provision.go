@@ -71,7 +71,7 @@ Examples:
 			return err
 		}
 
-		fmt.Printf("Successfully provisioned %d device(s) to product %s\n", len(scopeDevices), product)
+		cmd.Printf("Successfully provisioned %d device(s) to product %s\n", len(scopeDevices), product)
 		return nil
 	},
 }

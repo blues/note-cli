@@ -58,6 +58,9 @@ func IntrospectToken(hub string, token string) (string, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if isNetworkError(err) {
+			return "", fmt.Errorf("unable to reach %s: %w", hub, err)
+		}
 		return "", err
 	}
 
@@ -240,85 +243,75 @@ func AddAuthenticationHeader(httpReq *http.Request) error {
 	return nil
 }
 
+// configOutput is the structured representation of the CLI configuration.
+type configOutput struct {
+	Hub         string              `json:"hub"`
+	Credentials *configCredentials  `json:"credentials,omitempty"`
+	Settings    map[string]string   `json:"settings,omitempty"`
+	ConfigFile  string              `json:"config_file"`
+}
+
+type configCredentials struct {
+	User      string `json:"user"`
+	TokenType string `json:"token_type"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Expired   bool   `json:"expired,omitempty"`
+}
+
+func buildConfigOutput() configOutput {
+	hub := GetHub()
+
+	output := configOutput{
+		Hub:        hub,
+		ConfigFile: viper.ConfigFileUsed(),
+	}
+	if output.ConfigFile == "" {
+		output.ConfigFile = getConfigPath()
+	}
+
+	// Credentials
+	credentials, _ := GetHubCredentials()
+	if credentials != nil && credentials.User != "" {
+		creds := &configCredentials{
+			User: credentials.User,
+		}
+		if credentials.IsOAuthAccessToken() {
+			creds.TokenType = "OAuth"
+		} else {
+			creds.TokenType = "Personal Access Token"
+		}
+		if credentials.ExpiresAt != nil {
+			creds.ExpiresAt = credentials.ExpiresAt.Format(time.RFC3339)
+			creds.Expired = credentials.ExpiresAt.Before(time.Now())
+		}
+		output.Credentials = creds
+	}
+
+	// Active settings (only non-empty)
+	settingKeys := []string{"project", "fleet", "product", "route", "monitor", "device"}
+	settings := make(map[string]string)
+	for _, key := range settingKeys {
+		if val := viper.GetString(key); val != "" {
+			settings[key] = val
+		}
+	}
+	if len(settings) > 0 {
+		output.Settings = settings
+	}
+
+	return output
+}
+
 // configCmd represents the config command
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Display current configuration",
-	Long:  `Display the current configuration including hub, credentials, and flag values.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		displayConfig()
+	Long:  `Display the current configuration including hub, credentials, and active settings.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return printResult(cmd, buildConfigOutput())
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(configCmd)
-}
-
-// displayConfig prints the current configuration in a readable format
-func displayConfig() {
-	fmt.Println("\nCurrent Configuration:")
-	fmt.Println("=====================")
-
-	// Display hub
-	hub := GetHub()
-	fmt.Printf("\nHub: %s\n", hub)
-
-	// Display credentials
-	credentials, _ := GetHubCredentials()
-	if credentials != nil && credentials.User != "" {
-		fmt.Println("\nCredentials:")
-		fmt.Printf("  %s:\n", hub)
-		fmt.Printf("    User: %s\n", credentials.User)
-
-		// Determine token type
-		tokenType := "OAuth"
-		if !credentials.IsOAuthAccessToken() {
-			tokenType = "Personal Access Token"
-		}
-
-		// Check expiration
-		expires := ""
-		if credentials.ExpiresAt != nil {
-			if credentials.ExpiresAt.Before(time.Now()) {
-				expires = " [EXPIRED]"
-			} else {
-				expires = fmt.Sprintf(" (expires: %s)", credentials.ExpiresAt.Format("2006-01-02 15:04"))
-			}
-		}
-
-		fmt.Printf("    Type: %s%s\n", tokenType, expires)
-	} else {
-		fmt.Println("\nCredentials: None (not signed in)")
-	}
-
-	// Display active flag values (only non-empty ones)
-	fmt.Println("\nActive Settings:")
-
-	settings := []struct {
-		name  string
-		value string
-	}{
-		{"project", viper.GetString("project")},
-		{"product", viper.GetString("product")},
-		{"device", viper.GetString("device")},
-	}
-
-	hasSettings := false
-	for _, setting := range settings {
-		if setting.value != "" {
-			fmt.Printf("  %s: %s\n", setting.name, setting.value)
-			hasSettings = true
-		}
-	}
-
-	if !hasSettings {
-		fmt.Println("  (none)")
-	}
-
-	// Display config file location
-	configFile := viper.ConfigFileUsed()
-	if configFile == "" {
-		configFile = getConfigPath()
-	}
-	fmt.Printf("\nConfig file: %s\n\n", configFile)
 }

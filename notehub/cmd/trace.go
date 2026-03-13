@@ -6,7 +6,6 @@ package cmd
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -37,7 +36,7 @@ Example:
 		reqFlagProduct = GetProduct()
 		reqFlagDevice = GetDevice()
 
-		return traceMode()
+		return traceMode(cmd)
 	},
 }
 
@@ -67,31 +66,31 @@ func validCommands() []cmdDef {
 }
 
 // Enter a diagnostic trace mode
-func traceMode() error {
+func traceMode(cmd *cobra.Command) error {
 	// Create a scanner to watch stdin
 	scanner := bufio.NewScanner(os.Stdin)
-	var cmd string
+	var input string
 
 traceloop:
 	for {
 		// Get next text line
-		fmt.Print("> ")
+		cmd.Print("> ")
 		scanner.Scan()
-		cmd = scanner.Text()
+		input = scanner.Text()
 
 		// Parse into arguments
 		r := regexp.MustCompile(`[^\s"']+|"([^"]*)"|'([^']*)`)
-		args := r.FindAllString(cmd, -1)
+		args := r.FindAllString(input, -1)
 		for i := 0; i < 10; i++ {
 			args = append(args, "")
 		}
-		cmdAfter0 := strings.TrimPrefix(cmd, args[0]+" ")
+		cmdAfter0 := strings.TrimPrefix(input, args[0]+" ")
 
 		// Process JSON requests
-		if strings.HasPrefix(cmd, "{") {
-			_, err := reqHubV0JSON(true, GetAPIHub(), []byte(cmd), "", "", "", "", false, false, nil)
+		if strings.HasPrefix(input, "{") {
+			_, err := reqHubV0JSON(true, GetAPIHub(), []byte(input), "", "", "", "", false, false, nil)
 			if err != nil {
-				fmt.Printf("error: %s\n", err)
+				cmd.Printf("error: %s\n", err)
 			}
 			continue
 		}
@@ -120,11 +119,11 @@ traceloop:
 		// Dispatch command
 		switch args[0] {
 		case "?":
-			fmt.Printf("Trace commands:\n")
+			cmd.Printf("Trace commands:\n")
 			for _, c := range validCommands() {
-				fmt.Printf("%s: %s\n", c.Command, c.Desc)
+				cmd.Printf("%s: %s\n", c.Command, c.Desc)
 			}
-			fmt.Printf("{\"req\":...} for a JSON request\n")
+			cmd.Printf("{\"req\":...} for a JSON request\n")
 		case "product":
 			if args[1] != "" {
 				if args[1] == "-" {
@@ -132,7 +131,7 @@ traceloop:
 				}
 				reqFlagProduct = args[1]
 			}
-			fmt.Printf("productUID is %s\n", reqFlagProduct)
+			cmd.Printf("productUID is %s\n", reqFlagProduct)
 
 		case "project":
 			fallthrough
@@ -143,7 +142,7 @@ traceloop:
 				}
 				reqFlagApp = args[1]
 			}
-			fmt.Printf("projectUID is %s\n", reqFlagApp)
+			cmd.Printf("projectUID is %s\n", reqFlagApp)
 
 		case "device":
 			if args[1] != "" {
@@ -152,7 +151,7 @@ traceloop:
 				}
 				reqFlagDevice = args[1]
 			}
-			fmt.Printf("deviceUID is %s\n", reqFlagDevice)
+			cmd.Printf("deviceUID is %s\n", reqFlagDevice)
 
 		case "hub":
 			if args[1] != "" {
@@ -162,7 +161,7 @@ traceloop:
 				SetHub(args[1])
 				SaveConfig()
 			}
-			fmt.Printf("hub is %s\n", GetHub())
+			cmd.Printf("hub is %s\n", GetHub())
 
 		case "get":
 			fallthrough
@@ -174,7 +173,7 @@ traceloop:
 			// Get the body to post/put
 			var bodyJSON []byte
 			if args[0] == "put" || args[0] == "post" {
-				fmt.Print("JSON> ")
+				cmd.Print("JSON> ")
 				scanner.Scan()
 				bodyJSON = []byte(scanner.Text())
 			}
@@ -191,20 +190,20 @@ traceloop:
 			// Perform the transaction
 			_, err := reqHubV1JSON(true, GetAPIHub(), args[0], url, bodyJSON)
 			if err != nil {
-				fmt.Printf("error: %s\n", err)
+				cmd.Printf("error: %s\n", err)
 				return err
 			}
 		case "ping":
 			_, err := reqHubV1JSON(true, GetAPIHub(), "GET", "/ping", nil)
 			if err != nil {
-				fmt.Printf("error: %s\n", err)
+				cmd.Printf("error: %s\n", err)
 				return err
 			}
 			if cleanApp != "" {
 				url := "/v1/products/" + cleanApp + "/products"
 				_, err = reqHubV1JSON(true, GetAPIHub(), "GET", url, nil)
 				if err != nil {
-					fmt.Printf("error: %s\n", err)
+					cmd.Printf("error: %s\n", err)
 					return err
 				}
 			}
@@ -213,7 +212,7 @@ traceloop:
 		case "":
 			// ignore
 		default:
-			fmt.Printf("%s ???\n", args[0])
+			cmd.Printf("%s ???\n", args[0])
 		}
 	}
 	return nil

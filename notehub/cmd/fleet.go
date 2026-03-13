@@ -7,7 +7,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
@@ -25,17 +24,7 @@ var fleetListCmd = &cobra.Command{
 	Short: "List all fleets",
 	Long:  `List all fleets in the current project or a specified project.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get fleets using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
@@ -46,57 +35,15 @@ var fleetListCmd = &cobra.Command{
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(fleetsRsp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(fleetsRsp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, fleetsRsp)
 		}
 
 		if len(fleetsRsp.Fleets) == 0 {
-			fmt.Println("No fleets found in this project.")
+			cmd.Println("No fleets found in this project.")
 			return nil
 		}
-
-		// Display fleets in human-readable format
-		fmt.Printf("\nFleets in Project:\n")
-		fmt.Printf("==================\n\n")
-
-		for _, fleet := range fleetsRsp.Fleets {
-			fmt.Printf("Fleet: %s\n", fleet.Label)
-			fmt.Printf("  UID: %s\n", fleet.Uid)
-			if !fleet.Created.IsZero() {
-				fmt.Printf("  Created: %s\n", fleet.Created.Format("2006-01-02 15:04:05 MST"))
-			}
-			if fleet.HasSmartRule() {
-				fmt.Printf("  Smart Rule: %s\n", *fleet.SmartRule)
-			}
-			if fleet.HasConnectivityAssurance() {
-				status := "disabled"
-				if ca := fleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
-					if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
-						status = "enabled"
-					}
-				}
-				fmt.Printf("  Connectivity Assurance: %s\n", status)
-			}
-			if fleet.HasWatchdogMins() && *fleet.WatchdogMins > 0 {
-				fmt.Printf("  Watchdog: %d minutes\n", *fleet.WatchdogMins)
-			}
-			fmt.Println()
-		}
-
-		fmt.Printf("Total fleets: %d\n\n", len(fleetsRsp.Fleets))
-
-		return nil
+		return printHuman(cmd, fleetsRsp)
 	},
 }
 
@@ -104,108 +51,35 @@ var fleetListCmd = &cobra.Command{
 var fleetGetCmd = &cobra.Command{
 	Use:   "get [fleet-uid-or-name]",
 	Short: "Get details about a specific fleet",
-	Long:  `Get detailed information about a specific fleet by UID or name.`,
-	Args:  cobra.ExactArgs(1),
+	Long:  `Get detailed information about a specific fleet by UID or name. If no argument is provided, uses the active fleet (set with 'fleet set'). If no active fleet is configured, an interactive picker will be shown.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		fleetIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		// First, try to use it directly as a UID
-		var selectedFleet *notehub.Fleet
-		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
-
-		// If that failed or returned 404, it might be a fleet name - fetch all fleets and search
-		if err != nil || (resp != nil && resp.StatusCode == 404) {
-			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
-			if err != nil {
-				return fmt.Errorf("failed to list fleets: %w", err)
-			}
-
-			// Search for fleet by name (exact match)
-			found := false
-			for _, f := range fleetsRsp.Fleets {
-				if f.Label == fleetIdentifier {
-					selectedFleet = &f
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("fleet '%s' not found in project", fleetIdentifier)
-			}
+		var fleetIdentifier string
+		if len(args) > 0 {
+			fleetIdentifier = args[0]
+		} else if def := GetFleet(); def != "" {
+			fleetIdentifier = def
 		} else {
-			selectedFleet = fleet
-		}
-
-		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(selectedFleet, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(selectedFleet)
+			fleetIdentifier, err = pickFleet(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
-		}
-
-		// Display fleet in human-readable format
-		fmt.Printf("\nFleet Details:\n")
-		fmt.Printf("==============\n\n")
-		fmt.Printf("Name: %s\n", selectedFleet.Label)
-		fmt.Printf("UID: %s\n", selectedFleet.Uid)
-		if !selectedFleet.Created.IsZero() {
-			fmt.Printf("Created: %s\n", selectedFleet.Created.Format("2006-01-02 15:04:05 MST"))
-		}
-		if selectedFleet.HasSmartRule() {
-			fmt.Printf("Smart Rule: %s\n", *selectedFleet.SmartRule)
-		}
-		if selectedFleet.HasConnectivityAssurance() {
-			status := "disabled"
-			if ca := selectedFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
-				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
-					status = "enabled"
-				}
-			}
-			fmt.Printf("Connectivity Assurance: %s\n", status)
-		}
-		if selectedFleet.HasWatchdogMins() && *selectedFleet.WatchdogMins > 0 {
-			fmt.Printf("Watchdog: %d minutes\n", *selectedFleet.WatchdogMins)
-		}
-
-		// Display environment variables if any
-		if selectedFleet.HasEnvironmentVariables() {
-			envVars := selectedFleet.GetEnvironmentVariables()
-			if len(envVars) > 0 {
-				fmt.Printf("\nEnvironment Variables:\n")
-				for key, value := range envVars {
-					fmt.Printf("  %s: %s\n", key, value)
-				}
+				return err
 			}
 		}
 
-		fmt.Println()
+		selectedFleet, err := resolveFleet(client, ctx, projectUID, fleetIdentifier)
+		if err != nil {
+			return err
+		}
 
-		return nil
+		return printResult(cmd, selectedFleet)
 	},
 }
 
@@ -216,26 +90,16 @@ var fleetCreateCmd = &cobra.Command{
 	Long:  `Create a new fleet in the current project.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
 
 		fleetName := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
 
 		// Get optional flags
 		smartRule, _ := cmd.Flags().GetString("smart-rule")
 		connectivityAssurance, _ := cmd.Flags().GetBool("connectivity-assurance")
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
-		if err != nil {
-			return err
-		}
 
 		// Build create request using SDK
 		createReq := notehub.NewCreateFleetRequest()
@@ -260,43 +124,12 @@ var fleetCreateCmd = &cobra.Command{
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(createdFleet, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(createdFleet)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, createdFleet)
 		}
 
-		// Display success message
-		fmt.Printf("\nFleet created successfully!\n\n")
-		fmt.Printf("Name: %s\n", createdFleet.Label)
-		fmt.Printf("UID: %s\n", createdFleet.Uid)
-		if !createdFleet.Created.IsZero() {
-			fmt.Printf("Created: %s\n", createdFleet.Created.Format("2006-01-02 15:04:05 MST"))
-		}
-		if createdFleet.HasSmartRule() {
-			fmt.Printf("Smart Rule: %s\n", *createdFleet.SmartRule)
-		}
-		if createdFleet.HasConnectivityAssurance() {
-			status := "disabled"
-			if ca := createdFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
-				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
-					status = "enabled"
-				}
-			}
-			fmt.Printf("Connectivity Assurance: %s\n", status)
-		}
-		fmt.Println()
-
-		return nil
+		cmd.Println("Fleet created successfully!")
+		return printHuman(cmd, createdFleet)
 	},
 }
 
@@ -304,67 +137,39 @@ var fleetCreateCmd = &cobra.Command{
 var fleetDeleteCmd = &cobra.Command{
 	Use:   "delete [fleet-uid-or-name]",
 	Short: "Delete a fleet",
-	Long:  `Delete a fleet from the current project.`,
-	Args:  cobra.ExactArgs(1),
+	Long:  `Delete a fleet from the current project. If no argument is provided, an interactive picker will be shown.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		fleetIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		// Determine the fleet UID
-		var fleetUID string
-		var fleetName string
-
-		// First, try to use it directly as a UID
-		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
-
-		if err == nil && resp != nil && resp.StatusCode != 404 {
-			// It's a valid UID
-			fleetUID = fleet.Uid
-			fleetName = fleet.Label
+		var fleetIdentifier string
+		if len(args) > 0 {
+			fleetIdentifier = args[0]
 		} else {
-			// Try to find by name
-			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
+			fleetIdentifier, err = pickFleet(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
 			if err != nil {
-				return fmt.Errorf("failed to list fleets: %w", err)
-			}
-
-			// Search for fleet by name (exact match)
-			found := false
-			for _, f := range fleetsRsp.Fleets {
-				if f.Label == fleetIdentifier {
-					fleetUID = f.Uid
-					fleetName = f.Label
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("fleet '%s' not found in project", fleetIdentifier)
+				return err
 			}
 		}
 
+		selectedFleet, err := resolveFleet(client, ctx, projectUID, fleetIdentifier)
+		if err != nil {
+			return err
+		}
+
 		// Delete fleet using SDK
-		_, err = client.ProjectAPI.DeleteFleet(ctx, projectUID, fleetUID).Execute()
+		_, err = client.ProjectAPI.DeleteFleet(ctx, projectUID, selectedFleet.Uid).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete fleet: %w", err)
 		}
 
-		fmt.Printf("\nFleet '%s' (UID: %s) deleted successfully.\n\n", fleetName, fleetUID)
+		cmd.Printf("\nFleet '%s' (UID: %s) deleted successfully.\n\n", selectedFleet.Label, selectedFleet.Uid)
 
 		return nil
 	},
@@ -374,17 +179,25 @@ var fleetDeleteCmd = &cobra.Command{
 var fleetUpdateCmd = &cobra.Command{
 	Use:   "update [fleet-uid-or-name]",
 	Short: "Update a fleet",
-	Long:  `Update a fleet's properties such as name, smart rule, connectivity assurance, or watchdog timer.`,
-	Args:  cobra.ExactArgs(1),
+	Long:  `Update a fleet's properties such as name, smart rule, connectivity assurance, or watchdog timer. If no argument is provided, an interactive picker will be shown.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
 
-		fleetIdentifier := args[0]
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
+		var fleetIdentifier string
+		if len(args) > 0 {
+			fleetIdentifier = args[0]
+		} else {
+			fleetIdentifier, err = pickFleet(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 		}
 
 		// Get optional flags
@@ -401,42 +214,9 @@ var fleetUpdateCmd = &cobra.Command{
 			return fmt.Errorf("no update flags provided. Use --name, --smart-rule, --connectivity-assurance, or --watchdog-mins")
 		}
 
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		selectedFleet, err := resolveFleet(client, ctx, projectUID, fleetIdentifier)
 		if err != nil {
 			return err
-		}
-
-		// Determine the fleet UID
-		var fleetUID string
-
-		// First, try to use it directly as a UID
-		fleet, resp, err := client.ProjectAPI.GetFleet(ctx, projectUID, fleetIdentifier).Execute()
-
-		if err == nil && resp != nil && resp.StatusCode != 404 {
-			// It's a valid UID
-			fleetUID = fleet.Uid
-		} else {
-			// Try to find by name
-			fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
-			if err != nil {
-				return fmt.Errorf("failed to list fleets: %w", err)
-			}
-
-			// Search for fleet by name (exact match)
-			found := false
-			for _, f := range fleetsRsp.Fleets {
-				if f.Label == fleetIdentifier {
-					fleetUID = f.Uid
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				return fmt.Errorf("fleet '%s' not found in project", fleetIdentifier)
-			}
 		}
 
 		// Build update request using SDK
@@ -461,7 +241,7 @@ var fleetUpdateCmd = &cobra.Command{
 		}
 
 		// Update fleet using SDK
-		updatedFleet, _, err := client.ProjectAPI.UpdateFleet(ctx, projectUID, fleetUID).
+		updatedFleet, _, err := client.ProjectAPI.UpdateFleet(ctx, projectUID, selectedFleet.Uid).
 			UpdateFleetRequest(*updateReq).
 			Execute()
 		if err != nil {
@@ -469,46 +249,59 @@ var fleetUpdateCmd = &cobra.Command{
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(updatedFleet, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(updatedFleet)
+		if wantJSON() {
+			return printJSON(cmd, updatedFleet)
+		}
+
+		cmd.Println("Fleet updated successfully!")
+		return printHuman(cmd, updatedFleet)
+	},
+}
+
+// fleetSetCmd represents the fleet set command
+var fleetSetCmd = &cobra.Command{
+	Use:   "set [fleet-uid-or-name]",
+	Short: "Set the active fleet",
+	Long: `Set the active fleet in the configuration. You can specify either the fleet name or UID.
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		var selectedFleet *notehub.Fleet
+		if len(args) > 0 {
+			selectedFleet, err = resolveFleet(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
+			}
+		} else {
+			fleetUID, err := pickFleet(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
+				return err
 			}
-			fmt.Printf("%s\n", output)
-			return nil
+			selectedFleet, err = resolveFleet(client, ctx, projectUID, fleetUID)
+			if err != nil {
+				return err
+			}
 		}
 
-		// Display success message
-		fmt.Printf("\nFleet updated successfully!\n\n")
-		fmt.Printf("Name: %s\n", updatedFleet.Label)
-		fmt.Printf("UID: %s\n", updatedFleet.Uid)
-		if !updatedFleet.Created.IsZero() {
-			fmt.Printf("Created: %s\n", updatedFleet.Created.Format("2006-01-02 15:04:05 MST"))
-		}
-		if updatedFleet.HasSmartRule() {
-			fmt.Printf("Smart Rule: %s\n", *updatedFleet.SmartRule)
-		}
-		if updatedFleet.HasConnectivityAssurance() {
-			status := "disabled"
-			if ca := updatedFleet.ConnectivityAssurance.Get(); ca != nil && ca.Enabled.IsSet() {
-				if enabled := ca.Enabled.Get(); enabled != nil && *enabled {
-					status = "enabled"
-				}
-			}
-			fmt.Printf("Connectivity Assurance: %s\n", status)
-		}
-		if updatedFleet.HasWatchdogMins() && *updatedFleet.WatchdogMins > 0 {
-			fmt.Printf("Watchdog: %d minutes\n", *updatedFleet.WatchdogMins)
-		}
-		fmt.Println()
+		return setDefault(cmd, "fleet", selectedFleet.Uid, selectedFleet.Label)
+	},
+}
 
-		return nil
+// fleetClearCmd represents the fleet clear command
+var fleetClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the active fleet",
+	Long:  `Clear the active fleet from the configuration.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return clearDefault(cmd, "fleet", "notehub fleet set <name-or-uid>")
 	},
 }
 
@@ -519,6 +312,8 @@ func init() {
 	fleetCmd.AddCommand(fleetCreateCmd)
 	fleetCmd.AddCommand(fleetDeleteCmd)
 	fleetCmd.AddCommand(fleetUpdateCmd)
+	fleetCmd.AddCommand(fleetSetCmd)
+	fleetCmd.AddCommand(fleetClearCmd)
 
 	// Add flags for fleet create
 	fleetCreateCmd.Flags().String("smart-rule", "", "JSONata expression for dynamic fleet membership")

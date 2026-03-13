@@ -5,12 +5,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/blues/note-go/note"
-	"github.com/blues/note-go/notecard"
-	"github.com/blues/note-go/notehub"
+	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
 
@@ -20,54 +21,60 @@ var (
 
 // exploreCmd represents the explore command
 var exploreCmd = &cobra.Command{
-	Use:   "explore",
+	Use:   "explore [device-uid]",
 	Short: "Explore the contents of a device",
 	Long: `Explore the notefiles and notes on a device.
 
-By default, reserved notefiles are not shown. Use --reserved to include them.
+By default, reserved notefiles (starting with '_') are not shown.
+Use --reserved to include them.
 
-Example:
-  notehub explore --device dev:xxxx --pretty
+Examples:
+  # Explore a device
+  notehub explore dev:864475046552567
+
+  # Explore with pretty output
+  notehub explore dev:864475046552567 --pretty
+
+  # Include reserved notefiles
+  notehub explore dev:864475046552567 --reserved
+
+  # Explore multiple devices via scope
   notehub explore --scope @production --reserved`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
-
-		device := GetDevice()
-		if flagScope == "" && device == "" {
-			return fmt.Errorf("use --device to specify a device or --scope to specify multiple devices")
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
 		}
 
-		// If scope is specified, iterate over multiple devices
+		pretty := GetPretty()
+
+		// Determine device(s) to explore
 		if flagScope != "" {
-			appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(flagScope)
+			_, scopeDevices, _, err := ResolveScopeWithValidation(flagScope)
 			if err != nil {
 				return err
 			}
-
-			verbose := GetVerbose()
-			pretty := GetPretty()
-
 			for _, deviceUID := range scopeDevices {
-				reqFlagDevice = deviceUID
-				err = exploreDevice(flagReserved, verbose, pretty)
-				if err != nil {
+				if err := exploreDevice(cmd, client, ctx, projectUID, deviceUID, flagReserved, pretty); err != nil {
 					return err
 				}
 			}
-
-			// Set the project for the request
-			reqFlagApp = appMetadata.App.UID
-		} else {
-			// Single device exploration
-			reqFlagDevice = device
-			reqFlagApp = GetProject()
-			err := exploreDevice(flagReserved, GetVerbose(), GetPretty())
-			if err != nil {
-				return err
-			}
+			return nil
 		}
 
-		return nil
+		// Single device
+		var deviceUID string
+		if len(args) > 0 {
+			deviceUID = args[0]
+		} else {
+			deviceUID = GetDevice()
+		}
+		if deviceUID == "" {
+			return fmt.Errorf("specify a device UID or use --scope")
+		}
+
+		return exploreDevice(cmd, client, ctx, projectUID, deviceUID, flagReserved, pretty)
 	},
 }
 
@@ -78,79 +85,95 @@ func init() {
 	exploreCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device scope (alternative to --device)")
 }
 
-// Explore the contents of a device
-// Note: This function intentionally uses V0 Notecard APIs (file.changes, note.changes)
-// These are device-specific APIs for communicating with Notecard hardware, distinct from
-// the Notehub project management APIs which have been migrated to V1 REST endpoints.
-func exploreDevice(includeReserved bool, verbose bool, pretty bool) (err error) {
-	// Get the list of notefiles using file.changes API
-	req := notehub.HubRequest{}
-	req.Req = notecard.ReqFileChanges
-	req.Allow = includeReserved
-	var rsp notehub.HubRequest
-	rsp, err = hubTransactionRequest(req, verbose)
+// exploreDevice lists all notefiles on a device and displays their notes.
+func exploreDevice(cmd *cobra.Command, client *notehub.APIClient, ctx context.Context, projectUID, deviceUID string, includeReserved, pretty bool) error {
+	// List notefiles on the device
+	notefiles, _, err := client.DeviceAPI.ListNotefiles(ctx, projectUID, deviceUID).Execute()
 	if err != nil {
-		return
+		return fmt.Errorf("failed to list Notefiles on %s: %w", deviceUID, err)
 	}
 
-	// Exit if no notefiles
-	fmt.Printf("%s\n", reqFlagDevice)
-	if rsp.FileInfo == nil || len(*rsp.FileInfo) == 0 {
-		fmt.Printf("    no notefiles\n")
-		return
+	cmd.Printf("%s\n", deviceUID)
+
+	if len(notefiles) == 0 {
+		cmd.Printf("    no notefiles\n")
+		return nil
 	}
 
-	// Sort the notefiles
-	notefileIDs := []string{}
-	for notefileID := range *rsp.FileInfo {
-		notefileIDs = append(notefileIDs, notefileID)
+	// Collect and sort notefile IDs, filtering reserved if needed
+	var notefileIDs []string
+	for _, nf := range notefiles {
+		id := nf.GetId()
+		if !includeReserved && strings.HasPrefix(id, "_") {
+			continue
+		}
+		notefileIDs = append(notefileIDs, id)
 	}
 	sort.Strings(notefileIDs)
 
-	// Iterate over each file
+	if len(notefileIDs) == 0 {
+		cmd.Printf("    no notefiles\n")
+		return nil
+	}
+
+	// Get and display notes for each notefile
 	for _, notefileID := range notefileIDs {
-		fmt.Printf("    %s\n", notefileID)
+		cmd.Printf("    %s\n", notefileID)
 
-		// Get the notes using note.changes API
-		req = notehub.HubRequest{}
-		req.Req = notecard.ReqNoteChanges
-		req.Allow = includeReserved
-		req.Deleted = true
-		req.NotefileID = notefileID
-		rsp, err = hubTransactionRequest(req, verbose)
+		resp, _, err := client.DeviceAPI.GetNotefile(ctx, projectUID, deviceUID, notefileID).
+			Deleted(true).
+			Execute()
 		if err != nil {
-			return
-		}
-
-		// Exit if no notefiles
-		if rsp.Notes == nil || len(*rsp.Notes) == 0 {
+			cmd.Printf("        (error: %s)\n", err)
 			continue
 		}
 
-		// Show the notes
-		for noteID, n := range *rsp.Notes {
-			fmt.Printf("        %s", noteID)
-			if n.Deleted {
-				fmt.Printf(" (DELETED)")
-			}
-			fmt.Printf("\n")
-			if n.Body != nil {
-				prefix := "            "
-				var bodyJSON []byte
-				if pretty {
-					bodyJSON, err = note.JSONMarshalIndent(*n.Body, prefix, "    ")
-				} else {
-					bodyJSON, err = note.JSONMarshal(*n.Body)
+		notes := resp.GetNotes()
+		if len(notes) == 0 {
+			continue
+		}
+
+		// Sort note IDs for consistent output
+		noteIDs := make([]string, 0, len(notes))
+		for noteID := range notes {
+			noteIDs = append(noteIDs, noteID)
+		}
+		sort.Strings(noteIDs)
+
+		for _, noteID := range noteIDs {
+			noteData := notes[noteID]
+			cmd.Printf("        %s", noteID)
+
+			// Try to extract deleted flag from the note data
+			if noteMap, ok := noteData.(map[string]interface{}); ok {
+				if deleted, ok := noteMap["deleted"].(bool); ok && deleted {
+					cmd.Printf(" (DELETED)")
 				}
-				if err == nil {
-					fmt.Printf("%s%s\n", prefix, string(bodyJSON))
+				cmd.Printf("\n")
+
+				// Display body
+				if body, ok := noteMap["body"]; ok && body != nil {
+					prefix := "            "
+					var bodyJSON []byte
+					if pretty {
+						bodyJSON, _ = note.JSONMarshalIndent(body, prefix, "    ")
+					} else {
+						bodyJSON, _ = note.JSONMarshal(body)
+					}
+					if len(bodyJSON) > 0 {
+						cmd.Printf("%s%s\n", prefix, string(bodyJSON))
+					}
 				}
-			}
-			if n.Payload != nil {
-				fmt.Printf("            Payload: %d bytes\n", len(*n.Payload))
+
+				// Display payload info
+				if payload, ok := noteMap["payload"].(string); ok && payload != "" {
+					cmd.Printf("            Payload: %d bytes\n", len(payload))
+				}
+			} else {
+				cmd.Printf("\n")
 			}
 		}
 	}
 
-	return
+	return nil
 }

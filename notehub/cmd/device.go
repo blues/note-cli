@@ -7,9 +7,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
@@ -25,91 +23,60 @@ var deviceCmd = &cobra.Command{
 var deviceListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all devices",
-	Long:  `List all devices in the current project or a specified project.`,
+	Long: `List devices in the current project or a specified project.
+
+By default, returns up to 50 devices. Use --limit to change the number, or --all to fetch every device.
+
+Examples:
+  # List first 50 devices (default)
+  notehub device list
+
+  # List first 100 devices
+  notehub device list --limit 100
+
+  # List all devices
+  notehub device list --all`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get devices using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		devicesResp, _, err := client.DeviceAPI.GetDevices(ctx, projectUID).Execute()
-		if err != nil {
-			return fmt.Errorf("failed to list devices: %w", err)
+		pageSize, maxResults := getPaginationConfig(cmd)
+
+		var allDevices []notehub.Device
+		pageNum := int32(1)
+		for {
+			devicesResp, _, err := client.DeviceAPI.GetDevices(ctx, projectUID).
+				PageSize(pageSize).
+				PageNum(pageNum).
+				Execute()
+			if err != nil {
+				return fmt.Errorf("failed to list devices: %w", err)
+			}
+
+			allDevices = append(allDevices, devicesResp.Devices...)
+
+			if !devicesResp.HasMore {
+				break
+			}
+			if maxResults > 0 && len(allDevices) >= maxResults {
+				allDevices = allDevices[:maxResults]
+				break
+			}
+			pageNum++
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(devicesResp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(devicesResp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
+		if wantJSON() {
+			return printJSON(cmd, allDevices)
+		}
+
+		if len(allDevices) == 0 {
+			cmd.Println("No devices found in this project.")
 			return nil
 		}
-
-		if len(devicesResp.Devices) == 0 {
-			fmt.Println("No devices found in this project.")
-			return nil
-		}
-
-		// Display devices in human-readable format
-		fmt.Printf("\nDevices in Project:\n")
-		fmt.Printf("===================\n\n")
-
-		for _, device := range devicesResp.Devices {
-			fmt.Printf("Device: %s\n", device.Uid)
-			if device.SerialNumber != nil && *device.SerialNumber != "" {
-				fmt.Printf("  Serial Number: %s\n", *device.SerialNumber)
-			}
-			if device.ProductUid != "" {
-				fmt.Printf("  Product: %s\n", device.ProductUid)
-			}
-			if device.Sku != nil && *device.Sku != "" {
-				fmt.Printf("  Type: %s\n", *device.Sku)
-			}
-			if device.FirmwareNotecard != nil && *device.FirmwareNotecard != "" {
-				fmt.Printf("  Notecard Firmware: %s\n", *device.FirmwareNotecard)
-			}
-			if device.FirmwareHost != nil && *device.FirmwareHost != "" {
-				fmt.Printf("  Host Firmware: %s\n", *device.FirmwareHost)
-			}
-			if device.LastActivity.IsSet() {
-				if lastActivity := device.LastActivity.Get(); lastActivity != nil && !lastActivity.IsZero() {
-					fmt.Printf("  Last Activity: %s\n", lastActivity.Format("2006-01-02 15:04:05 MST"))
-				}
-			}
-			if !device.Provisioned.IsZero() {
-				fmt.Printf("  Provisioned: %s\n", device.Provisioned.Format("2006-01-02 15:04:05 MST"))
-			}
-			if device.FleetUids != nil && len(device.FleetUids) > 0 {
-				fmt.Printf("  Fleets: %d\n", len(device.FleetUids))
-			}
-			fmt.Println()
-		}
-
-		fmt.Printf("Total devices: %d\n", len(devicesResp.Devices))
-		if devicesResp.HasMore {
-			fmt.Println("(showing first page of results)")
-		}
-		fmt.Println()
-
-		return nil
+		return printHuman(cmd, allDevices)
 	},
 }
 
@@ -143,8 +110,6 @@ Examples:
   notehub device enable @devices.txt`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		scope := args[0]
 
 		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
@@ -166,11 +131,11 @@ Examples:
 				return fmt.Errorf("failed to enable device %s: %w", deviceUID, err)
 			}
 			if verbose {
-				fmt.Printf("Device %s enabled\n", deviceUID)
+				cmd.Printf("Device %s enabled\n", deviceUID)
 			}
 		}
 
-		fmt.Printf("Successfully enabled %d device(s)\n", len(scopeDevices))
+		cmd.Printf("Successfully enabled %d device(s)\n", len(scopeDevices))
 		return nil
 	},
 }
@@ -205,8 +170,6 @@ Examples:
   notehub device disable @devices.txt`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		scope := args[0]
 
 		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
@@ -228,11 +191,11 @@ Examples:
 				return fmt.Errorf("failed to disable device %s: %w", deviceUID, err)
 			}
 			if verbose {
-				fmt.Printf("Device %s disabled\n", deviceUID)
+				cmd.Printf("Device %s disabled\n", deviceUID)
 			}
 		}
 
-		fmt.Printf("Successfully disabled %d device(s)\n", len(scopeDevices))
+		cmd.Printf("Successfully disabled %d device(s)\n", len(scopeDevices))
 		return nil
 	},
 }
@@ -268,8 +231,6 @@ Examples:
   notehub device move @devices.txt production`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		scope := args[0]
 		targetFleetIdentifier := args[1]
 
@@ -327,7 +288,7 @@ Examples:
 					return fmt.Errorf("failed to remove device %s from current fleets: %w", deviceUID, err)
 				}
 				if verbose {
-					fmt.Printf("Device %s removed from %d fleet(s)\n", deviceUID, len(currentFleetUIDs))
+					cmd.Printf("Device %s removed from %d fleet(s)\n", deviceUID, len(currentFleetUIDs))
 				}
 			}
 
@@ -340,11 +301,11 @@ Examples:
 				return fmt.Errorf("failed to move device %s to fleet: %w", deviceUID, err)
 			}
 			if verbose {
-				fmt.Printf("Device %s moved to fleet %s\n", deviceUID, targetFleetUID)
+				cmd.Printf("Device %s moved to fleet %s\n", deviceUID, targetFleetUID)
 			}
 		}
 
-		fmt.Printf("Successfully moved %d device(s) to fleet %s\n", len(scopeDevices), targetFleetUID)
+		cmd.Printf("Successfully moved %d device(s) to fleet %s\n", len(scopeDevices), targetFleetUID)
 		return nil
 	},
 }
@@ -366,19 +327,9 @@ Examples:
   notehub device health dev:864475046552567 --pretty`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		deviceUID := args[0]
 
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get device health log using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
@@ -389,42 +340,15 @@ Examples:
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(healthLogRsp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(healthLogRsp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, healthLogRsp)
 		}
 
 		if len(healthLogRsp.HealthLog) == 0 {
-			fmt.Println("No health log entries found for this device.")
+			cmd.Println("No health log entries found for this device.")
 			return nil
 		}
-
-		// Display health log in human-readable format
-		fmt.Printf("\nHealth Log for Device: %s\n", deviceUID)
-		fmt.Printf("================================\n\n")
-
-		for _, entry := range healthLogRsp.HealthLog {
-			alertMarker := " "
-			if entry.Alert {
-				alertMarker = "!"
-			}
-			fmt.Printf("[%s] %s %s\n", entry.When.Format("2006-01-02 15:04:05 MST"), alertMarker, entry.Text)
-		}
-
-		fmt.Printf("\nTotal entries: %d\n", len(healthLogRsp.HealthLog))
-		fmt.Println()
-
-		return nil
+		return printHuman(cmd, healthLogRsp)
 	},
 }
 
@@ -438,166 +362,329 @@ Examples:
   # Get session log for a device
   notehub device session dev:864475046552567
 
-  # Get session log with JSON output
-  notehub device session dev:864475046552567 --json
+  # Get more sessions
+  notehub device session dev:864475046552567 --limit 100
 
-  # Get session log with pretty JSON
-  notehub device session dev:864475046552567 --pretty`,
+  # Get all sessions
+  notehub device session dev:864475046552567 --all`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		deviceUID := args[0]
 
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
-		}
-
-		// Get device sessions using SDK
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
+		client, ctx, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		sessionsRsp, _, err := client.DeviceAPI.GetDeviceSessions(ctx, projectUID, deviceUID).Execute()
-		if err != nil {
-			return fmt.Errorf("failed to get device sessions: %w", err)
+		pageSize, maxResults := getPaginationConfig(cmd)
+
+		var allSessions []notehub.DeviceSession
+		pageNum := int32(1)
+		for {
+			sessionsRsp, _, err := client.DeviceAPI.GetDeviceSessions(ctx, projectUID, deviceUID).
+				PageSize(pageSize).
+				PageNum(pageNum).
+				Execute()
+			if err != nil {
+				return fmt.Errorf("failed to get device sessions: %w", err)
+			}
+
+			allSessions = append(allSessions, sessionsRsp.Sessions...)
+
+			if !sessionsRsp.HasMore {
+				break
+			}
+			if maxResults > 0 && len(allSessions) >= maxResults {
+				allSessions = allSessions[:maxResults]
+				break
+			}
+			pageNum++
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(sessionsRsp, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(sessionsRsp)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
+		if wantJSON() {
+			return printJSON(cmd, allSessions)
+		}
+
+		if len(allSessions) == 0 {
+			cmd.Println("No sessions found for this device.")
 			return nil
 		}
+		return printHuman(cmd, allSessions)
+	},
+}
 
-		if len(sessionsRsp.Sessions) == 0 {
-			fmt.Println("No sessions found for this device.")
-			return nil
+// deviceGetCmd represents the device get command
+var deviceGetCmd = &cobra.Command{
+	Use:   "get [device-uid]",
+	Short: "Get device details",
+	Long: `Get details about a specific device in the current project.
+
+Examples:
+  # Get device details
+  notehub device get dev:864475046552567
+
+  # Get device details with JSON output
+  notehub device get dev:864475046552567 --json
+
+  # Get device details with pretty JSON
+  notehub device get dev:864475046552567 --pretty`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceUID := args[0]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
 		}
 
-		// Display sessions in human-readable format
-		fmt.Printf("\nSession Log for Device: %s\n", deviceUID)
-		fmt.Printf("=================================\n\n")
-
-		for i, session := range sessionsRsp.Sessions {
-			if i > 0 {
-				fmt.Println("---")
-			}
-
-			// Session ID and timing
-			if session.Session != nil {
-				fmt.Printf("Session: %s\n", *session.Session)
-			}
-			if session.When != nil && *session.When > 0 {
-				sessionTime := time.Unix(*session.When, 0)
-				fmt.Printf("  Time: %s\n", sessionTime.Format("2006-01-02 15:04:05 MST"))
-			}
-
-			// Session status
-			if session.WhySessionOpened != nil && *session.WhySessionOpened != "" {
-				fmt.Printf("  Opened: %s\n", *session.WhySessionOpened)
-			}
-			if session.WhySessionClosed != nil && *session.WhySessionClosed != "" {
-				fmt.Printf("  Closed: %s\n", *session.WhySessionClosed)
-			}
-
-			// Network information
-			if (session.Rat != nil && *session.Rat != "") || (session.Bearer != nil && *session.Bearer != "") {
-				if session.Rat != nil {
-					fmt.Printf("  Network: %s", *session.Rat)
-				}
-				if session.Bearer != nil && *session.Bearer != "" {
-					fmt.Printf(" (%s)", *session.Bearer)
-				}
-				fmt.Println()
-			}
-
-			// Signal quality
-			if session.Bars != nil && *session.Bars > 0 {
-				fmt.Printf("  Signal: %d bars", *session.Bars)
-				if session.Rssi != nil && *session.Rssi != 0 {
-					fmt.Printf(" (RSSI: %d)", *session.Rssi)
-				}
-				fmt.Println()
-			}
-
-			// Location
-			if session.Tower != nil && session.Tower.N != nil && *session.Tower.N != "" {
-				fmt.Printf("  Location: %s", *session.Tower.N)
-				if session.Tower.C != nil && *session.Tower.C != "" {
-					fmt.Printf(", %s", *session.Tower.C)
-				}
-				fmt.Println()
-			}
-
-			// Device status
-			if session.Voltage != nil && *session.Voltage > 0 {
-				fmt.Printf("  Voltage: %.3fV", *session.Voltage)
-				if session.Temp != nil && *session.Temp > 0 {
-					fmt.Printf(", Temp: %.1f°C", *session.Temp)
-				}
-				fmt.Println()
-			}
-
-			// Session stats
-			if session.Events != nil && *session.Events > 0 {
-				fmt.Printf("  Events: %d", *session.Events)
-				if session.Tls != nil && *session.Tls {
-					fmt.Printf(" (TLS)")
-				}
-				fmt.Println()
-			}
-
-			// Data transfer
-			if session.Period != nil {
-				if (session.Period.BytesSent != nil && *session.Period.BytesSent > 0) ||
-					(session.Period.BytesRcvd != nil && *session.Period.BytesRcvd > 0) {
-					var sent, rcvd int64
-					if session.Period.BytesSent != nil {
-						sent = *session.Period.BytesSent
-					}
-					if session.Period.BytesRcvd != nil {
-						rcvd = *session.Period.BytesRcvd
-					}
-					fmt.Printf("  Data: sent %d bytes, received %d bytes", sent, rcvd)
-					if session.Period.Duration != nil && *session.Period.Duration > 0 {
-						fmt.Printf(" (duration: %ds)", *session.Period.Duration)
-					}
-					fmt.Println()
-				}
-			}
+		device, _, err := client.DeviceAPI.GetDevice(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device: %w", err)
 		}
 
-		fmt.Printf("\nTotal sessions: %d", len(sessionsRsp.Sessions))
-		if sessionsRsp.HasMore {
-			fmt.Printf(" (showing first page)")
-		}
-		fmt.Println()
-		fmt.Println()
+		return printResult(cmd, device)
+	},
+}
 
+// deviceDeleteCmd represents the device delete command
+var deviceDeleteCmd = &cobra.Command{
+	Use:   "delete [device-uid]",
+	Short: "Delete a device",
+	Long: `Delete a device from the current project.
+
+Examples:
+  # Delete a device
+  notehub device delete dev:864475046552567`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceUID := args[0]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		_, err = client.DeviceAPI.DeleteDevice(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to delete device: %w", err)
+		}
+
+		cmd.Printf("\nDevice '%s' deleted successfully.\n\n", deviceUID)
 		return nil
+	},
+}
+
+// deviceSignalCmd represents the device signal command
+var deviceSignalCmd = &cobra.Command{
+	Use:   "signal [device-uid]",
+	Short: "Send a signal to a device",
+	Long: `Send a signal to a device to check if it is currently connected.
+
+Examples:
+  # Signal a device
+  notehub device signal dev:864475046552567
+
+  # Signal a device with JSON output
+  notehub device signal dev:864475046552567 --json
+
+  # Signal a device with pretty JSON
+  notehub device signal dev:864475046552567 --pretty`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceUID := args[0]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		signalResp, _, err := client.DeviceAPI.SignalDevice(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to signal device: %w", err)
+		}
+
+		return printResult(cmd, signalResp)
+	},
+}
+
+// deviceEventsCmd represents the device events command
+var deviceEventsCmd = &cobra.Command{
+	Use:   "events [device-uid]",
+	Short: "Get latest events for a device",
+	Long: `Get the latest events for a specific device.
+
+Examples:
+  # Get latest events for a device
+  notehub device events dev:864475046552567
+
+  # Get latest events with JSON output
+  notehub device events dev:864475046552567 --json
+
+  # Get latest events with pretty JSON
+  notehub device events dev:864475046552567 --pretty`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceUID := args[0]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		eventsRsp, _, err := client.DeviceAPI.GetDeviceLatestEvents(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device latest events: %w", err)
+		}
+
+		// Handle JSON output
+		if wantJSON() {
+			return printJSON(cmd, eventsRsp)
+		}
+
+		if len(eventsRsp.LatestEvents) == 0 {
+			cmd.Println("No events found for this device.")
+			return nil
+		}
+		return printHuman(cmd, eventsRsp)
+	},
+}
+
+// devicePlansCmd represents the device plans command
+var devicePlansCmd = &cobra.Command{
+	Use:   "plans [device-uid]",
+	Short: "Get data plans for a device",
+	Long: `Get the data plans associated with a device, including primary SIM, external SIM, and satellite connections.
+
+Examples:
+  # Get data plans for a device
+  notehub device plans dev:864475046552567
+
+  # Get data plans with JSON output
+  notehub device plans dev:864475046552567 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceUID := args[0]
+
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		plansRsp, _, err := client.DeviceAPI.GetDevicePlans(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device plans: %w", err)
+		}
+
+		// Handle JSON output
+		if wantJSON() {
+			return printJSON(cmd, plansRsp)
+		}
+
+		if len(plansRsp.CellularPlans) == 0 {
+			cmd.Println("No data plans found for this device.")
+			return nil
+		}
+		return printHuman(cmd, plansRsp)
+	},
+}
+
+// deviceKeysCmd represents the device keys command
+var deviceKeysCmd = &cobra.Command{
+	Use:   "keys [device-uid]",
+	Short: "Get public key for a device",
+	Long: `Get the public key for a specific device, or list all device public keys in the project.
+
+Examples:
+  # Get public key for a specific device
+  notehub device keys dev:864475046552567
+
+  # List all device public keys in the project
+  notehub device keys --all
+
+  # List all with JSON output
+  notehub device keys --all --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		listAll, _ := cmd.Flags().GetBool("all")
+
+		if listAll {
+			limit, _ := cmd.Flags().GetInt("limit")
+			pageSize := int32(limit)
+			maxResults := limit
+
+			var allKeys []notehub.GetDevicePublicKeys200ResponseDevicePublicKeysInner
+			pageNum := int32(1)
+			for {
+				keysRsp, _, err := client.DeviceAPI.GetDevicePublicKeys(ctx, projectUID).
+					PageSize(pageSize).
+					PageNum(pageNum).
+					Execute()
+				if err != nil {
+					return fmt.Errorf("failed to list device public keys: %w", err)
+				}
+
+				allKeys = append(allKeys, keysRsp.DevicePublicKeys...)
+
+				if !keysRsp.HasMore {
+					break
+				}
+				if maxResults > 0 && len(allKeys) >= maxResults {
+					allKeys = allKeys[:maxResults]
+					break
+				}
+				pageNum++
+			}
+
+			if wantJSON() {
+				return printJSON(cmd, allKeys)
+			}
+
+			if len(allKeys) == 0 {
+				cmd.Println("No device public keys found.")
+				return nil
+			}
+			return printHuman(cmd, allKeys)
+		}
+
+		// Single device public key
+		if len(args) == 0 {
+			return fmt.Errorf("device UID required, or use --all to list all device public keys")
+		}
+
+		deviceUID := args[0]
+		keyRsp, _, err := client.DeviceAPI.GetDevicePublicKey(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device public key: %w", err)
+		}
+
+		return printResult(cmd, keyRsp)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(deviceCmd)
 	deviceCmd.AddCommand(deviceListCmd)
+	deviceCmd.AddCommand(deviceGetCmd)
+	deviceCmd.AddCommand(deviceDeleteCmd)
+	deviceCmd.AddCommand(deviceSignalCmd)
 	deviceCmd.AddCommand(deviceEnableCmd)
 	deviceCmd.AddCommand(deviceDisableCmd)
 	deviceCmd.AddCommand(deviceMoveCmd)
 	deviceCmd.AddCommand(deviceHealthCmd)
 	deviceCmd.AddCommand(deviceSessionCmd)
+	deviceCmd.AddCommand(deviceEventsCmd)
+	deviceCmd.AddCommand(devicePlansCmd)
+	deviceCmd.AddCommand(deviceKeysCmd)
+
+	deviceKeysCmd.Flags().Bool("all", false, "List public keys for all devices in the project")
+	deviceKeysCmd.Flags().Int("limit", 50, "Maximum number of keys to return (used with --all)")
+
+	addPaginationFlags(deviceListCmd, 50)
+	addPaginationFlags(deviceSessionCmd, 50)
 }

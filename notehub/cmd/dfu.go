@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
@@ -67,8 +66,6 @@ Examples:
   notehub dfu update notecard notecard-6.2.1.bin @production --sku NOTE-WBEX`,
 	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		firmwareType := args[0]
 		filename := args[1]
 		scope := args[2]
@@ -144,27 +141,27 @@ Examples:
 			return fmt.Errorf("failed to schedule firmware update: %w", err)
 		}
 
-		fmt.Printf("\nFirmware update scheduled successfully!\n\n")
-		fmt.Printf("Firmware Type: %s\n", firmwareType)
-		fmt.Printf("Filename: %s\n", filename)
-		fmt.Printf("Scope: %s\n", scope)
-		fmt.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
+		cmd.Printf("\nFirmware update scheduled successfully!\n\n")
+		cmd.Printf("Firmware Type: %s\n", firmwareType)
+		cmd.Printf("Filename: %s\n", filename)
+		cmd.Printf("Scope: %s\n", scope)
+		cmd.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
 		if verbose && len(scopeDevices) > 0 {
-			fmt.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
+			cmd.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
 		}
 		if tags != "" {
-			fmt.Printf("Additional Tag Filter: %s\n", tags)
+			cmd.Printf("Additional Tag Filter: %s\n", tags)
 		}
 		if serialNumbers != "" {
-			fmt.Printf("Additional Serial Filter: %s\n", serialNumbers)
+			cmd.Printf("Additional Serial Filter: %s\n", serialNumbers)
 		}
 		if location != "" {
-			fmt.Printf("Additional Location Filter: %s\n", location)
+			cmd.Printf("Additional Location Filter: %s\n", location)
 		}
 		if sku != "" {
-			fmt.Printf("Additional SKU Filter: %s\n", sku)
+			cmd.Printf("Additional SKU Filter: %s\n", sku)
 		}
-		fmt.Println()
+		cmd.Println()
 
 		return nil
 	},
@@ -207,8 +204,6 @@ Examples:
   notehub dfu cancel host @devices.txt`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
 		firmwareType := args[0]
 		scope := args[1]
 
@@ -258,20 +253,20 @@ Examples:
 			return fmt.Errorf("failed to cancel firmware update: %w", err)
 		}
 
-		fmt.Printf("\nFirmware update cancelled successfully!\n\n")
-		fmt.Printf("Firmware Type: %s\n", firmwareType)
-		fmt.Printf("Scope: %s\n", scope)
-		fmt.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
+		cmd.Printf("\nFirmware update cancelled successfully!\n\n")
+		cmd.Printf("Firmware Type: %s\n", firmwareType)
+		cmd.Printf("Scope: %s\n", scope)
+		cmd.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
 		if verbose && len(scopeDevices) > 0 {
-			fmt.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
+			cmd.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
 		}
 		if tags != "" {
-			fmt.Printf("Additional Tag Filter: %s\n", tags)
+			cmd.Printf("Additional Tag Filter: %s\n", tags)
 		}
 		if serialNumbers != "" {
-			fmt.Printf("Additional Serial Filter: %s\n", serialNumbers)
+			cmd.Printf("Additional Serial Filter: %s\n", serialNumbers)
 		}
-		fmt.Println()
+		cmd.Println()
 
 		return nil
 	},
@@ -298,12 +293,9 @@ Examples:
   # List with JSON output
   notehub dfu list --pretty`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validates and exits if not authenticated
-
-		// Get project UID (from config or --project flag)
-		projectUID := GetProject()
-		if projectUID == "" {
-			return fmt.Errorf("no project set. Use 'notehub project set <name-or-uid>' or provide --project flag")
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
 		}
 
 		// Get filter flags
@@ -313,13 +305,6 @@ Examples:
 		target, _ := cmd.Flags().GetString("target")
 		filename, _ := cmd.Flags().GetString("filename")
 		unpublished, _ := cmd.Flags().GetBool("unpublished")
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
-		if err != nil {
-			return err
-		}
 
 		// Build request with SDK
 		req := client.ProjectAPI.GetFirmwareInfo(ctx, projectUID)
@@ -351,135 +336,15 @@ Examples:
 		}
 
 		// Handle JSON output
-		if GetJson() || GetPretty() {
-			var output []byte
-			var err error
-			if GetPretty() {
-				output, err = note.JSONMarshalIndent(firmwareList, "", "  ")
-			} else {
-				output, err = note.JSONMarshal(firmwareList)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal JSON: %w", err)
-			}
-			fmt.Printf("%s\n", output)
-			return nil
+		if wantJSON() {
+			return printJSON(cmd, firmwareList)
 		}
 
 		if len(firmwareList) == 0 {
-			fmt.Println("No firmware files found.")
+			cmd.Println("No firmware files found.")
 			return nil
 		}
-
-		// Display firmware in human-readable format
-		fmt.Printf("\nAvailable Firmware Files:\n")
-		fmt.Printf("=========================\n\n")
-
-		// Group by type
-		hostFirmware := []notehub.FirmwareInfo{}
-		notecardFirmware := []notehub.FirmwareInfo{}
-		otherFirmware := []notehub.FirmwareInfo{}
-
-		for _, fw := range firmwareList {
-			if fw.Type != nil && *fw.Type == "host" {
-				hostFirmware = append(hostFirmware, fw)
-			} else if fw.Type != nil && *fw.Type == "notecard" {
-				notecardFirmware = append(notecardFirmware, fw)
-			} else {
-				otherFirmware = append(otherFirmware, fw)
-			}
-		}
-
-		// Display host firmware
-		if len(hostFirmware) > 0 {
-			fmt.Printf("Host Firmware (%d):\n", len(hostFirmware))
-			fmt.Printf("------------------\n")
-			for _, fw := range hostFirmware {
-				if fw.Filename != nil {
-					fmt.Printf("  %s", *fw.Filename)
-				}
-				if fw.Version != nil && *fw.Version != "" {
-					fmt.Printf(" (v%s)", *fw.Version)
-				}
-				if fw.Published != nil && !*fw.Published {
-					fmt.Printf(" [unpublished]")
-				}
-				fmt.Println()
-				if fw.Description != nil && *fw.Description != "" {
-					fmt.Printf("    Description: %s\n", *fw.Description)
-				}
-				if fw.Built != nil && *fw.Built != "" {
-					fmt.Printf("    Built: %s\n", *fw.Built)
-				}
-				if fw.Target != nil && *fw.Target != "" {
-					fmt.Printf("    Target: %s\n", *fw.Target)
-				}
-				fmt.Println()
-			}
-		}
-
-		// Display notecard firmware
-		if len(notecardFirmware) > 0 {
-			fmt.Printf("Notecard Firmware (%d):\n", len(notecardFirmware))
-			fmt.Printf("----------------------\n")
-			for _, fw := range notecardFirmware {
-				if fw.Filename != nil {
-					fmt.Printf("  %s", *fw.Filename)
-				}
-				if fw.Version != nil && *fw.Version != "" {
-					fmt.Printf(" (v%s)", *fw.Version)
-				}
-				if fw.Published != nil && !*fw.Published {
-					fmt.Printf(" [unpublished]")
-				}
-				fmt.Println()
-				if fw.Description != nil && *fw.Description != "" {
-					fmt.Printf("    Description: %s\n", *fw.Description)
-				}
-				if fw.Built != nil && *fw.Built != "" {
-					fmt.Printf("    Built: %s\n", *fw.Built)
-				}
-				if fw.Target != nil && *fw.Target != "" {
-					fmt.Printf("    Target: %s\n", *fw.Target)
-				}
-				fmt.Println()
-			}
-		}
-
-		// Display other firmware
-		if len(otherFirmware) > 0 {
-			fmt.Printf("Other Firmware (%d):\n", len(otherFirmware))
-			fmt.Printf("-------------------\n")
-			for _, fw := range otherFirmware {
-				if fw.Filename != nil {
-					fmt.Printf("  %s", *fw.Filename)
-				}
-				if fw.Version != nil && *fw.Version != "" {
-					fmt.Printf(" (v%s)", *fw.Version)
-				}
-				if fw.Type != nil && *fw.Type != "" {
-					fmt.Printf(" [%s]", *fw.Type)
-				}
-				if fw.Published != nil && !*fw.Published {
-					fmt.Printf(" [unpublished]")
-				}
-				fmt.Println()
-				if fw.Description != nil && *fw.Description != "" {
-					fmt.Printf("    Description: %s\n", *fw.Description)
-				}
-				if fw.Built != nil && *fw.Built != "" {
-					fmt.Printf("    Built: %s\n", *fw.Built)
-				}
-				if fw.Target != nil && *fw.Target != "" {
-					fmt.Printf("    Target: %s\n", *fw.Target)
-				}
-				fmt.Println()
-			}
-		}
-
-		fmt.Printf("Total firmware files: %d\n\n", len(firmwareList))
-
-		return nil
+		return printHuman(cmd, firmwareList)
 	},
 }
 

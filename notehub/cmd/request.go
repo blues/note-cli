@@ -62,13 +62,13 @@ Example:
 				var rspo map[string]interface{}
 				err = note.JSONUnmarshal(rsp, &rspo)
 				if err != nil {
-					fmt.Printf("%s", rsp)
+					cmd.Printf("%s", rsp)
 				} else {
 					rsp, _ = note.JSONMarshalIndent(rspo, "", "    ")
-					fmt.Printf("%s", rsp)
+					cmd.Printf("%s", rsp)
 				}
 			} else {
-				fmt.Printf("%s", rsp)
+				cmd.Printf("%s", rsp)
 			}
 		} else {
 			outfile, err := os.Create(flagOut)

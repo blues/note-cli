@@ -5,11 +5,7 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 
 	"github.com/blues/note-go/notehub"
 	"github.com/spf13/cobra"
@@ -62,13 +58,13 @@ var signinCmd = &cobra.Command{
 
 		// print out information about the session
 		if accessToken != nil {
-			fmt.Printf("%s\n", banner())
-			fmt.Printf("signed in as %s\n", accessToken.Email)
-			fmt.Printf("token expires at %s\n", accessToken.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+			cmd.Printf("%s\n", banner())
+			cmd.Printf("signed in as %s\n", accessToken.Email)
+			cmd.Printf("token expires at %s\n", accessToken.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
 		}
 
 		// Set project if provided via flag or prompt for selection
-		if err := handleProjectSelection(flagSetProject); err != nil {
+		if err := handleProjectSelection(cmd, flagSetProject); err != nil {
 			return err
 		}
 
@@ -87,7 +83,7 @@ var signinTokenCmd = &cobra.Command{
 
 		hub := GetHub()
 		// Print hub if not the default
-		fmt.Printf("notehub: %s\n", hub)
+		cmd.Printf("notehub: %s\n", hub)
 
 		email, err := IntrospectToken(hub, personalAccessToken)
 		if err != nil {
@@ -99,10 +95,10 @@ var signinTokenCmd = &cobra.Command{
 		}
 
 		// Done
-		fmt.Printf("signed in successfully with token\n")
+		cmd.Printf("signed in successfully with token\n")
 
 		// Set project if provided via flag or prompt for selection
-		if err := handleProjectSelection(flagSetProject); err != nil {
+		if err := handleProjectSelection(cmd, flagSetProject); err != nil {
 			return err
 		}
 
@@ -122,11 +118,12 @@ var signoutCmd = &cobra.Command{
 
 		// Also clear project setting
 		viper.Set("project", "")
+		viper.Set("project_label", "")
 		if err := SaveConfig(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		fmt.Printf("signed out successfully\n")
+		cmd.Printf("signed out successfully\n")
 		return nil
 	},
 }
@@ -146,7 +143,7 @@ var tokenCmd = &cobra.Command{
 			return fmt.Errorf("please sign in using 'notehub auth signin' or 'notehub auth signin-token'")
 		}
 
-		fmt.Printf("%s\n", credentials.Token)
+		cmd.Printf("%s\n", credentials.Token)
 		return nil
 	},
 }
@@ -178,7 +175,7 @@ func banner() (s string) {
 }
 
 // handleProjectSelection handles project selection after signin via flag or interactive prompt
-func handleProjectSelection(projectFlag string) error {
+func handleProjectSelection(cmd *cobra.Command, projectFlag string) error {
 	// Check if a project is already set
 	currentProject := GetProject()
 	if currentProject != "" {
@@ -188,15 +185,15 @@ func handleProjectSelection(projectFlag string) error {
 
 	// If project flag was provided, set it directly
 	if projectFlag != "" {
-		return setProjectByIdentifier(projectFlag)
+		return setProjectByIdentifier(cmd, projectFlag)
 	}
 
 	// Otherwise, offer interactive selection
-	return interactiveProjectSelection()
+	return interactiveProjectSelection(cmd)
 }
 
 // setProjectByIdentifier sets a project by name or UID (from project.go logic)
-func setProjectByIdentifier(identifier string) error {
+func setProjectByIdentifier(cmd *cobra.Command, identifier string) error {
 	// Get SDK client
 	client := GetNotehubClient()
 	ctx, err := GetNotehubContext()
@@ -231,18 +228,19 @@ func setProjectByIdentifier(identifier string) error {
 
 	// Save to config
 	viper.Set("project", project.Uid)
+	viper.Set("project_label", project.Label)
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("\nActive project set to: %s\n", project.Label)
-	fmt.Printf("Project UID: %s\n\n", project.Uid)
+	cmd.Printf("\nActive project set to: %s\n", project.Label)
+	cmd.Printf("Project UID: %s\n\n", project.Uid)
 
 	return nil
 }
 
 // interactiveProjectSelection prompts the user to select a project interactively
-func interactiveProjectSelection() error {
+func interactiveProjectSelection(cmd *cobra.Command) error {
 	// Get SDK client
 	client := GetNotehubClient()
 	ctx, err := GetNotehubContext()
@@ -253,67 +251,44 @@ func interactiveProjectSelection() error {
 	// Fetch all projects
 	projectsRsp, _, err := client.ProjectAPI.GetProjects(ctx).Execute()
 	if err != nil {
-		// If we can't fetch projects, just show instructions
-		fmt.Println()
-		fmt.Println("To get started, you'll need to select a project to work with.")
-		fmt.Println("Run 'notehub project list' to see your available projects,")
-		fmt.Println("then 'notehub project set <name-or-uid>' to select one.")
-		fmt.Println()
+		cmd.Println()
+		cmd.Println("To get started, you'll need to select a project to work with.")
+		cmd.Println("Run 'notehub project list' to see your available projects,")
+		cmd.Println("then 'notehub project set <name-or-uid>' to select one.")
+		cmd.Println()
 		return nil
 	}
 
 	if len(projectsRsp.Projects) == 0 {
-		fmt.Println()
-		fmt.Println("No projects found. You can create a new project at https://notehub.io")
-		fmt.Println()
+		cmd.Println()
+		cmd.Println("No projects found. You can create a new project at https://notehub.io")
+		cmd.Println()
 		return nil
 	}
 
-	// Display projects with numbers
-	fmt.Println()
-	fmt.Println("Select a project to work with:")
-	fmt.Println()
+	// Build picker items
+	items := make([]PickerItem, len(projectsRsp.Projects))
 	for i, project := range projectsRsp.Projects {
-		fmt.Printf("  %d) %s\n", i+1, project.Label)
-	}
-	fmt.Println()
-	fmt.Printf("Enter project number (1-%d), or press Enter to skip: ", len(projectsRsp.Projects))
-
-	// Read user input
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return nil // Skip on error
+		items[i] = PickerItem{Label: project.Label, Value: project.Uid}
 	}
 
-	input = strings.TrimSpace(input)
-	if input == "" {
-		// User pressed Enter, skip selection
-		fmt.Println()
-		fmt.Println("Skipped project selection. You can set a project later with 'notehub project set <name-or-uid>'")
-		fmt.Println()
-		return nil
-	}
-
-	// Parse selection
-	selection, err := strconv.Atoi(input)
-	if err != nil || selection < 1 || selection > len(projectsRsp.Projects) {
-		fmt.Println()
-		fmt.Printf("Invalid selection. You can set a project later with 'notehub project set <name-or-uid>'\n")
-		fmt.Println()
+	picked := pickOne("Select a project", items)
+	if picked == nil {
+		cmd.Println()
+		cmd.Println("Skipped project selection. You can set a project later with 'notehub project set <name-or-uid>'")
+		cmd.Println()
 		return nil
 	}
 
 	// Set the selected project
-	selectedProject := projectsRsp.Projects[selection-1]
-	viper.Set("project", selectedProject.Uid)
+	viper.Set("project", picked.Value)
+	viper.Set("project_label", picked.Label)
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Println()
-	fmt.Printf("Active project set to: %s\n", selectedProject.Label)
-	fmt.Printf("Project UID: %s\n\n", selectedProject.Uid)
+	cmd.Printf("Active project set to: %s\n", picked.Label)
+	cmd.Printf("Project UID: %s\n", picked.Value)
 
 	return nil
 }

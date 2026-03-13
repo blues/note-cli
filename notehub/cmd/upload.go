@@ -27,7 +27,7 @@ var (
 var uploadCmd = &cobra.Command{
 	Use:   "upload [file]",
 	Short: "Upload firmware to Notehub",
-	Long: `Upload host or notecard firmware to Notehub using the V1 API.
+	Long: `Upload host or notecard firmware to Notehub.
 
 The firmware type must be specified as either 'host' or 'notecard' using the --type flag.
 
@@ -60,13 +60,13 @@ Example:
 			return fmt.Errorf("--type must be either 'host' or 'notecard', got: %s", flagType)
 		}
 
-		// Upload using V1 API
-		err := uploadFirmwareV1(projectUID, flagType, filename, flagNotes, GetVerbose())
+		// Upload
+		err := uploadFirmware(cmd, projectUID, flagType, filename, flagNotes, GetVerbose())
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Successfully uploaded %s firmware: %s\n", flagType, filename)
+		cmd.Printf("Successfully uploaded %s firmware: %s\n", flagType, filename)
 		return nil
 	},
 }
@@ -79,9 +79,9 @@ func init() {
 	uploadCmd.MarkFlagRequired("type")
 }
 
-// uploadFirmwareV1 uploads firmware using the V1 API
+// uploadFirmware uploads firmware using the V1 API
 // PUT /v1/projects/{projectOrProductUID}/firmware/{firmwareType}/{filename}
-func uploadFirmwareV1(projectUID, firmwareType, filename, notes string, verbose bool) error {
+func uploadFirmware(cmd *cobra.Command, projectUID, firmwareType, filename, notes string, verbose bool) error {
 	// Read the file
 	file, err := os.Open(filename)
 	if err != nil {
@@ -143,7 +143,7 @@ func uploadFirmwareV1(projectUID, firmwareType, filename, notes string, verbose 
 	}
 
 	if verbose {
-		fmt.Printf("PUT %s (file size: %d bytes)\n", url, fileInfo.Size())
+		cmd.Printf("PUT %s (file size: %d bytes)\n", url, fileInfo.Size())
 	}
 
 	// Send request
@@ -161,7 +161,7 @@ func uploadFirmwareV1(projectUID, firmwareType, filename, notes string, verbose 
 	}
 
 	if verbose {
-		fmt.Printf("Upload successful (status: %d)\n", resp.StatusCode)
+		cmd.Printf("Upload successful (status: %d)\n", resp.StatusCode)
 	}
 
 	return nil

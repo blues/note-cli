@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/blues/note-go/note"
+	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
 )
 
@@ -29,9 +30,10 @@ var varsCmd = &cobra.Command{
 var varsGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get environment variables",
-	Long: `Get environment variables for devices or fleets.
+	Long: `Get environment variables for devices, fleets, or the project.
 
 Scope can be:
+  - "project" to get project-level environment variables
   - A device UID (dev:xxxx)
   - A fleet UID (fleet:xxxx)
   - A fleet name or pattern (e.g., "production" or "prod*")
@@ -43,7 +45,22 @@ Scope can be:
 		GetCredentials() // Validate credentials
 
 		if flagScope == "" {
-			return fmt.Errorf("use --scope to specify device(s) or fleet(s)")
+			return fmt.Errorf("use --scope to specify device(s), fleet(s), or project")
+		}
+
+		if flagScope == "project" {
+			client, ctx, projectUID, err := initCommand()
+			if err != nil {
+				return err
+			}
+
+			varsResp, _, err := client.ProjectAPI.GetProjectEnvironmentVariables(ctx, projectUID).Execute()
+			if err != nil {
+				return fmt.Errorf("failed to get project environment variables: %w", err)
+			}
+
+			vars := map[string]Vars{projectUID: varsResp.EnvironmentVariables}
+			return printJSON(cmd, vars)
 		}
 
 		appMetadata, scopeDevices, scopeFleets, err := ResolveScopeWithValidation(flagScope)
@@ -76,7 +93,7 @@ Scope can be:
 			return err
 		}
 
-		fmt.Printf("%s\n", varsJSON)
+		cmd.Printf("%s\n", varsJSON)
 		return nil
 	},
 }
@@ -85,19 +102,55 @@ Scope can be:
 var varsSetCmd = &cobra.Command{
 	Use:   "set [json]",
 	Short: "Set environment variables",
-	Long: `Set environment variables for devices or fleets.
+	Long: `Set environment variables for devices, fleets, or the project.
 
 The JSON argument can be a JSON object or @filename to read from a file.
 
 Example:
   notehub vars set --scope dev:xxxx '{"VAR1":"value1","VAR2":"value2"}'
+  notehub vars set --scope project '{"VAR1":"value1","VAR2":"value2"}'
   notehub vars set --scope @production @vars.json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		GetCredentials() // Validate credentials
 
 		if flagScope == "" {
-			return fmt.Errorf("use --scope to specify device(s) or fleet(s)")
+			return fmt.Errorf("use --scope to specify device(s), fleet(s), or project")
+		}
+
+		if flagScope == "project" {
+			client, ctx, projectUID, err := initCommand()
+			if err != nil {
+				return err
+			}
+
+			// Parse template
+			template := Vars{}
+			varsArg := args[0]
+			if strings.HasPrefix(varsArg, "@") {
+				templateJSON, err := os.ReadFile(strings.TrimPrefix(varsArg, "@"))
+				if err != nil {
+					return err
+				}
+				if err := note.JSONUnmarshal(templateJSON, &template); err != nil {
+					return err
+				}
+			} else {
+				if err := note.JSONUnmarshal([]byte(varsArg), &template); err != nil {
+					return err
+				}
+			}
+
+			envVars := notehub.NewEnvironmentVariables(template)
+			varsResp, _, err := client.ProjectAPI.SetProjectEnvironmentVariables(ctx, projectUID).
+				EnvironmentVariables(*envVars).
+				Execute()
+			if err != nil {
+				return fmt.Errorf("failed to set project environment variables: %w", err)
+			}
+
+			vars := map[string]Vars{projectUID: varsResp.EnvironmentVariables}
+			return printJSON(cmd, vars)
 		}
 
 		appMetadata, scopeDevices, scopeFleets, err := ResolveScopeWithValidation(flagScope)
@@ -147,7 +200,7 @@ Example:
 			return err
 		}
 
-		fmt.Printf("%s\n", varsJSON)
+		cmd.Printf("%s\n", varsJSON)
 		return nil
 	},
 }
@@ -158,6 +211,6 @@ func init() {
 	varsCmd.AddCommand(varsSetCmd)
 
 	// Flags for vars commands
-	varsGetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet scope (required)")
-	varsSetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet scope (required)")
+	varsGetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet/project scope (required)")
+	varsSetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet/project scope (required)")
 }

@@ -36,8 +36,53 @@ It provides commands for authentication, managing projects and devices,
 setting environment variables, and making API requests.`,
 	Version: version,
 	Run: func(cmd *cobra.Command, args []string) {
-		// If no subcommand is provided, print help (config shown via HelpFunc)
 		cmd.Help()
+
+		// Show active context so the user knows what project they're operating on
+		cmd.Println()
+		if creds, err := GetHubCredentials(); err == nil && creds != nil && creds.User != "" {
+			cmd.Printf("  Signed in as: %s\n", creds.User)
+		} else {
+			cmd.Println("  Not signed in. Use 'notehub auth signin' to authenticate.")
+		}
+		if project := GetProject(); project != "" {
+			if label := viper.GetString("project_label"); label != "" {
+				cmd.Printf("  Active project: %s (%s)\n", label, project)
+			} else {
+				cmd.Printf("  Active project: %s\n", project)
+			}
+		} else {
+			cmd.Println("  No active project. Use 'notehub project set <name-or-uid>' to select one.")
+		}
+		if fleet := GetFleet(); fleet != "" {
+			if label := viper.GetString("fleet_label"); label != "" {
+				cmd.Printf("  Active fleet: %s (%s)\n", label, fleet)
+			} else {
+				cmd.Printf("  Active fleet: %s\n", fleet)
+			}
+		}
+		if product := GetProduct(); product != "" {
+			if label := viper.GetString("product_label"); label != "" {
+				cmd.Printf("  Active product: %s (%s)\n", label, product)
+			} else {
+				cmd.Printf("  Active product: %s\n", product)
+			}
+		}
+		if route := GetRoute(); route != "" {
+			if label := viper.GetString("route_label"); label != "" {
+				cmd.Printf("  Active route: %s (%s)\n", label, route)
+			} else {
+				cmd.Printf("  Active route: %s\n", route)
+			}
+		}
+		if monitor := GetMonitor(); monitor != "" {
+			if label := viper.GetString("monitor_label"); label != "" {
+				cmd.Printf("  Active monitor: %s (%s)\n", label, monitor)
+			} else {
+				cmd.Printf("  Active monitor: %s\n", monitor)
+			}
+		}
+		cmd.Println()
 	},
 }
 
@@ -45,6 +90,11 @@ setting environment variables, and making API requests.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		// Cobra already prints the error, but if it's a network error the
+		// message from the SDK can be cryptic. Print a helpful hint.
+		if isNetworkError(err) {
+			fmt.Fprintf(os.Stderr, "\nHint: This looks like a network connectivity issue. Please check your connection and try again.\n")
+		}
 		os.Exit(1)
 	}
 }
@@ -127,9 +177,13 @@ func GetCredentials() *Credentials {
 	}
 
 	if err := credentials.Validate(); err != nil {
-		hub := GetHub()
-		fmt.Printf("invalid credentials for %s: %s\n", hub, err)
-		fmt.Printf("please use 'notehub auth signin' or 'notehub auth signin-token' to sign into Notehub\n")
+		if isNetworkError(err) {
+			fmt.Printf("%s\n", networkErrorMessage(err))
+		} else {
+			hub := GetHub()
+			fmt.Printf("invalid credentials for %s: %s\n", hub, err)
+			fmt.Printf("please use 'notehub auth signin' or 'notehub auth signin-token' to sign into Notehub\n")
+		}
 		os.Exit(1)
 	}
 
@@ -145,6 +199,18 @@ func GetProject() string {
 
 func GetProduct() string {
 	return viper.GetString("product")
+}
+
+func GetFleet() string {
+	return viper.GetString("fleet")
+}
+
+func GetRoute() string {
+	return viper.GetString("route")
+}
+
+func GetMonitor() string {
+	return viper.GetString("monitor")
 }
 
 func GetDevice() string {
