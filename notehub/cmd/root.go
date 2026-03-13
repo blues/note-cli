@@ -89,6 +89,7 @@ setting environment variables, and making API requests.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	rootCmd.SetOut(os.Stdout)
 	if err := rootCmd.Execute(); err != nil {
 		// Cobra already prints the error, but if it's a network error the
 		// message from the SDK can be cryptic. Print a helpful hint.
