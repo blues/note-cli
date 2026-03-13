@@ -6,8 +6,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
 
 	"github.com/blues/note-go/notecard"
 )
