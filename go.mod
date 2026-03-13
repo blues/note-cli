@@ -1,8 +1,6 @@
 module github.com/note-cli
 
-go 1.23.0
-
-toolchain go1.23.3
+go 1.24.0
 
 replace github.com/blues/note-cli/lib => ./lib
 
