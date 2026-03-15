@@ -244,10 +244,15 @@ func AddAuthenticationHeader(httpReq *http.Request) error {
 
 // configOutput is the structured representation of the CLI configuration.
 type configOutput struct {
-	Hub         string              `json:"hub"`
-	Credentials *configCredentials  `json:"credentials,omitempty"`
-	Settings    map[string]string   `json:"settings,omitempty"`
-	ConfigFile  string              `json:"config_file"`
+	Hub         string                       `json:"hub"`
+	Credentials *configCredentials           `json:"credentials,omitempty"`
+	Settings    map[string]configSetting     `json:"settings,omitempty"`
+	ConfigFile  string                       `json:"config_file"`
+}
+
+type configSetting struct {
+	UID   string `json:"uid"`
+	Label string `json:"label,omitempty"`
 }
 
 type configCredentials struct {
@@ -286,12 +291,16 @@ func buildConfigOutput() configOutput {
 		output.Credentials = creds
 	}
 
-	// Active settings (only non-empty)
+	// Active settings (only non-empty, include labels when available)
 	settingKeys := []string{"project", "fleet", "product", "route", "monitor", "device"}
-	settings := make(map[string]string)
+	settings := make(map[string]configSetting)
 	for _, key := range settingKeys {
 		if val := viper.GetString(key); val != "" {
-			settings[key] = val
+			s := configSetting{UID: val}
+			if label := viper.GetString(key + "_label"); label != "" && label != val {
+				s.Label = label
+			}
+			settings[key] = s
 		}
 	}
 	if len(settings) > 0 {
