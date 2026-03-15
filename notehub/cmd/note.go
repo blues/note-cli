@@ -174,6 +174,10 @@ Examples:
 			return err
 		}
 
+		if err := confirmAction(cmd, fmt.Sprintf("Delete note '%s' from %s on %s?", noteID, notefileID, deviceUID)); err != nil {
+			return nil
+		}
+
 		_, err = client.DeviceAPI.DeleteNote(ctx, projectUID, deviceUID, notefileID, noteID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete Note: %w", err)
@@ -289,6 +293,8 @@ func init() {
 	noteUpdateCmd.Flags().String("body", "", "Note body as JSON string")
 	noteUpdateCmd.Flags().String("file", "", "Path to JSON file containing the Note body")
 	noteUpdateCmd.Flags().String("payload", "", "Base64-encoded payload")
+
+	addConfirmFlag(noteDeleteCmd)
 
 	// Push flags
 	notePushCmd.Flags().String("body", "", "Note body as JSON string")

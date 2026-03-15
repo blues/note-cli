@@ -169,8 +169,7 @@ Examples:
 			return fmt.Errorf("failed to create route: %w", err)
 		}
 
-		cmd.Println("Route created successfully!")
-		return printHuman(cmd, createdRoute)
+		return printMutationResult(cmd, createdRoute, "Route created")
 	},
 }
 
@@ -249,8 +248,7 @@ If no argument is provided, an interactive picker will be shown.`,
 			return fmt.Errorf("failed to update route: %w", err)
 		}
 
-		cmd.Println("Route updated successfully!")
-		return printHuman(cmd, updatedRoute)
+		return printMutationResult(cmd, updatedRoute, "Route updated")
 	},
 }
 
@@ -293,7 +291,10 @@ If no argument is provided, an interactive picker will be shown.`,
 			return err
 		}
 
-		// Delete route using SDK
+		if err := confirmAction(cmd, fmt.Sprintf("Delete route '%s'?", routeUID)); err != nil {
+			return nil
+		}
+
 		_, err = client.RouteAPI.DeleteRoute(ctx, projectUID, routeUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete route: %w", err)
@@ -476,6 +477,8 @@ func init() {
 	// Add flags for route update
 	routeUpdateCmd.Flags().String("config", "", "Path to JSON configuration file (required)")
 	routeUpdateCmd.MarkFlagRequired("config")
+
+	addConfirmFlag(routeDeleteCmd)
 
 	// Add flags for route logs
 	addPaginationFlags(routeLogsCmd, 50)

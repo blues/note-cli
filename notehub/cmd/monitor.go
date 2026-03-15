@@ -202,7 +202,10 @@ var monitorDeleteCmd = &cobra.Command{
 			}
 		}
 
-		// Delete monitor using SDK
+		if err := confirmAction(cmd, fmt.Sprintf("Delete monitor '%s'?", monitorUID)); err != nil {
+			return nil
+		}
+
 		_, _, err = client.MonitorAPI.DeleteMonitor(ctx, projectUID, monitorUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete monitor: %w", err)
@@ -277,4 +280,6 @@ func init() {
 
 	monitorUpdateCmd.Flags().String("config", "", "Path to JSON configuration file (required)")
 	monitorUpdateCmd.MarkFlagRequired("config")
+
+	addConfirmFlag(monitorDeleteCmd)
 }

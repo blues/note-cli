@@ -94,6 +94,31 @@ func addScopeFlag(cmd *cobra.Command, description string) {
 	cmd.Flags().StringVarP(&flagScope, "scope", "s", "", description)
 }
 
+// confirmAction prompts the user to confirm a destructive action. Returns nil
+// if confirmed, errPickCancelled if declined. Skips the prompt if --yes/-y is set.
+func confirmAction(cmd *cobra.Command, message string) error {
+	yes, _ := cmd.Flags().GetBool("yes")
+	if yes {
+		return nil
+	}
+
+	var confirmed bool
+	err := huh.NewConfirm().
+		Title(message).
+		Value(&confirmed).
+		WithTheme(huh.ThemeBase()).
+		Run()
+	if err != nil || !confirmed {
+		return errPickCancelled
+	}
+	return nil
+}
+
+// addConfirmFlag adds the --yes/-y flag to a command for skipping confirmation prompts.
+func addConfirmFlag(cmd *cobra.Command) {
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+}
+
 // validateAuth checks that the user is signed in and returns an error if not.
 // Use this for commands that need auth but don't use the SDK client (e.g. V0
 // commands like request/trace). For commands that also need the SDK client and
@@ -626,7 +651,11 @@ func setDefault(cmd *cobra.Command, key, uid, label string) error {
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	cmd.Printf("Active %s set to: %s (%s)\n", key, label, uid)
+	if label != uid {
+		cmd.Printf("Active %s set to: %s (%s)\n", key, label, uid)
+	} else {
+		cmd.Printf("Active %s set to: %s\n", key, uid)
+	}
 	return nil
 }
 

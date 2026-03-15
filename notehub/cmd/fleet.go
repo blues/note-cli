@@ -150,7 +150,10 @@ var fleetDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		// Delete fleet using SDK
+		if err := confirmAction(cmd, fmt.Sprintf("Delete fleet '%s'?", selectedFleet.Label)); err != nil {
+			return nil
+		}
+
 		_, err = client.ProjectAPI.DeleteFleet(ctx, projectUID, selectedFleet.Uid).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete fleet: %w", err)
@@ -307,4 +310,6 @@ func init() {
 	fleetUpdateCmd.Flags().String("smart-rule", "", "JSONata expression for dynamic fleet membership")
 	fleetUpdateCmd.Flags().Bool("connectivity-assurance", false, "Enable or disable connectivity assurance")
 	fleetUpdateCmd.Flags().Int("watchdog-mins", 0, "Watchdog timer in minutes (0 to disable)")
+
+	addConfirmFlag(fleetDeleteCmd)
 }

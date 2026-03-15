@@ -131,6 +131,10 @@ var productDeleteCmd = &cobra.Command{
 			}
 		}
 
+		if err := confirmAction(cmd, fmt.Sprintf("Delete product '%s'?", productUID)); err != nil {
+			return nil
+		}
+
 		_, err = client.ProjectAPI.DeleteProduct(ctx, projectUID, productUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete product: %w", err)
@@ -198,4 +202,6 @@ func init() {
 	productCmd.AddCommand(productDeleteCmd)
 	productCmd.AddCommand(productSetCmd)
 	productCmd.AddCommand(productClearCmd)
+
+	addConfirmFlag(productDeleteCmd)
 }

@@ -256,6 +256,10 @@ var projectDeleteCmd = &cobra.Command{
 			return err
 		}
 
+		if err := confirmAction(cmd, fmt.Sprintf("Delete project '%s'? This cannot be undone.", projectUID)); err != nil {
+			return nil
+		}
+
 		_, err = client.ProjectAPI.DeleteProject(ctx, projectUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete project: %w", err)
@@ -348,6 +352,8 @@ func init() {
 	projectCmd.AddCommand(projectDeleteCmd)
 	projectCmd.AddCommand(projectCloneCmd)
 	projectCmd.AddCommand(projectMembersCmd)
+
+	addConfirmFlag(projectDeleteCmd)
 
 	projectCloneCmd.Flags().Bool("no-fleets", false, "Do not clone fleets from the source project")
 	projectCloneCmd.Flags().Bool("no-routes", false, "Do not clone routes from the source project")

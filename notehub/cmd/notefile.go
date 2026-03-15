@@ -127,6 +127,10 @@ Examples:
 			return err
 		}
 
+		if err := confirmAction(cmd, fmt.Sprintf("Delete %d Notefile(s) from %s?", len(notefileIDs), deviceUID)); err != nil {
+			return nil
+		}
+
 		deleteReq := notehub.NewDeleteNotefilesRequest()
 		deleteReq.SetFiles(notefileIDs)
 
@@ -157,4 +161,6 @@ func init() {
 
 	notefileGetCmd.Flags().Int32("max", 0, "Maximum number of Notes to return")
 	notefileGetCmd.Flags().Bool("deleted", false, "Include deleted Notes")
+
+	addConfirmFlag(notefileDeleteCmd)
 }

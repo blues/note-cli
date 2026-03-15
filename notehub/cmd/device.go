@@ -86,6 +86,12 @@ func deviceEnableDisable(cmd *cobra.Command, scope string, enable bool) error {
 		return err
 	}
 
+	if !enable {
+		if err := confirmAction(cmd, fmt.Sprintf("Disable %d device(s)?", len(scopeDevices))); err != nil {
+			return nil
+		}
+	}
+
 	verbose := GetVerbose()
 	client := GetNotehubClient()
 	ctx, err := GetNotehubContext()
@@ -431,6 +437,10 @@ Examples:
 			return err
 		}
 
+		if err := confirmAction(cmd, fmt.Sprintf("Delete device '%s'?", deviceUID)); err != nil {
+			return nil
+		}
+
 		_, err = client.DeviceAPI.DeleteDevice(ctx, projectUID, deviceUID).Execute()
 		if err != nil {
 			return fmt.Errorf("failed to delete device: %w", err)
@@ -637,6 +647,59 @@ Examples:
 	},
 }
 
+// deviceSetCmd represents the device set command
+var deviceSetCmd = &cobra.Command{
+	Use:   "set [device-uid]",
+	Short: "Set the active device",
+	Long: `Set the active device in the configuration. This device will be used as the
+default for commands like get, health, session, events, etc.
+
+If no argument is provided, an interactive picker will be shown.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		var deviceUID string
+		if len(args) > 0 {
+			deviceUID = args[0]
+		} else {
+			deviceUID, err = pickDevice(client, ctx, projectUID)
+			if err == errPickCancelled {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		// Verify the device exists
+		device, _, err := client.DeviceAPI.GetDevice(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device: %w", err)
+		}
+
+		label := device.Uid
+		if device.SerialNumber != nil && *device.SerialNumber != "" {
+			label = *device.SerialNumber
+		}
+
+		return setDefault(cmd, "device", device.Uid, label)
+	},
+}
+
+// deviceClearCmd represents the device clear command
+var deviceClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the active device",
+	Long:  `Clear the active device from the configuration.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return clearDefault(cmd, "device", "notehub device set <device-uid>")
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(deviceCmd)
 	deviceCmd.AddCommand(deviceListCmd)
@@ -651,9 +714,14 @@ func init() {
 	deviceCmd.AddCommand(deviceEventsCmd)
 	deviceCmd.AddCommand(devicePlansCmd)
 	deviceCmd.AddCommand(deviceKeysCmd)
+	deviceCmd.AddCommand(deviceSetCmd)
+	deviceCmd.AddCommand(deviceClearCmd)
 
 	deviceKeysCmd.Flags().Bool("all", false, "List public keys for all devices in the project")
 	deviceKeysCmd.Flags().Int("limit", 50, "Maximum number of keys to return (used with --all)")
+
+	addConfirmFlag(deviceDeleteCmd)
+	addConfirmFlag(deviceDisableCmd)
 
 	addPaginationFlags(deviceListCmd, 50)
 	addPaginationFlags(deviceSessionCmd, 50)
