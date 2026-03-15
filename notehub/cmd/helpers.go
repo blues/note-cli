@@ -140,12 +140,13 @@ func validateAuth() error {
 // resolution, and SDK client/context creation. Most commands need all of these
 // and previously duplicated ~15 lines of boilerplate for this setup.
 func initCommand() (client *notehub.APIClient, ctx context.Context, projectUID string, err error) {
+	if err = validateAuth(); err != nil {
+		return nil, nil, "", err
+	}
+
 	creds, err := GetHubCredentials()
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("error getting credentials: %s", err)
-	}
-	if creds == nil || creds.Token == "" {
-		return nil, nil, "", fmt.Errorf("please sign in using 'notehub auth signin' or 'notehub auth signin-token'")
+		return nil, nil, "", err
 	}
 
 	projectUID = GetProject()
@@ -443,6 +444,12 @@ type PickerItem struct {
 // Commands should treat this as a no-op (not an error to display).
 var errPickCancelled = fmt.Errorf("selection cancelled")
 
+// Picker navigation sentinel values.
+const (
+	pickerNext = "__next__"
+	pickerPrev = "__prev__"
+)
+
 // PickerPage holds a page of picker items and whether more pages exist.
 type PickerPage struct {
 	Items   []PickerItem
@@ -467,11 +474,11 @@ func pickPaginated(title string, emptyMsg string, fetchPage func(page int32) (Pi
 		// Build picker items with navigation
 		items := make([]PickerItem, 0, len(result.Items)+2)
 		if pageNum > 1 {
-			items = append(items, PickerItem{Label: "← Previous page", Value: "__prev__"})
+			items = append(items, PickerItem{Label: "← Previous page", Value: pickerPrev})
 		}
 		items = append(items, result.Items...)
 		if result.HasMore {
-			items = append(items, PickerItem{Label: "Next page →", Value: "__next__"})
+			items = append(items, PickerItem{Label: "Next page →", Value: pickerNext})
 		}
 
 		// Show picker
@@ -498,9 +505,9 @@ func pickPaginated(title string, emptyMsg string, fetchPage func(page int32) (Pi
 		}
 
 		switch items[selected].Value {
-		case "__next__":
+		case pickerNext:
 			pageNum++
-		case "__prev__":
+		case pickerPrev:
 			pageNum--
 		default:
 			return items[selected].Value, nil
@@ -775,6 +782,11 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var err error
 
 	for attempt := range t.maxRetries + 1 {
+		// Reset request body for retries (consumed by previous attempt)
+		if attempt > 0 && req.GetBody != nil {
+			req.Body, _ = req.GetBody()
+		}
+
 		resp, err = t.base.RoundTrip(req)
 
 		// Don't retry if the request succeeded with a non-transient status
@@ -784,6 +796,11 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		// Don't retry on the last attempt
 		if attempt == t.maxRetries {
+			break
+		}
+
+		// Don't retry POST/PUT if body can't be replayed
+		if req.Body != nil && req.GetBody == nil {
 			break
 		}
 

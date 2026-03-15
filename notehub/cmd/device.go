@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	notehub "github.com/blues/notehub-go"
 	"github.com/spf13/cobra"
@@ -109,7 +110,7 @@ func deviceEnableDisable(cmd *cobra.Command, scope string, enable bool) error {
 			return fmt.Errorf("failed to %s device %s: %w", action, deviceUID, err)
 		}
 		if verbose {
-			cmd.Printf("Device %s %sd\n", deviceUID, action)
+			cmd.Printf("Device %s %s\n", deviceUID, strings.ToLower(pastTense))
 		}
 	}
 
@@ -173,17 +174,7 @@ var deviceMoveCmd = &cobra.Command{
 	Use:   "move [scope] [fleet-uid-or-name]",
 	Short: "Move devices to a fleet",
 	Long: `Move one or more devices to a fleet. If a device is not in any fleet, it will be assigned.
-If a device is already in a fleet, it will be moved to the new fleet.
-
-Scope Formats:
-  dev:xxxx           Single device UID
-  imei:xxxx          Device by IMEI
-  fleet:xxxx         All devices in fleet (by UID)
-  production         All devices in named fleet
-  @fleet-name        All devices in fleet (indirection)
-  @                  All devices in project
-  @devices.txt       Device UIDs from file (one per line)
-  dev:aaa,dev:bbb    Multiple scopes (comma-separated)
+If a device is already in a fleet, it will be moved to the new fleet.` + scopeHelpLong + `
 
 Examples:
   # Move a single device to a fleet
