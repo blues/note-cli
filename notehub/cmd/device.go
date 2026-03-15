@@ -647,6 +647,46 @@ Examples:
 	},
 }
 
+// deviceConfigCmd represents the device config command
+var deviceConfigCmd = &cobra.Command{
+	Use:   "config [device-uid]",
+	Short: "Get device environment variable configuration",
+	Long: `Show the full environment variable hierarchy for a device, including
+variables inherited from the project and fleet levels.
+
+This shows the effective configuration that the Notecard will receive,
+including which level (project, fleet, device) each variable comes from.
+
+Examples:
+  # Get config for a device
+  notehub device config dev:864475046552567
+
+  # Get config with JSON output
+  notehub device config dev:864475046552567 --json`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, ctx, projectUID, err := initCommand()
+		if err != nil {
+			return err
+		}
+
+		deviceUID, err := resolveDeviceArg(client, ctx, projectUID, args)
+		if err == errPickCancelled {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		hierarchy, _, err := client.DeviceAPI.GetDeviceEnvironmentHierarchy(ctx, projectUID, deviceUID).Execute()
+		if err != nil {
+			return fmt.Errorf("failed to get device config: %w", err)
+		}
+
+		return printResult(cmd, hierarchy)
+	},
+}
+
 // deviceSetCmd represents the device set command
 var deviceSetCmd = &cobra.Command{
 	Use:   "set [device-uid]",
@@ -714,6 +754,7 @@ func init() {
 	deviceCmd.AddCommand(deviceEventsCmd)
 	deviceCmd.AddCommand(devicePlansCmd)
 	deviceCmd.AddCommand(deviceKeysCmd)
+	deviceCmd.AddCommand(deviceConfigCmd)
 	deviceCmd.AddCommand(deviceSetCmd)
 	deviceCmd.AddCommand(deviceClearCmd)
 

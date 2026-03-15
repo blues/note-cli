@@ -153,7 +153,7 @@ func uploadFirmware(cmd *cobra.Command, projectUID, firmwareType, filename, note
 	}
 
 	// Send request
-	client := &http.Client{}
+	client := newRetryHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to upload: %w", err)

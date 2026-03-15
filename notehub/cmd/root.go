@@ -86,9 +86,40 @@ setting environment variables, and making API requests.`,
 	},
 }
 
+// legacyFlagMigrations maps old-style flags to their new CLI equivalents.
+var legacyFlagMigrations = map[string]string{
+	"-signin":       "notehub auth signin",
+	"-signin-token": "notehub auth signin-token <token>",
+	"-signout":      "notehub auth signout",
+	"-token":        "notehub auth token",
+	"-projects":     "notehub project list",
+	"-provision":    "notehub provision --scope <scope> --product <product>",
+	"-get-vars":     "notehub vars get --scope <scope>",
+	"-set-vars":     "notehub vars set --scope <scope> <json>",
+	"-explore":      "notehub explore <device-uid>",
+	"-trace":        "notehub trace",
+	"-req":          "notehub request <json>",
+	"-upload":       "notehub upload <file> --type <type>",
+}
+
+// checkLegacyFlags checks os.Args for old-style flags and prints migration hints.
+// Returns true if a legacy flag was detected.
+func checkLegacyFlags() bool {
+	for _, arg := range os.Args[1:] {
+		if newCmd, ok := legacyFlagMigrations[arg]; ok {
+			fmt.Fprintf(os.Stderr, "The '%s' flag is from V1 of the CLI.\n\nUse instead:\n  %s\n\nRun 'notehub --help' to see all available commands.\n", arg, newCmd)
+			return true
+		}
+	}
+	return false
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	if checkLegacyFlags() {
+		os.Exit(1)
+	}
 	rootCmd.SetOut(os.Stdout)
 	if err := rootCmd.Execute(); err != nil {
 		// Cobra already prints the error, but if it's a network error the

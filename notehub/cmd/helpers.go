@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blues/note-go/note"
 	notehub "github.com/blues/notehub-go"
@@ -744,7 +746,65 @@ func GetNotehubClient() *notehub.APIClient {
 		cfg.Scheme = "https"
 	}
 
+	cfg.HTTPClient = newRetryHTTPClient()
+
 	return notehub.NewAPIClient(cfg)
+}
+
+// newRetryHTTPClient creates an HTTP client with automatic retry for transient errors.
+func newRetryHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &retryTransport{
+			base:       http.DefaultTransport,
+			maxRetries: 3,
+			baseDelay:  500 * time.Millisecond,
+		},
+	}
+}
+
+// retryTransport wraps an http.RoundTripper with automatic retry logic for
+// transient errors (5xx status codes, timeouts, connection errors).
+type retryTransport struct {
+	base       http.RoundTripper
+	maxRetries int
+	baseDelay  time.Duration
+}
+
+func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+
+	for attempt := range t.maxRetries + 1 {
+		resp, err = t.base.RoundTrip(req)
+
+		// Don't retry if the request succeeded with a non-transient status
+		if err == nil && resp.StatusCode < 500 {
+			return resp, nil
+		}
+
+		// Don't retry on the last attempt
+		if attempt == t.maxRetries {
+			break
+		}
+
+		// Close response body before retrying to avoid resource leaks
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		// Exponential backoff: 500ms, 1s, 2s
+		delay := t.baseDelay * (1 << attempt)
+		if GetVerbose() {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Retry %d/%d after error: %s (waiting %s)\n", attempt+1, t.maxRetries, err, delay)
+			} else {
+				fmt.Fprintf(os.Stderr, "Retry %d/%d after HTTP %d (waiting %s)\n", attempt+1, t.maxRetries, resp.StatusCode, delay)
+			}
+		}
+		time.Sleep(delay)
+	}
+
+	return resp, err
 }
 
 // GetNotehubContext creates a context with authentication for Notehub API calls

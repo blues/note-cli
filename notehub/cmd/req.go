@@ -104,7 +104,7 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 		fmt.Printf("%s\n", string(request))
 	}
 
-	httpClient := &http.Client{}
+	httpClient := newRetryHTTPClient()
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
 		if isNetworkError(err2) {
@@ -193,7 +193,7 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 		}
 	}
 
-	httpClient := &http.Client{}
+	httpClient := newRetryHTTPClient()
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
 		if isNetworkError(err2) {
