@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-// CLI Version - Set by ldflags during build/release
-var version = "development"
+// Version is the CLI version, set from main.go (injected via ldflags at build time).
+var Version = "development"
 
 // Global flags
 var (
@@ -34,7 +34,7 @@ var rootCmd = &cobra.Command{
 
 It provides commands for authentication, managing projects and devices,
 setting environment variables, and making API requests.`,
-	Version: version,
+	// Version is set dynamically in Execute()
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 
@@ -120,6 +120,8 @@ func Execute() {
 	if checkLegacyFlags() {
 		os.Exit(1)
 	}
+	rootCmd.Version = Version
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.SetOut(os.Stdout)
 	if err := rootCmd.Execute(); err != nil {
 		// Cobra already prints the error, but if it's a network error the

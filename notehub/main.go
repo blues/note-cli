@@ -8,7 +8,10 @@ import (
 	"github.com/note-cli/notehub/cmd"
 )
 
-// Main entry point
+// version is set by GoReleaser via ldflags: -X main.version={{.Version}}
+var version = "development"
+
 func main() {
+	cmd.Version = version
 	cmd.Execute()
 }
