@@ -56,15 +56,9 @@ Examples:
 			return fmt.Errorf("failed to list Notefiles: %w", err)
 		}
 
-		if wantJSON() {
-			return printJSON(cmd, notefiles)
-		}
-
-		if len(notefiles) == 0 {
-			cmd.Println("No Notefiles found on this device.")
-			return nil
-		}
-		return printHuman(cmd, notefiles)
+		return printListResult(cmd, notefiles, "No Notefiles found on this device.", func() bool {
+			return len(notefiles) == 0
+		})
 	},
 }
 
@@ -143,8 +137,12 @@ Examples:
 			return fmt.Errorf("failed to delete Notefiles: %w", err)
 		}
 
-		cmd.Printf("Successfully deleted %d Notefile(s) from %s\n", len(notefileIDs), deviceUID)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":     "delete",
+			"notefiles":  notefileIDs,
+			"count":      len(notefileIDs),
+			"device_uid": deviceUID,
+		}, fmt.Sprintf("Deleted %d Notefile(s) from %s", len(notefileIDs), deviceUID))
 	},
 }
 

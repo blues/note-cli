@@ -164,33 +164,6 @@ func initConfig() {
 	}
 }
 
-// GetCredentials returns validated credentials or exits with error
-func GetCredentials() *Credentials {
-	credentials, err := GetHubCredentials()
-	if err != nil {
-		fmt.Printf("error getting credentials: %s\n", err)
-		os.Exit(1)
-	}
-
-	if credentials == nil {
-		fmt.Printf("please sign in using 'notehub auth signin' or 'notehub auth signin-token'\n")
-		os.Exit(1)
-	}
-
-	if err := credentials.Validate(); err != nil {
-		if isNetworkError(err) {
-			fmt.Printf("%s\n", networkErrorMessage(err))
-		} else {
-			hub := GetHub()
-			fmt.Printf("invalid credentials for %s: %s\n", hub, err)
-			fmt.Printf("please use 'notehub auth signin' or 'notehub auth signin-token' to sign into Notehub\n")
-		}
-		os.Exit(1)
-	}
-
-	return credentials
-}
-
 // Helper functions to get flag values from Viper
 // These allow flags, config file, and environment variables to work together
 

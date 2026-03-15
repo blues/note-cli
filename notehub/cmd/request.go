@@ -31,7 +31,9 @@ Example:
   notehub req @request.json --device dev:xxxx --pretty`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		reqArg := args[0]
 

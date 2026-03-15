@@ -31,12 +31,6 @@ func isNetworkError(err error) bool {
 		return false
 	}
 
-	// Check for net.Error (timeout, DNS, connection refused, etc.)
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-
 	// Check for DNS errors specifically
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
@@ -75,6 +69,44 @@ func isNetworkError(err error) bool {
 func networkErrorMessage(err error) string {
 	hub := GetHub()
 	return fmt.Sprintf("unable to connect to %s: %s\n\nPlease check your network connection and try again.", hub, err)
+}
+
+// Shared scope flag variables used by provision, vars, and explore commands.
+var (
+	flagScope string
+	flagSn    string
+)
+
+// scopeHelpLong is shared scope format documentation appended to Long descriptions.
+const scopeHelpLong = `
+Scope Formats:
+  dev:xxxx           Single device UID
+  imei:xxxx          Device by IMEI
+  fleet:xxxx         All devices in fleet (by UID)
+  production         All devices in named fleet
+  @fleet-name        All devices in fleet (indirection)
+  @                  All devices in project
+  @devices.txt       Device UIDs from file (one per line)
+  dev:aaa,dev:bbb    Multiple scopes (comma-separated)`
+
+// addScopeFlag adds the standard --scope/-s flag to a command.
+func addScopeFlag(cmd *cobra.Command, description string) {
+	cmd.Flags().StringVarP(&flagScope, "scope", "s", "", description)
+}
+
+// validateAuth checks that the user is signed in and returns an error if not.
+// Use this for commands that need auth but don't use the SDK client (e.g. V0
+// commands like request/trace). For commands that also need the SDK client and
+// project, use initCommand() instead.
+func validateAuth() error {
+	creds, err := GetHubCredentials()
+	if err != nil {
+		return fmt.Errorf("error getting credentials: %s", err)
+	}
+	if creds == nil || creds.Token == "" {
+		return fmt.Errorf("please sign in using 'notehub auth signin' or 'notehub auth signin-token'")
+	}
+	return nil
 }
 
 // initCommand handles the common command setup: auth validation, project UID
@@ -128,6 +160,41 @@ func printResult(cmd *cobra.Command, v any) error {
 		return printJSON(cmd, v)
 	}
 	return printHuman(cmd, v)
+}
+
+// printListResult handles the standard list output pattern: JSON if requested,
+// otherwise check for empty list and show a message, or render human-readable.
+// The isEmpty func checks whether the data is empty (e.g. len(resp.Items) == 0).
+func printListResult(cmd *cobra.Command, v any, emptyMsg string, isEmpty func() bool) error {
+	if wantJSON() {
+		return printJSON(cmd, v)
+	}
+	if isEmpty() {
+		cmd.Println(emptyMsg)
+		return nil
+	}
+	return printHuman(cmd, v)
+}
+
+// printMutationResult handles output for create/update mutations: JSON if requested,
+// otherwise print a success message followed by the human-readable result.
+func printMutationResult(cmd *cobra.Command, v any, successMsg string) error {
+	if wantJSON() {
+		return printJSON(cmd, v)
+	}
+	cmd.Println(successMsg)
+	return printHuman(cmd, v)
+}
+
+// printActionResult handles output for action commands (enable, disable, delete, etc.)
+// that don't return structured data from the API but should support --json output.
+// The result map is printed as JSON when requested, otherwise the successMsg is shown.
+func printActionResult(cmd *cobra.Command, result map[string]any, successMsg string) error {
+	if wantJSON() {
+		return printJSON(cmd, result)
+	}
+	cmd.Println(successMsg)
+	return nil
 }
 
 // printHuman renders a value as human-readable key-value text. It marshals to
@@ -286,160 +353,252 @@ func resolveFleet(client *notehub.APIClient, ctx context.Context, projectUID, id
 	return nil, fmt.Errorf("fleet '%s' not found in project", identifier)
 }
 
+// resolveProduct looks up a product by UID or label and returns the full Product object.
+func resolveProduct(client *notehub.APIClient, ctx context.Context, projectUID, identifier string) (*notehub.Product, error) {
+	productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list products: %w", err)
+	}
+
+	for _, p := range productsRsp.Products {
+		if p.Uid == identifier || p.Label == identifier {
+			return &p, nil
+		}
+	}
+
+	return nil, fmt.Errorf("product '%s' not found in project", identifier)
+}
+
+// resolveMonitor looks up a monitor by UID or name and returns its UID and name.
+func resolveMonitor(client *notehub.APIClient, ctx context.Context, projectUID, identifier string) (uid string, name string, err error) {
+	// Try direct UID lookup first
+	monitor, resp, getErr := client.MonitorAPI.GetMonitor(ctx, projectUID, identifier).Execute()
+	if getErr == nil && resp != nil && resp.StatusCode != 404 {
+		if monitor.Uid != nil {
+			uid = *monitor.Uid
+		}
+		if monitor.Name != nil {
+			name = *monitor.Name
+		}
+		return uid, name, nil
+	}
+
+	// Fall back to list search
+	monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to list monitors: %w", err)
+	}
+
+	for _, m := range monitors {
+		mUID := ""
+		mName := ""
+		if m.Uid != nil {
+			mUID = *m.Uid
+		}
+		if m.Name != nil {
+			mName = *m.Name
+		}
+		if mUID == identifier || mName == identifier {
+			return mUID, mName, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("monitor '%s' not found in project", identifier)
+}
+
 // PickerItem represents a single item in an interactive picker.
 type PickerItem struct {
 	Label string // Display label shown to the user
 	Value string // Value returned when selected (e.g., UID)
 }
 
-// pickOne displays an interactive arrow-key picker and returns the selected item.
-// Returns nil if the user cancels (Ctrl+C/Esc) or if items is empty.
-func pickOne(title string, items []PickerItem) *PickerItem {
-	if len(items) == 0 {
-		return nil
-	}
-
-	options := make([]huh.Option[int], len(items))
-	for i, item := range items {
-		options[i] = huh.NewOption(item.Label, i)
-	}
-
-	var selected int
-	err := huh.NewSelect[int]().
-		Title(title).
-		Options(options...).
-		Value(&selected).
-		Run()
-
-	if err != nil {
-		return nil
-	}
-
-	return &items[selected]
-}
-
 // errPickCancelled is returned when the user cancels an interactive picker.
 // Commands should treat this as a no-op (not an error to display).
 var errPickCancelled = fmt.Errorf("selection cancelled")
 
-// pickFleet fetches all fleets for the project and presents an interactive picker.
-// Returns the selected fleet's UID, errPickCancelled if the user cancels, or an
-// error with a helpful message if none exist.
+// PickerPage holds a page of picker items and whether more pages exist.
+type PickerPage struct {
+	Items   []PickerItem
+	HasMore bool
+}
+
+// pickPaginated displays a paginated interactive picker. The fetchPage callback
+// is called with the current page number (1-based) and should return items for
+// that page. For non-paginated APIs, return all items with HasMore=false.
+// Returns the selected item's Value, or errPickCancelled if the user cancels.
+func pickPaginated(title string, emptyMsg string, fetchPage func(page int32) (PickerPage, error)) (string, error) {
+	pageNum := int32(1)
+	for {
+		result, err := fetchPage(pageNum)
+		if err != nil {
+			return "", err
+		}
+		if len(result.Items) == 0 && pageNum == 1 {
+			return "", fmt.Errorf("%s", emptyMsg)
+		}
+
+		// Build picker items with navigation
+		items := make([]PickerItem, 0, len(result.Items)+2)
+		if pageNum > 1 {
+			items = append(items, PickerItem{Label: "← Previous page", Value: "__prev__"})
+		}
+		items = append(items, result.Items...)
+		if result.HasMore {
+			items = append(items, PickerItem{Label: "Next page →", Value: "__next__"})
+		}
+
+		// Show picker
+		pickerTitle := title
+		if result.HasMore || pageNum > 1 {
+			pickerTitle = fmt.Sprintf("%s (page %d)", title, pageNum)
+		}
+
+		options := make([]huh.Option[int], len(items))
+		for i, item := range items {
+			options[i] = huh.NewOption(item.Label, i)
+		}
+
+		theme := huh.ThemeBase()
+		var selected int
+		err = huh.NewSelect[int]().
+			Title(pickerTitle).
+			Options(options...).
+			Value(&selected).
+			WithTheme(theme).
+			Run()
+		if err != nil {
+			return "", errPickCancelled
+		}
+
+		switch items[selected].Value {
+		case "__next__":
+			pageNum++
+		case "__prev__":
+			pageNum--
+		default:
+			return items[selected].Value, nil
+		}
+	}
+}
+
+// resolveDeviceArg returns a device UID from the command args, the --device flag,
+// or an interactive picker if neither is provided.
+func resolveDeviceArg(client *notehub.APIClient, ctx context.Context, projectUID string, args []string) (string, error) {
+	if len(args) > 0 {
+		return args[0], nil
+	}
+	if d := GetDevice(); d != "" {
+		return d, nil
+	}
+	return pickDevice(client, ctx, projectUID)
+}
+
+// pickDevice presents a paginated device picker.
+func pickDevice(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
+	return pickPaginated("Select a device", "no devices found in this project", func(page int32) (PickerPage, error) {
+		devicesResp, _, err := client.DeviceAPI.GetDevices(ctx, projectUID).
+			PageSize(50).
+			PageNum(page).
+			Execute()
+		if err != nil {
+			return PickerPage{}, fmt.Errorf("failed to list devices: %w", err)
+		}
+		items := make([]PickerItem, len(devicesResp.Devices))
+		for i, d := range devicesResp.Devices {
+			label := d.Uid
+			if d.SerialNumber != nil && *d.SerialNumber != "" {
+				label = fmt.Sprintf("%s (%s)", d.Uid, *d.SerialNumber)
+			}
+			items[i] = PickerItem{Label: label, Value: d.Uid}
+		}
+		return PickerPage{Items: items, HasMore: devicesResp.HasMore}, nil
+	})
+}
+
+// pickFleet presents a fleet picker.
 func pickFleet(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
-	fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
-	if err != nil {
-		return "", fmt.Errorf("failed to list fleets: %w", err)
-	}
-	if len(fleetsRsp.Fleets) == 0 {
-		return "", fmt.Errorf("no fleets found in this project. Create one with 'notehub fleet create <name>'")
-	}
-	items := make([]PickerItem, len(fleetsRsp.Fleets))
-	for i, f := range fleetsRsp.Fleets {
-		items[i] = PickerItem{Label: f.Label, Value: f.Uid}
-	}
-	picked := pickOne("Select a fleet", items)
-	if picked == nil {
-		return "", errPickCancelled
-	}
-	return picked.Value, nil
+	return pickPaginated("Select a fleet", "no fleets found in this project. Create one with 'notehub fleet create <name>'", func(page int32) (PickerPage, error) {
+		fleetsRsp, _, err := client.ProjectAPI.GetFleets(ctx, projectUID).Execute()
+		if err != nil {
+			return PickerPage{}, fmt.Errorf("failed to list fleets: %w", err)
+		}
+		items := make([]PickerItem, len(fleetsRsp.Fleets))
+		for i, f := range fleetsRsp.Fleets {
+			items[i] = PickerItem{Label: f.Label, Value: f.Uid}
+		}
+		return PickerPage{Items: items, HasMore: false}, nil
+	})
 }
 
-// pickRoute fetches all routes for the project and presents an interactive picker.
-// Returns the selected route's UID, errPickCancelled if the user cancels, or an
-// error with a helpful message if none exist.
+// pickRoute presents a route picker.
 func pickRoute(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
-	routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
-	if err != nil {
-		return "", fmt.Errorf("failed to list routes: %w", err)
-	}
-	if len(routes) == 0 {
-		return "", fmt.Errorf("no routes found in this project. Create one with 'notehub route create <label> --config <file>'")
-	}
-	items := make([]PickerItem, 0, len(routes))
-	for _, r := range routes {
-		label := ""
-		uid := ""
-		if r.Label != nil {
-			label = *r.Label
+	return pickPaginated("Select a route", "no routes found in this project. Create one with 'notehub route create <label> --config <file>'", func(page int32) (PickerPage, error) {
+		routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
+		if err != nil {
+			return PickerPage{}, fmt.Errorf("failed to list routes: %w", err)
 		}
-		if r.Uid != nil {
-			uid = *r.Uid
-		}
-		if uid != "" {
-			if label == "" {
-				label = uid
+		items := make([]PickerItem, 0, len(routes))
+		for _, r := range routes {
+			uid := ""
+			label := ""
+			if r.Uid != nil {
+				uid = *r.Uid
 			}
-			items = append(items, PickerItem{Label: label, Value: uid})
+			if r.Label != nil {
+				label = *r.Label
+			}
+			if uid != "" {
+				if label == "" {
+					label = uid
+				}
+				items = append(items, PickerItem{Label: label, Value: uid})
+			}
 		}
-	}
-	if len(items) == 0 {
-		return "", fmt.Errorf("no routes found in this project. Create one with 'notehub route create <label> --config <file>'")
-	}
-	picked := pickOne("Select a route", items)
-	if picked == nil {
-		return "", errPickCancelled
-	}
-	return picked.Value, nil
+		return PickerPage{Items: items, HasMore: false}, nil
+	})
 }
 
-// pickMonitor fetches all monitors for the project and presents an interactive picker.
-// Returns the selected monitor's UID, errPickCancelled if the user cancels, or an
-// error with a helpful message if none exist.
+// pickMonitor presents a monitor picker.
 func pickMonitor(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
-	monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
-	if err != nil {
-		return "", fmt.Errorf("failed to list monitors: %w", err)
-	}
-	if len(monitors) == 0 {
-		return "", fmt.Errorf("no monitors found in this project. Create one with 'notehub monitor create <name> --config <file>'")
-	}
-	items := make([]PickerItem, 0, len(monitors))
-	for _, m := range monitors {
-		label := ""
-		uid := ""
-		if m.Name != nil {
-			label = *m.Name
+	return pickPaginated("Select a monitor", "no monitors found in this project. Create one with 'notehub monitor create <name> --config <file>'", func(page int32) (PickerPage, error) {
+		monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
+		if err != nil {
+			return PickerPage{}, fmt.Errorf("failed to list monitors: %w", err)
 		}
-		if m.Uid != nil {
-			uid = *m.Uid
-		}
-		if uid != "" {
-			if label == "" {
-				label = uid
+		items := make([]PickerItem, 0, len(monitors))
+		for _, m := range monitors {
+			uid := ""
+			label := ""
+			if m.Uid != nil {
+				uid = *m.Uid
 			}
-			items = append(items, PickerItem{Label: label, Value: uid})
+			if m.Name != nil {
+				label = *m.Name
+			}
+			if uid != "" {
+				if label == "" {
+					label = uid
+				}
+				items = append(items, PickerItem{Label: label, Value: uid})
+			}
 		}
-	}
-	if len(items) == 0 {
-		return "", fmt.Errorf("no monitors found in this project. Create one with 'notehub monitor create <name> --config <file>'")
-	}
-	picked := pickOne("Select a monitor", items)
-	if picked == nil {
-		return "", errPickCancelled
-	}
-	return picked.Value, nil
+		return PickerPage{Items: items, HasMore: false}, nil
+	})
 }
 
-// pickProduct fetches all products for the project and presents an interactive picker.
-// Returns the selected product's UID, errPickCancelled if the user cancels, or an
-// error with a helpful message if none exist.
+// pickProduct presents a product picker.
 func pickProduct(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
-	productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
-	if err != nil {
-		return "", fmt.Errorf("failed to list products: %w", err)
-	}
-	if len(productsRsp.Products) == 0 {
-		return "", fmt.Errorf("no products found in this project. Create one with 'notehub product create <label> <uid>'")
-	}
-	items := make([]PickerItem, len(productsRsp.Products))
-	for i, p := range productsRsp.Products {
-		items[i] = PickerItem{Label: p.Label, Value: p.Uid}
-	}
-	picked := pickOne("Select a product", items)
-	if picked == nil {
-		return "", errPickCancelled
-	}
-	return picked.Value, nil
+	return pickPaginated("Select a product", "no products found in this project. Create one with 'notehub product create <label> <uid>'", func(page int32) (PickerPage, error) {
+		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
+		if err != nil {
+			return PickerPage{}, fmt.Errorf("failed to list products: %w", err)
+		}
+		items := make([]PickerItem, len(productsRsp.Products))
+		for i, p := range productsRsp.Products {
+			items[i] = PickerItem{Label: p.Label, Value: p.Uid}
+		}
+		return PickerPage{Items: items, HasMore: false}, nil
+	})
 }
 
 // addPaginationFlags adds --limit and --all flags to a command.

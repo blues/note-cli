@@ -14,11 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	flagScope string
-	flagSn    string
-)
-
 // varsCmd represents the vars command
 var varsCmd = &cobra.Command{
 	Use:   "vars",
@@ -32,20 +27,22 @@ var varsGetCmd = &cobra.Command{
 	Short: "Get environment variables",
 	Long: `Get environment variables for devices, fleets, or the project.
 
-Scope can be:
-  - "project" to get project-level environment variables
-  - A device UID (dev:xxxx)
-  - A fleet UID (fleet:xxxx)
-  - A fleet name or pattern (e.g., "production" or "prod*")
-  - @fleetname to get all devices in a fleet
-  - @ to get all devices in the project
-  - A comma-separated list of any of the above
-  - @filename to read scope from a file`,
+Scope:
+  project            Project-level environment variables
+  dev:xxxx           Single device
+  fleet:xxxx         Single fleet (by UID)
+  production         Single fleet (by name)
+  @fleet-name        All devices in a fleet
+  @                  All devices in the project
+  @devices.txt       Devices from file (one per line)
+  dev:aaa,dev:bbb    Multiple scopes (comma-separated)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		if flagScope == "" {
-			return fmt.Errorf("use --scope to specify device(s), fleet(s), or project")
+			return fmt.Errorf("--scope is required")
 		}
 
 		if flagScope == "project" {
@@ -112,10 +109,12 @@ Example:
   notehub vars set --scope @production @vars.json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		if flagScope == "" {
-			return fmt.Errorf("use --scope to specify device(s), fleet(s), or project")
+			return fmt.Errorf("--scope is required")
 		}
 
 		if flagScope == "project" {
@@ -211,6 +210,6 @@ func init() {
 	varsCmd.AddCommand(varsSetCmd)
 
 	// Flags for vars commands
-	varsGetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet/project scope (required)")
-	varsSetCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device/fleet/project scope (required)")
+	addScopeFlag(varsGetCmd, "Device/fleet/project scope (required)")
+	addScopeFlag(varsSetCmd, "Device/fleet/project scope (required)")
 }

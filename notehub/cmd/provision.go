@@ -18,17 +18,7 @@ var provisionCmd = &cobra.Command{
 
 The --product flag specifies the target product UID. The --project flag (or
 config file) specifies which project contains the devices to provision.
-Command-line flags override config file values.
-
-Scope Formats:
-  dev:xxxx           Single device UID
-  imei:xxxx          Device by IMEI
-  fleet:xxxx         All devices in fleet (by UID)
-  production         All devices in named fleet
-  @fleet-name        All devices in fleet (indirection)
-  @                  All devices in project
-  @devices.txt       Device UIDs from file (one per line)
-  dev:aaa,dev:bbb    Multiple scopes (comma-separated)
+Command-line flags override config file values.` + scopeHelpLong + `
 
 Examples:
   # Provision a single device (project from config)
@@ -49,15 +39,17 @@ Examples:
   # Provision with serial number
   notehub provision --scope dev:xxxx --product com.company:product --sn SENSOR-001`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		if flagScope == "" {
-			return fmt.Errorf("use --scope to specify device(s) to be provisioned")
+			return fmt.Errorf("--scope is required")
 		}
 
 		product := GetProduct()
 		if product == "" {
-			return fmt.Errorf("--product must be specified (the product UID to provision devices to)")
+			return fmt.Errorf("--product is required")
 		}
 
 		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(flagScope)
@@ -71,15 +63,19 @@ Examples:
 			return err
 		}
 
-		cmd.Printf("Successfully provisioned %d device(s) to product %s\n", len(scopeDevices), product)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "provision",
+			"devices":     scopeDevices,
+			"count":       len(scopeDevices),
+			"product_uid": product,
+		}, fmt.Sprintf("Provisioned %d device(s) to product %s", len(scopeDevices), product))
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(provisionCmd)
 
-	provisionCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device scope (required)")
+	addScopeFlag(provisionCmd, "Device scope (required)")
 	provisionCmd.Flags().StringVar(&flagSn, "sn", "", "Serial number for provisioning")
 	provisionCmd.MarkFlagRequired("scope")
 }

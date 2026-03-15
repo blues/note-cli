@@ -34,16 +34,9 @@ var billingListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list billing accounts: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, billingRsp)
-		}
-
-		if len(billingRsp.BillingAccounts) == 0 {
-			cmd.Println("No billing accounts found.")
-			return nil
-		}
-		return printHuman(cmd, billingRsp)
+		return printListResult(cmd, billingRsp, "No billing accounts found.", func() bool {
+			return len(billingRsp.BillingAccounts) == 0
+		})
 	},
 }
 

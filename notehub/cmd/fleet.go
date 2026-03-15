@@ -34,16 +34,9 @@ var fleetListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list fleets: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, fleetsRsp)
-		}
-
-		if len(fleetsRsp.Fleets) == 0 {
-			cmd.Println("No fleets found in this project.")
-			return nil
-		}
-		return printHuman(cmd, fleetsRsp)
+		return printListResult(cmd, fleetsRsp, "No fleets found in this project.", func() bool {
+			return len(fleetsRsp.Fleets) == 0
+		})
 	},
 }
 
@@ -123,13 +116,7 @@ var fleetCreateCmd = &cobra.Command{
 			return fmt.Errorf("failed to create fleet: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, createdFleet)
-		}
-
-		cmd.Println("Fleet created successfully!")
-		return printHuman(cmd, createdFleet)
+		return printMutationResult(cmd, createdFleet, "Fleet created")
 	},
 }
 
@@ -169,9 +156,11 @@ var fleetDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete fleet: %w", err)
 		}
 
-		cmd.Printf("\nFleet '%s' (UID: %s) deleted successfully.\n\n", selectedFleet.Label, selectedFleet.Uid)
-
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":    "delete",
+			"fleet_uid": selectedFleet.Uid,
+			"fleet_name": selectedFleet.Label,
+		}, fmt.Sprintf("Fleet '%s' deleted", selectedFleet.Label))
 	},
 }
 
@@ -211,7 +200,7 @@ var fleetUpdateCmd = &cobra.Command{
 			!cmd.Flags().Changed("smart-rule") &&
 			!cmd.Flags().Changed("connectivity-assurance") &&
 			!cmd.Flags().Changed("watchdog-mins") {
-			return fmt.Errorf("no update flags provided. Use --name, --smart-rule, --connectivity-assurance, or --watchdog-mins")
+			return fmt.Errorf("at least one update flag is required: --name, --smart-rule, --connectivity-assurance, or --watchdog-mins")
 		}
 
 		selectedFleet, err := resolveFleet(client, ctx, projectUID, fleetIdentifier)
@@ -248,13 +237,7 @@ var fleetUpdateCmd = &cobra.Command{
 			return fmt.Errorf("failed to update fleet: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, updatedFleet)
-		}
-
-		cmd.Println("Fleet updated successfully!")
-		return printHuman(cmd, updatedFleet)
+		return printMutationResult(cmd, updatedFleet, "Fleet updated")
 	},
 }
 

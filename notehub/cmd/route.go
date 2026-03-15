@@ -49,16 +49,9 @@ Examples:
 			return fmt.Errorf("failed to list routes: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, routes)
-		}
-
-		if len(routes) == 0 {
-			cmd.Println("No routes found.")
-			return nil
-		}
-		return printHuman(cmd, routes)
+		return printListResult(cmd, routes, "No routes found.", func() bool {
+			return len(routes) == 0
+		})
 	},
 }
 
@@ -149,7 +142,7 @@ Examples:
 		configFile, _ := cmd.Flags().GetString("config")
 
 		if configFile == "" {
-			return fmt.Errorf("--config flag is required to specify route configuration JSON file")
+			return fmt.Errorf("--config is required")
 		}
 
 		// Read config file
@@ -227,7 +220,7 @@ If no argument is provided, an interactive picker will be shown.`,
 		configFile, _ := cmd.Flags().GetString("config")
 
 		if configFile == "" {
-			return fmt.Errorf("--config flag is required to specify route configuration JSON file")
+			return fmt.Errorf("--config is required")
 		}
 
 		routeUID, err := resolveRouteUID(client, ctx, projectUID, routeIdentifier)
@@ -306,9 +299,10 @@ If no argument is provided, an interactive picker will be shown.`,
 			return fmt.Errorf("failed to delete route: %w", err)
 		}
 
-		cmd.Printf("\nRoute '%s' deleted successfully.\n\n", routeUID)
-
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":    "delete",
+			"route_uid": routeUID,
+		}, fmt.Sprintf("Route '%s' deleted", routeUID))
 	},
 }
 
@@ -392,16 +386,9 @@ If no argument is provided, an interactive picker will be shown.`,
 			pageNum++
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, allLogs)
-		}
-
-		if len(allLogs) == 0 {
-			cmd.Println("No logs found.")
-			return nil
-		}
-		return printHuman(cmd, allLogs)
+		return printListResult(cmd, allLogs, "No logs found.", func() bool {
+			return len(allLogs) == 0
+		})
 	},
 }
 
@@ -418,58 +405,43 @@ If no argument is provided, an interactive picker will be shown.`,
 			return err
 		}
 
-		routes, _, err := client.RouteAPI.GetRoutes(ctx, projectUID).Execute()
-		if err != nil {
-			return fmt.Errorf("failed to list routes: %w", err)
-		}
-
 		var selectedUID, selectedLabel string
 		if len(args) > 0 {
-			for _, r := range routes {
-				rUID := ""
-				rLabel := ""
-				if r.Uid != nil {
-					rUID = *r.Uid
-				}
-				if r.Label != nil {
-					rLabel = *r.Label
-				}
-				if rUID == args[0] || rLabel == args[0] {
-					selectedUID = rUID
-					selectedLabel = rLabel
-					break
-				}
+			fullRoute, summary, err := resolveRoute(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
 			}
-			if selectedUID == "" {
-				return fmt.Errorf("route '%s' not found in project", args[0])
+			if fullRoute != nil {
+				if fullRoute.Uid != nil {
+					selectedUID = *fullRoute.Uid
+				}
+				if fullRoute.Label != nil {
+					selectedLabel = *fullRoute.Label
+				}
+			} else if summary != nil {
+				if summary.Uid != nil {
+					selectedUID = *summary.Uid
+				}
+				if summary.Label != nil {
+					selectedLabel = *summary.Label
+				}
 			}
 		} else {
-			if len(routes) == 0 {
-				return fmt.Errorf("no routes found in this project. Create one with 'notehub route create <label> --config <file>'")
-			}
-			items := make([]PickerItem, 0, len(routes))
-			for _, r := range routes {
-				label := ""
-				uid := ""
-				if r.Label != nil {
-					label = *r.Label
-				}
-				if r.Uid != nil {
-					uid = *r.Uid
-				}
-				if uid != "" {
-					if label == "" {
-						label = uid
-					}
-					items = append(items, PickerItem{Label: label, Value: uid})
-				}
-			}
-			picked := pickOne("Select a route", items)
-			if picked == nil {
+			selectedUID, err = pickRoute(client, ctx, projectUID)
+			if err == errPickCancelled {
 				return nil
 			}
-			selectedUID = picked.Value
-			selectedLabel = picked.Label
+			if err != nil {
+				return err
+			}
+			// Resolve to get the label
+			_, summary, _ := resolveRoute(client, ctx, projectUID, selectedUID)
+			if summary != nil && summary.Label != nil {
+				selectedLabel = *summary.Label
+			}
+		}
+		if selectedLabel == "" {
+			selectedLabel = selectedUID
 		}
 
 		return setDefault(cmd, "route", selectedUID, selectedLabel)

@@ -71,7 +71,7 @@ Examples:
 			deviceUID = GetDevice()
 		}
 		if deviceUID == "" {
-			return fmt.Errorf("specify a device UID or use --scope")
+			return fmt.Errorf("device UID argument or --scope is required")
 		}
 
 		return exploreDevice(cmd, client, ctx, projectUID, deviceUID, flagReserved, pretty)
@@ -82,7 +82,7 @@ func init() {
 	rootCmd.AddCommand(exploreCmd)
 
 	exploreCmd.Flags().BoolVarP(&flagReserved, "reserved", "r", false, "Include reserved notefiles")
-	exploreCmd.Flags().StringVarP(&flagScope, "scope", "s", "", "Device scope (alternative to --device)")
+	addScopeFlag(exploreCmd, "Device scope (alternative to positional arg)")
 }
 
 // exploreDevice lists all notefiles on a device and displays their notes.

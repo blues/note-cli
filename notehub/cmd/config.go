@@ -233,8 +233,7 @@ func AddAuthenticationHeader(httpReq *http.Request) error {
 	}
 
 	if credentials == nil {
-		hub := GetHub()
-		return fmt.Errorf("not authenticated to %s: please use 'notehub auth signin' to sign into the Notehub service", hub)
+		return fmt.Errorf("please sign in using 'notehub auth signin' or 'notehub auth signin-token'")
 	}
 
 	// Set the header

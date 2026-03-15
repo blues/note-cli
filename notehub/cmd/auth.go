@@ -272,23 +272,34 @@ func interactiveProjectSelection(cmd *cobra.Command) error {
 		items[i] = PickerItem{Label: project.Label, Value: project.Uid}
 	}
 
-	picked := pickOne("Select a project", items)
-	if picked == nil {
+	selectedUID, err := pickPaginated("Select a project", "no projects found", func(page int32) (PickerPage, error) {
+		return PickerPage{Items: items, HasMore: false}, nil
+	})
+	if err != nil {
 		cmd.Println()
 		cmd.Println("Skipped project selection. You can set a project later with 'notehub project set <name-or-uid>'")
 		cmd.Println()
 		return nil
 	}
 
+	// Find the label for the selected project
+	var selectedLabel string
+	for _, item := range items {
+		if item.Value == selectedUID {
+			selectedLabel = item.Label
+			break
+		}
+	}
+
 	// Set the selected project
-	viper.Set("project", picked.Value)
-	viper.Set("project_label", picked.Label)
+	viper.Set("project", selectedUID)
+	viper.Set("project_label", selectedLabel)
 	if err := SaveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	cmd.Printf("Active project set to: %s\n", picked.Label)
-	cmd.Printf("Project UID: %s\n", picked.Value)
+	cmd.Printf("Active project set to: %s\n", selectedLabel)
+	cmd.Printf("Project UID: %s\n", selectedUID)
 
 	return nil
 }

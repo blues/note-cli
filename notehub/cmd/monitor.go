@@ -36,24 +36,17 @@ var monitorListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list monitors: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, monitors)
-		}
-
-		if len(monitors) == 0 {
-			cmd.Println("No monitors found in this project.")
-			return nil
-		}
-		return printHuman(cmd, monitors)
+		return printListResult(cmd, monitors, "No monitors found in this project.", func() bool {
+			return len(monitors) == 0
+		})
 	},
 }
 
 // monitorGetCmd represents the monitor get command
 var monitorGetCmd = &cobra.Command{
-	Use:   "get [monitor-uid]",
+	Use:   "get [monitor-uid-or-name]",
 	Short: "Get details about a specific monitor",
-	Long:  `Get detailed information about a specific monitor by UID. If no argument is provided, uses the active monitor (set with 'monitor set'). If no active monitor is configured, an interactive picker will be shown.`,
+	Long:  `Get detailed information about a specific monitor by UID or name. If no argument is provided, uses the active monitor (set with 'monitor set'). If no active monitor is configured, an interactive picker will be shown.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, ctx, projectUID, err := initCommand()
@@ -63,7 +56,10 @@ var monitorGetCmd = &cobra.Command{
 
 		var monitorUID string
 		if len(args) > 0 {
-			monitorUID = args[0]
+			monitorUID, _, err = resolveMonitor(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
+			}
 		} else if def := GetMonitor(); def != "" {
 			monitorUID = def
 		} else {
@@ -122,19 +118,13 @@ var monitorCreateCmd = &cobra.Command{
 			return fmt.Errorf("failed to create monitor: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, createdMonitor)
-		}
-
-		cmd.Println("Monitor created successfully!")
-		return printHuman(cmd, createdMonitor)
+		return printMutationResult(cmd, createdMonitor, "Monitor created")
 	},
 }
 
 // monitorUpdateCmd represents the monitor update command
 var monitorUpdateCmd = &cobra.Command{
-	Use:   "update [monitor-uid]",
+	Use:   "update [monitor-uid-or-name]",
 	Short: "Update a monitor",
 	Long:  `Update a monitor's configuration from a JSON configuration file. If no argument is provided, an interactive picker will be shown.`,
 	Args:  cobra.MaximumNArgs(1),
@@ -146,7 +136,10 @@ var monitorUpdateCmd = &cobra.Command{
 
 		var monitorUID string
 		if len(args) > 0 {
-			monitorUID = args[0]
+			monitorUID, _, err = resolveMonitor(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
+			}
 		} else {
 			monitorUID, err = pickMonitor(client, ctx, projectUID)
 			if err == errPickCancelled {
@@ -177,19 +170,13 @@ var monitorUpdateCmd = &cobra.Command{
 			return fmt.Errorf("failed to update monitor: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, updatedMonitor)
-		}
-
-		cmd.Println("Monitor updated successfully!")
-		return printHuman(cmd, updatedMonitor)
+		return printMutationResult(cmd, updatedMonitor, "Monitor updated")
 	},
 }
 
 // monitorDeleteCmd represents the monitor delete command
 var monitorDeleteCmd = &cobra.Command{
-	Use:   "delete [monitor-uid]",
+	Use:   "delete [monitor-uid-or-name]",
 	Short: "Delete a monitor",
 	Long:  `Delete a monitor from the current project. If no argument is provided, an interactive picker will be shown.`,
 	Args:  cobra.MaximumNArgs(1),
@@ -201,7 +188,10 @@ var monitorDeleteCmd = &cobra.Command{
 
 		var monitorUID string
 		if len(args) > 0 {
-			monitorUID = args[0]
+			monitorUID, _, err = resolveMonitor(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
+			}
 		} else {
 			monitorUID, err = pickMonitor(client, ctx, projectUID)
 			if err == errPickCancelled {
@@ -218,9 +208,10 @@ var monitorDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete monitor: %w", err)
 		}
 
-		cmd.Printf("\nMonitor '%s' deleted successfully.\n\n", monitorUID)
-
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "delete",
+			"monitor_uid": monitorUID,
+		}, fmt.Sprintf("Monitor '%s' deleted", monitorUID))
 	},
 }
 
@@ -237,58 +228,24 @@ If no argument is provided, an interactive picker will be shown.`,
 			return err
 		}
 
-		monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
-		if err != nil {
-			return fmt.Errorf("failed to list monitors: %w", err)
-		}
-
 		var selectedUID, selectedLabel string
 		if len(args) > 0 {
-			for _, m := range monitors {
-				mUID := ""
-				mLabel := ""
-				if m.Uid != nil {
-					mUID = *m.Uid
-				}
-				if m.Name != nil {
-					mLabel = *m.Name
-				}
-				if mUID == args[0] || mLabel == args[0] {
-					selectedUID = mUID
-					selectedLabel = mLabel
-					break
-				}
-			}
-			if selectedUID == "" {
-				return fmt.Errorf("monitor '%s' not found in project", args[0])
+			selectedUID, selectedLabel, err = resolveMonitor(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
 			}
 		} else {
-			if len(monitors) == 0 {
-				return fmt.Errorf("no monitors found in this project. Create one with 'notehub monitor create <name> --config <file>'")
-			}
-			items := make([]PickerItem, 0, len(monitors))
-			for _, m := range monitors {
-				label := ""
-				uid := ""
-				if m.Name != nil {
-					label = *m.Name
-				}
-				if m.Uid != nil {
-					uid = *m.Uid
-				}
-				if uid != "" {
-					if label == "" {
-						label = uid
-					}
-					items = append(items, PickerItem{Label: label, Value: uid})
-				}
-			}
-			picked := pickOne("Select a monitor", items)
-			if picked == nil {
+			selectedUID, err = pickMonitor(client, ctx, projectUID)
+			if err == errPickCancelled {
 				return nil
 			}
-			selectedUID = picked.Value
-			selectedLabel = picked.Label
+			if err != nil {
+				return err
+			}
+			selectedUID, selectedLabel, err = resolveMonitor(client, ctx, projectUID, selectedUID)
+			if err != nil {
+				return err
+			}
 		}
 
 		return setDefault(cmd, "monitor", selectedUID, selectedLabel)

@@ -101,8 +101,12 @@ Examples:
 			return fmt.Errorf("failed to add Note: %w", err)
 		}
 
-		cmd.Printf("Note '%s' added to %s on %s\n", noteID, notefileID, deviceUID)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "add",
+			"note_id":     noteID,
+			"notefile_id": notefileID,
+			"device_uid":  deviceUID,
+		}, fmt.Sprintf("Note '%s' added to %s on %s", noteID, notefileID, deviceUID))
 	},
 }
 
@@ -141,8 +145,12 @@ Examples:
 			return fmt.Errorf("failed to update Note: %w", err)
 		}
 
-		cmd.Printf("Note '%s' updated in %s on %s\n", noteID, notefileID, deviceUID)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "update",
+			"note_id":     noteID,
+			"notefile_id": notefileID,
+			"device_uid":  deviceUID,
+		}, fmt.Sprintf("Note '%s' updated in %s on %s", noteID, notefileID, deviceUID))
 	},
 }
 
@@ -171,8 +179,12 @@ Examples:
 			return fmt.Errorf("failed to delete Note: %w", err)
 		}
 
-		cmd.Printf("Note '%s' deleted from %s on %s\n", noteID, notefileID, deviceUID)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "delete",
+			"note_id":     noteID,
+			"notefile_id": notefileID,
+			"device_uid":  deviceUID,
+		}, fmt.Sprintf("Note '%s' deleted from %s on %s", noteID, notefileID, deviceUID))
 	},
 }
 
@@ -211,8 +223,11 @@ Examples:
 			return fmt.Errorf("failed to push Note: %w", err)
 		}
 
-		cmd.Printf("Note pushed to %s on %s\n", notefileID, deviceUID)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "push",
+			"notefile_id": notefileID,
+			"device_uid":  deviceUID,
+		}, fmt.Sprintf("Note pushed to %s on %s", notefileID, deviceUID))
 	},
 }
 

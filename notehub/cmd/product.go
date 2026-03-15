@@ -34,16 +34,9 @@ var productListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list products: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, productsRsp)
-		}
-
-		if len(productsRsp.Products) == 0 {
-			cmd.Println("No products found in this project.")
-			return nil
-		}
-		return printHuman(cmd, productsRsp)
+		return printListResult(cmd, productsRsp, "No products found in this project.", func() bool {
+			return len(productsRsp.Products) == 0
+		})
 	},
 }
 
@@ -74,23 +67,9 @@ var productGetCmd = &cobra.Command{
 			}
 		}
 
-		// Get all products and find the matching one
-		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
+		foundProduct, err := resolveProduct(client, ctx, projectUID, productIdentifier)
 		if err != nil {
-			return fmt.Errorf("failed to list products: %w", err)
-		}
-
-		// Find the product by UID or name
-		var foundProduct *notehub.Product
-		for _, product := range productsRsp.Products {
-			if product.Uid == productIdentifier || product.Label == productIdentifier {
-				foundProduct = &product
-				break
-			}
-		}
-
-		if foundProduct == nil {
-			return fmt.Errorf("product '%s' not found in project", productIdentifier)
+			return err
 		}
 
 		return printResult(cmd, foundProduct)
@@ -120,17 +99,12 @@ var productCreateCmd = &cobra.Command{
 			return fmt.Errorf("failed to create product: %w", err)
 		}
 
-		if wantJSON() {
-			return printJSON(cmd, createdProduct)
-		}
-
-		cmd.Println("Product created successfully!")
-		return printHuman(cmd, createdProduct)
+		return printMutationResult(cmd, createdProduct, "Product created")
 	},
 }
 
 var productDeleteCmd = &cobra.Command{
-	Use:   "delete [product-uid]",
+	Use:   "delete [product-uid-or-name]",
 	Short: "Delete a product",
 	Long:  `Delete a product from the current project. If no argument is provided, an interactive picker will be shown.`,
 	Args:  cobra.MaximumNArgs(1),
@@ -142,7 +116,11 @@ var productDeleteCmd = &cobra.Command{
 
 		var productUID string
 		if len(args) > 0 {
-			productUID = args[0]
+			product, err := resolveProduct(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
+			}
+			productUID = product.Uid
 		} else {
 			productUID, err = pickProduct(client, ctx, projectUID)
 			if err == errPickCancelled {
@@ -158,9 +136,10 @@ var productDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete product: %w", err)
 		}
 
-		cmd.Printf("\nProduct '%s' deleted successfully.\n\n", productUID)
-
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "delete",
+			"product_uid": productUID,
+		}, fmt.Sprintf("Product '%s' deleted", productUID))
 	},
 }
 
@@ -177,39 +156,23 @@ If no argument is provided, an interactive picker will be shown.`,
 			return err
 		}
 
-		productsRsp, _, err := client.ProjectAPI.GetProducts(ctx, projectUID).Execute()
-		if err != nil {
-			return fmt.Errorf("failed to list products: %w", err)
-		}
-
 		var selectedProduct *notehub.Product
 		if len(args) > 0 {
-			for _, p := range productsRsp.Products {
-				if p.Uid == args[0] || p.Label == args[0] {
-					selectedProduct = &p
-					break
-				}
-			}
-			if selectedProduct == nil {
-				return fmt.Errorf("product '%s' not found in project", args[0])
+			selectedProduct, err = resolveProduct(client, ctx, projectUID, args[0])
+			if err != nil {
+				return err
 			}
 		} else {
-			if len(productsRsp.Products) == 0 {
-				return fmt.Errorf("no products found in this project. Create one with 'notehub product create <label> <uid>'")
-			}
-			items := make([]PickerItem, len(productsRsp.Products))
-			for i, p := range productsRsp.Products {
-				items[i] = PickerItem{Label: p.Label, Value: p.Uid}
-			}
-			picked := pickOne("Select a product", items)
-			if picked == nil {
+			productUID, err := pickProduct(client, ctx, projectUID)
+			if err == errPickCancelled {
 				return nil
 			}
-			for _, p := range productsRsp.Products {
-				if p.Uid == picked.Value {
-					selectedProduct = &p
-					break
-				}
+			if err != nil {
+				return err
+			}
+			selectedProduct, err = resolveProduct(client, ctx, projectUID, productUID)
+			if err != nil {
+				return err
 			}
 		}
 

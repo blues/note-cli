@@ -36,7 +36,9 @@ Example:
   notehub upload notecard-fw.bin --type notecard --product com.company:product --notes "Bug fixes"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		filename := args[0]
 
@@ -49,15 +51,15 @@ Example:
 			}
 		}
 		if projectUID == "" {
-			return fmt.Errorf("--project or --product flag is required")
+			return fmt.Errorf("--project or --product is required")
 		}
 
 		// Validate firmware type
 		if flagType == "" {
-			return fmt.Errorf("--type flag is required (must be 'host' or 'notecard')")
+			return fmt.Errorf("--type is required")
 		}
 		if flagType != "host" && flagType != "notecard" {
-			return fmt.Errorf("--type must be either 'host' or 'notecard', got: %s", flagType)
+			return fmt.Errorf("--type must be 'host' or 'notecard', got '%s'", flagType)
 		}
 
 		// Upload
@@ -66,8 +68,12 @@ Example:
 			return err
 		}
 
-		cmd.Printf("Successfully uploaded %s firmware: %s\n", flagType, filename)
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":        "upload",
+			"firmware_type": flagType,
+			"filename":      filename,
+			"project_uid":   projectUID,
+		}, fmt.Sprintf("Uploaded %s firmware: %s", flagType, filename))
 	},
 }
 

@@ -37,17 +37,9 @@ var projectListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, projectsRsp)
-		}
-
-		if len(projectsRsp.Projects) == 0 {
-			cmd.Println("No projects found.")
-			cmd.Println("\nYou can create a new project at https://notehub.io")
-			return nil
-		}
-		return printHuman(cmd, projectsRsp)
+		return printListResult(cmd, projectsRsp, "No projects found.\nYou can create a new project at https://notehub.io", func() bool {
+			return len(projectsRsp.Projects) == 0
+		})
 	},
 }
 
@@ -95,7 +87,7 @@ If no argument is provided, an interactive picker will be shown.`,
 			}
 
 			if !found {
-				return fmt.Errorf("project '%s' not found. Use 'notehub project list' to see available projects", projectIdentifier)
+				return fmt.Errorf("project '%s' not found", projectIdentifier)
 			}
 		} else {
 			selectedProject = *project
@@ -173,14 +165,14 @@ Examples:
 				}
 
 				if !found {
-					return fmt.Errorf("project '%s' not found. Use 'notehub project list' to see available projects", projectIdentifier)
+					return fmt.Errorf("project '%s' not found", projectIdentifier)
 				}
 			}
 		} else {
 			// Use active project
 			projectUID = GetProject()
 			if projectUID == "" {
-				return fmt.Errorf("no project specified and no active project set. Use 'notehub project set <name-or-uid>' to set an active project")
+				return fmt.Errorf("no project specified and no active project set")
 			}
 		}
 
@@ -245,12 +237,7 @@ var projectCreateCmd = &cobra.Command{
 			return fmt.Errorf("failed to create project: %w", err)
 		}
 
-		if wantJSON() {
-			return printJSON(cmd, createdProject)
-		}
-
-		cmd.Println("Project created successfully!")
-		return printHuman(cmd, createdProject)
+		return printMutationResult(cmd, createdProject, "Project created")
 	},
 }
 
@@ -274,9 +261,10 @@ var projectDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete project: %w", err)
 		}
 
-		cmd.Printf("\nProject '%s' deleted successfully.\n\n", projectUID)
-
-		return nil
+		return printActionResult(cmd, map[string]any{
+			"action":      "delete",
+			"project_uid": projectUID,
+		}, fmt.Sprintf("Project '%s' deleted", projectUID))
 	},
 }
 
@@ -314,12 +302,7 @@ By default, fleets and routes are cloned. Use flags to disable.`,
 			return fmt.Errorf("failed to clone project: %w", err)
 		}
 
-		if wantJSON() {
-			return printJSON(cmd, clonedProject)
-		}
-
-		cmd.Println("Project cloned successfully!")
-		return printHuman(cmd, clonedProject)
+		return printMutationResult(cmd, clonedProject, "Project cloned")
 	},
 }
 
@@ -349,16 +332,9 @@ Examples:
 			return fmt.Errorf("failed to get project members: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, membersRsp)
-		}
-
-		if len(membersRsp.Members) == 0 {
-			cmd.Println("No members found for this project.")
-			return nil
-		}
-		return printHuman(cmd, membersRsp)
+		return printListResult(cmd, membersRsp, "No members found for this project.", func() bool {
+			return len(membersRsp.Members) == 0
+		})
 	},
 }
 

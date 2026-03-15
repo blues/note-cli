@@ -19,23 +19,113 @@ var dfuCmd = &cobra.Command{
 	Long:  `Commands for scheduling and managing firmware updates for Notecards and host MCUs.`,
 }
 
+// dfuAction is the shared implementation for DFU update and cancel commands.
+func dfuAction(cmd *cobra.Command, firmwareType, action, scope, filename string) error {
+	// Validate firmware type
+	if firmwareType != "host" && firmwareType != "notecard" {
+		return fmt.Errorf("firmware type must be 'host' or 'notecard', got '%s'", firmwareType)
+	}
+
+	// Resolve scope to device UIDs
+	appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
+	if err != nil {
+		return err
+	}
+
+	// Get filter flags (shared by both update and cancel)
+	tags, _ := cmd.Flags().GetString("tag")
+	serialNumbers, _ := cmd.Flags().GetString("serial")
+
+	// Get SDK client
+	client := GetNotehubClient()
+	ctx, err := GetNotehubContext()
+	if err != nil {
+		return err
+	}
+
+	// Build request with SDK
+	req := client.ProjectAPI.PerformDfuAction(ctx, appMetadata.App.UID, firmwareType, action)
+
+	// Set filename for update action
+	if filename != "" {
+		dfuRequest := notehub.NewDfuActionRequest()
+		dfuRequest.SetFilename(filename)
+		req = req.DfuActionRequest(*dfuRequest)
+	}
+
+	// Add device UIDs
+	if len(scopeDevices) > 0 {
+		req = req.DeviceUID(scopeDevices)
+	}
+
+	// Add shared filters
+	if tags != "" {
+		req = req.Tag(strings.Split(tags, ","))
+	}
+	if serialNumbers != "" {
+		req = req.SerialNumber(strings.Split(serialNumbers, ","))
+	}
+
+	// Add update-only filters
+	if action == "update" {
+		if location, _ := cmd.Flags().GetString("location"); location != "" {
+			req = req.Location([]string{location})
+		}
+		if notecardFirmware, _ := cmd.Flags().GetString("notecard-firmware"); notecardFirmware != "" {
+			req = req.NotecardFirmware([]string{notecardFirmware})
+		}
+		if hostFirmware, _ := cmd.Flags().GetString("host-firmware"); hostFirmware != "" {
+			req = req.HostFirmware([]string{hostFirmware})
+		}
+		if productUID, _ := cmd.Flags().GetString("product"); productUID != "" {
+			req = req.ProductUID([]string{productUID})
+		}
+		if sku, _ := cmd.Flags().GetString("sku"); sku != "" {
+			req = req.Sku([]string{sku})
+		}
+	}
+
+	// Execute the DFU action
+	_, err = req.Execute()
+	if err != nil {
+		return fmt.Errorf("failed to %s firmware update: %w", action, err)
+	}
+
+	// Build result
+	result := map[string]any{
+		"action":        action,
+		"firmware_type": firmwareType,
+		"scope":         scope,
+		"devices":       scopeDevices,
+		"device_count":  len(scopeDevices),
+	}
+	if filename != "" {
+		result["filename"] = filename
+	}
+	if tags != "" {
+		result["tag_filter"] = tags
+	}
+	if serialNumbers != "" {
+		result["serial_filter"] = serialNumbers
+	}
+
+	var successMsg string
+	if action == "update" {
+		successMsg = fmt.Sprintf("Firmware update scheduled for %d device(s)\nFirmware Type: %s\nFilename: %s\nScope: %s", len(scopeDevices), firmwareType, filename, scope)
+	} else {
+		successMsg = fmt.Sprintf("Firmware update cancelled for %d device(s)\nFirmware Type: %s\nScope: %s", len(scopeDevices), firmwareType, scope)
+	}
+
+	return printActionResult(cmd, result, successMsg)
+}
+
 // dfuUpdateCmd represents the dfu update command
 var dfuUpdateCmd = &cobra.Command{
 	Use:   "update [firmware-type] [filename] [scope]",
 	Short: "Schedule a firmware update",
 	Long: `Schedule a firmware update for devices. Firmware type must be either 'host' or 'notecard'.
 
-The filename should match a firmware file that has been uploaded to your Notehub project.
-
-Scope Formats:
-  dev:xxxx           Single device UID
-  imei:xxxx          Device by IMEI
-  fleet:xxxx         All devices in fleet (by UID)
-  production         All devices in named fleet
-  @fleet-name        All devices in fleet (indirection)
-  @                  All devices in project
-  @devices.txt       Device UIDs from file (one per line)
-  dev:aaa,dev:bbb    Multiple scopes (comma-separated)
+The filename should match a firmware file that has been uploaded to your Notehub project.` + scopeHelpLong + `
 
 Additional filters can be used to narrow down the scope:
   --location          Filter by location
@@ -66,104 +156,7 @@ Examples:
   notehub dfu update notecard notecard-6.2.1.bin @production --sku NOTE-WBEX`,
 	Args: cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		firmwareType := args[0]
-		filename := args[1]
-		scope := args[2]
-
-		// Validate firmware type
-		if firmwareType != "host" && firmwareType != "notecard" {
-			return fmt.Errorf("firmware type must be 'host' or 'notecard', got '%s'", firmwareType)
-		}
-
-		// Resolve scope to device UIDs
-		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
-		if err != nil {
-			return err
-		}
-
-		verbose := GetVerbose()
-
-		// Get additional filter flags
-		tags, _ := cmd.Flags().GetString("tag")
-		serialNumbers, _ := cmd.Flags().GetString("serial")
-		location, _ := cmd.Flags().GetString("location")
-		notecardFirmware, _ := cmd.Flags().GetString("notecard-firmware")
-		hostFirmware, _ := cmd.Flags().GetString("host-firmware")
-		productUID, _ := cmd.Flags().GetString("product")
-		sku, _ := cmd.Flags().GetString("sku")
-
-		// Build request body
-		dfuRequest := notehub.NewDfuActionRequest()
-		dfuRequest.SetFilename(filename)
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
-		if err != nil {
-			return err
-		}
-
-		// Build request with SDK
-		req := client.ProjectAPI.PerformDfuAction(ctx, appMetadata.App.UID, firmwareType, "update").
-			DfuActionRequest(*dfuRequest)
-
-		// Add device UIDs
-		if len(scopeDevices) > 0 {
-			req = req.DeviceUID(scopeDevices)
-		}
-
-		// Add optional filters
-		if tags != "" {
-			req = req.Tag(strings.Split(tags, ","))
-		}
-		if serialNumbers != "" {
-			req = req.SerialNumber(strings.Split(serialNumbers, ","))
-		}
-		if location != "" {
-			req = req.Location([]string{location})
-		}
-		if notecardFirmware != "" {
-			req = req.NotecardFirmware([]string{notecardFirmware})
-		}
-		if hostFirmware != "" {
-			req = req.HostFirmware([]string{hostFirmware})
-		}
-		if productUID != "" {
-			req = req.ProductUID([]string{productUID})
-		}
-		if sku != "" {
-			req = req.Sku([]string{sku})
-		}
-
-		// Execute the DFU update
-		_, err = req.Execute()
-		if err != nil {
-			return fmt.Errorf("failed to schedule firmware update: %w", err)
-		}
-
-		cmd.Printf("\nFirmware update scheduled successfully!\n\n")
-		cmd.Printf("Firmware Type: %s\n", firmwareType)
-		cmd.Printf("Filename: %s\n", filename)
-		cmd.Printf("Scope: %s\n", scope)
-		cmd.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
-		if verbose && len(scopeDevices) > 0 {
-			cmd.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
-		}
-		if tags != "" {
-			cmd.Printf("Additional Tag Filter: %s\n", tags)
-		}
-		if serialNumbers != "" {
-			cmd.Printf("Additional Serial Filter: %s\n", serialNumbers)
-		}
-		if location != "" {
-			cmd.Printf("Additional Location Filter: %s\n", location)
-		}
-		if sku != "" {
-			cmd.Printf("Additional SKU Filter: %s\n", sku)
-		}
-		cmd.Println()
-
-		return nil
+		return dfuAction(cmd, args[0], "update", args[2], args[1])
 	},
 }
 
@@ -171,17 +164,7 @@ Examples:
 var dfuCancelCmd = &cobra.Command{
 	Use:   "cancel [firmware-type] [scope]",
 	Short: "Cancel pending firmware updates",
-	Long: `Cancel pending firmware updates for devices. Firmware type must be either 'host' or 'notecard'.
-
-Scope Formats:
-  dev:xxxx           Single device UID
-  imei:xxxx          Device by IMEI
-  fleet:xxxx         All devices in fleet (by UID)
-  production         All devices in named fleet
-  @fleet-name        All devices in fleet (indirection)
-  @                  All devices in project
-  @devices.txt       Device UIDs from file (one per line)
-  dev:aaa,dev:bbb    Multiple scopes (comma-separated)
+	Long: `Cancel pending firmware updates for devices. Firmware type must be either 'host' or 'notecard'.` + scopeHelpLong + `
 
 Additional filters can be used to narrow down the scope:
   --tag               Filter by device tags (comma-separated)
@@ -204,71 +187,7 @@ Examples:
   notehub dfu cancel host @devices.txt`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		firmwareType := args[0]
-		scope := args[1]
-
-		// Validate firmware type
-		if firmwareType != "host" && firmwareType != "notecard" {
-			return fmt.Errorf("firmware type must be 'host' or 'notecard', got '%s'", firmwareType)
-		}
-
-		// Resolve scope to device UIDs
-		appMetadata, scopeDevices, _, err := ResolveScopeWithValidation(scope)
-		if err != nil {
-			return err
-		}
-
-		verbose := GetVerbose()
-
-		// Get additional filter flags
-		tags, _ := cmd.Flags().GetString("tag")
-		serialNumbers, _ := cmd.Flags().GetString("serial")
-
-		// Get SDK client
-		client := GetNotehubClient()
-		ctx, err := GetNotehubContext()
-		if err != nil {
-			return err
-		}
-
-		// Build cancel request with SDK
-		req := client.ProjectAPI.PerformDfuAction(ctx, appMetadata.App.UID, firmwareType, "cancel")
-
-		// Add device UIDs
-		if len(scopeDevices) > 0 {
-			req = req.DeviceUID(scopeDevices)
-		}
-
-		// Add optional filters
-		if tags != "" {
-			req = req.Tag(strings.Split(tags, ","))
-		}
-		if serialNumbers != "" {
-			req = req.SerialNumber(strings.Split(serialNumbers, ","))
-		}
-
-		// Execute the DFU cancel
-		_, err = req.Execute()
-		if err != nil {
-			return fmt.Errorf("failed to cancel firmware update: %w", err)
-		}
-
-		cmd.Printf("\nFirmware update cancelled successfully!\n\n")
-		cmd.Printf("Firmware Type: %s\n", firmwareType)
-		cmd.Printf("Scope: %s\n", scope)
-		cmd.Printf("Target Devices: %d device(s)\n", len(scopeDevices))
-		if verbose && len(scopeDevices) > 0 {
-			cmd.Printf("Device UIDs: %s\n", strings.Join(scopeDevices, ","))
-		}
-		if tags != "" {
-			cmd.Printf("Additional Tag Filter: %s\n", tags)
-		}
-		if serialNumbers != "" {
-			cmd.Printf("Additional Serial Filter: %s\n", serialNumbers)
-		}
-		cmd.Println()
-
-		return nil
+		return dfuAction(cmd, args[0], "cancel", args[1], "")
 	},
 }
 
@@ -335,16 +254,9 @@ Examples:
 			return fmt.Errorf("failed to list firmware: %w", err)
 		}
 
-		// Handle JSON output
-		if wantJSON() {
-			return printJSON(cmd, firmwareList)
-		}
-
-		if len(firmwareList) == 0 {
-			cmd.Println("No firmware files found.")
-			return nil
-		}
-		return printHuman(cmd, firmwareList)
+		return printListResult(cmd, firmwareList, "No firmware files found.", func() bool {
+			return len(firmwareList) == 0
+		})
 	},
 }
 

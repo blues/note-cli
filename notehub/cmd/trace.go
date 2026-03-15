@@ -29,7 +29,9 @@ In trace mode, you can:
 Example:
   notehub trace --project app:xxxx --device dev:yyyy`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		GetCredentials() // Validate credentials
+		if err := validateAuth(); err != nil {
+			return err
+		}
 
 		// Set initial context
 		reqFlagApp = GetProject()
