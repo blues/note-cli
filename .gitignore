@@ -1,4 +1,6 @@
 notecard-schema/
 dist/
+bin/
+notehub/doc/
 
 .DS_Store
