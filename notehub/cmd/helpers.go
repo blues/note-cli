@@ -397,37 +397,51 @@ func resolveProduct(client *notehub.APIClient, ctx context.Context, projectUID, 
 	return nil, fmt.Errorf("product '%s' not found in project", identifier)
 }
 
+// rawMonitor is a minimal struct for fields we need from the monitor API,
+// avoiding the SDK's strict oneOf deserialization of alert_routes.
+type rawMonitor struct {
+	UID  string `json:"uid"`
+	Name string `json:"name"`
+}
+
+// getMonitorsRaw fetches monitors via raw HTTP to work around the SDK's
+// oneOf deserialization bug in MonitorAlertRoutesInner.
+func getMonitorsRaw(projectUID string) ([]byte, error) {
+	url := fmt.Sprintf("/v1/projects/%s/monitors", projectUID)
+	return reqHubV1JSON(GetVerbose(), GetAPIHub(), "GET", url, nil)
+}
+
+// getMonitorRaw fetches a single monitor via raw HTTP.
+func getMonitorRaw(projectUID, monitorUID string) ([]byte, error) {
+	url := fmt.Sprintf("/v1/projects/%s/monitors/%s", projectUID, monitorUID)
+	return reqHubV1JSON(GetVerbose(), GetAPIHub(), "GET", url, nil)
+}
+
 // resolveMonitor looks up a monitor by UID or name and returns its UID and name.
 func resolveMonitor(client *notehub.APIClient, ctx context.Context, projectUID, identifier string) (uid string, name string, err error) {
 	// Try direct UID lookup first
-	monitor, resp, getErr := client.MonitorAPI.GetMonitor(ctx, projectUID, identifier).Execute()
-	if getErr == nil && resp != nil && resp.StatusCode != 404 {
-		if monitor.Uid != nil {
-			uid = *monitor.Uid
+	data, getErr := getMonitorRaw(projectUID, identifier)
+	if getErr == nil {
+		var m rawMonitor
+		if json.Unmarshal(data, &m) == nil && m.UID != "" {
+			return m.UID, m.Name, nil
 		}
-		if monitor.Name != nil {
-			name = *monitor.Name
-		}
-		return uid, name, nil
 	}
 
 	// Fall back to list search
-	monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
+	data, err = getMonitorsRaw(projectUID)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list monitors: %w", err)
 	}
 
+	var monitors []rawMonitor
+	if err := json.Unmarshal(data, &monitors); err != nil {
+		return "", "", fmt.Errorf("failed to parse monitors: %w", err)
+	}
+
 	for _, m := range monitors {
-		mUID := ""
-		mName := ""
-		if m.Uid != nil {
-			mUID = *m.Uid
-		}
-		if m.Name != nil {
-			mName = *m.Name
-		}
-		if mUID == identifier || mName == identifier {
-			return mUID, mName, nil
+		if m.UID == identifier || m.Name == identifier {
+			return m.UID, m.Name, nil
 		}
 	}
 
@@ -470,6 +484,11 @@ func pickPaginated(title string, emptyMsg string, fetchPage func(page int32) (Pi
 		if len(result.Items) == 0 && pageNum == 1 {
 			return "", fmt.Errorf("%s", emptyMsg)
 		}
+
+		// Sort items alphabetically by label
+		sort.Slice(result.Items, func(i, j int) bool {
+			return strings.ToLower(result.Items[i].Label) < strings.ToLower(result.Items[j].Label)
+		})
 
 		// Build picker items with navigation
 		items := make([]PickerItem, 0, len(result.Items)+2)
@@ -595,25 +614,22 @@ func pickRoute(client *notehub.APIClient, ctx context.Context, projectUID string
 // pickMonitor presents a monitor picker.
 func pickMonitor(client *notehub.APIClient, ctx context.Context, projectUID string) (string, error) {
 	return pickPaginated("Select a monitor", "no monitors found in this project. Create one with 'notehub monitor create <name> --config <file>'", func(page int32) (PickerPage, error) {
-		monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
+		data, err := getMonitorsRaw(projectUID)
 		if err != nil {
 			return PickerPage{}, fmt.Errorf("failed to list monitors: %w", err)
 		}
+		var monitors []rawMonitor
+		if err := json.Unmarshal(data, &monitors); err != nil {
+			return PickerPage{}, fmt.Errorf("failed to parse monitors: %w", err)
+		}
 		items := make([]PickerItem, 0, len(monitors))
 		for _, m := range monitors {
-			uid := ""
-			label := ""
-			if m.Uid != nil {
-				uid = *m.Uid
-			}
-			if m.Name != nil {
-				label = *m.Name
-			}
-			if uid != "" {
+			if m.UID != "" {
+				label := m.Name
 				if label == "" {
-					label = uid
+					label = m.UID
 				}
-				items = append(items, PickerItem{Label: label, Value: uid})
+				items = append(items, PickerItem{Label: label, Value: m.UID})
 			}
 		}
 		return PickerPage{Items: items, HasMore: false}, nil

@@ -26,14 +26,19 @@ var monitorListCmd = &cobra.Command{
 	Short: "List all monitors",
 	Long:  `List all monitors in the current project or a specified project.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		client, ctx, projectUID, err := initCommand()
+		_, _, projectUID, err := initCommand()
 		if err != nil {
 			return err
 		}
 
-		monitors, _, err := client.MonitorAPI.GetMonitors(ctx, projectUID).Execute()
+		data, err := getMonitorsRaw(projectUID)
 		if err != nil {
 			return fmt.Errorf("failed to list monitors: %w", err)
+		}
+
+		var monitors []json.RawMessage
+		if err := json.Unmarshal(data, &monitors); err != nil {
+			return fmt.Errorf("failed to parse monitors: %w", err)
 		}
 
 		return printListResult(cmd, monitors, "No monitors found in this project.", func() bool {
@@ -72,9 +77,14 @@ var monitorGetCmd = &cobra.Command{
 			}
 		}
 
-		monitor, _, err := client.MonitorAPI.GetMonitor(ctx, projectUID, monitorUID).Execute()
+		data, err := getMonitorRaw(projectUID, monitorUID)
 		if err != nil {
 			return fmt.Errorf("failed to get monitor: %w", err)
+		}
+
+		var monitor json.RawMessage
+		if err := json.Unmarshal(data, &monitor); err != nil {
+			return fmt.Errorf("failed to parse monitor: %w", err)
 		}
 
 		return printResult(cmd, monitor)
