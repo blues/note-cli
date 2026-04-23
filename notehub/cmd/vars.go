@@ -35,14 +35,16 @@ Scope:
   @fleet-name        All devices in a fleet
   @                  All devices in the project
   @devices.txt       Devices from file (one per line)
-  dev:aaa,dev:bbb    Multiple scopes (comma-separated)`,
+  dev:aaa,dev:bbb    Multiple scopes (comma-separated)
+
+If --scope is omitted, defaults to the active project.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := validateAuth(); err != nil {
 			return err
 		}
 
 		if flagScope == "" {
-			return fmt.Errorf("--scope is required")
+			flagScope = "project"
 		}
 
 		if flagScope == "project" {
@@ -106,7 +108,9 @@ The JSON argument can be a JSON object or @filename to read from a file.
 Example:
   notehub vars set --scope dev:xxxx '{"VAR1":"value1","VAR2":"value2"}'
   notehub vars set --scope project '{"VAR1":"value1","VAR2":"value2"}'
-  notehub vars set --scope @production @vars.json`,
+  notehub vars set --scope @production @vars.json
+
+If --scope is omitted, defaults to the active project.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := validateAuth(); err != nil {
@@ -114,7 +118,7 @@ Example:
 		}
 
 		if flagScope == "" {
-			return fmt.Errorf("--scope is required")
+			flagScope = "project"
 		}
 
 		if flagScope == "project" {
@@ -219,7 +223,9 @@ Scope:
 Examples:
   notehub vars delete --scope dev:xxxx VAR1 VAR2
   notehub vars delete --scope project VAR1
-  notehub vars delete --scope @production VAR1`,
+  notehub vars delete --scope @production VAR1
+
+If --scope is omitted, defaults to the active project.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := validateAuth(); err != nil {
@@ -227,7 +233,7 @@ Examples:
 		}
 
 		if flagScope == "" {
-			return fmt.Errorf("--scope is required")
+			flagScope = "project"
 		}
 
 		keys := args
@@ -302,7 +308,7 @@ func init() {
 	varsCmd.AddCommand(varsDeleteCmd)
 
 	// Flags for vars commands
-	addScopeFlag(varsGetCmd, "Device/fleet/project scope (required)")
-	addScopeFlag(varsSetCmd, "Device/fleet/project scope (required)")
-	addScopeFlag(varsDeleteCmd, "Device/fleet/project scope (required)")
+	addScopeFlag(varsGetCmd, "Device/fleet/project scope (defaults to project)")
+	addScopeFlag(varsSetCmd, "Device/fleet/project scope (defaults to project)")
+	addScopeFlag(varsDeleteCmd, "Device/fleet/project scope (defaults to project)")
 }
