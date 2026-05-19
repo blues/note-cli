@@ -284,7 +284,7 @@ func parseProvisionJSON(filePath string) ([]provisionEntry, error) {
 func init() {
 	rootCmd.AddCommand(provisionCmd)
 
-	addScopeFlag(provisionCmd, "Device scope")
+	addScopeFlag(provisionCmd, "Device UID scope")
 	provisionCmd.Flags().StringVar(&flagSn, "sn", "", "Serial number for provisioning (used with --scope)")
 	provisionCmd.Flags().String("file", "", "CSV or JSON file for bulk provisioning")
 }

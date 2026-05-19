@@ -82,7 +82,7 @@ func init() {
 	rootCmd.AddCommand(exploreCmd)
 
 	exploreCmd.Flags().BoolVarP(&flagReserved, "reserved", "r", false, "Include reserved notefiles")
-	addScopeFlag(exploreCmd, "Device scope (alternative to positional arg)")
+	addScopeFlag(exploreCmd, "Device UID scope (alternative to positional arg)")
 }
 
 // exploreDevice lists all notefiles on a device and displays their notes.

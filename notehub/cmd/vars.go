@@ -308,7 +308,7 @@ func init() {
 	varsCmd.AddCommand(varsDeleteCmd)
 
 	// Flags for vars commands
-	addScopeFlag(varsGetCmd, "Device/fleet/project scope (defaults to project)")
-	addScopeFlag(varsSetCmd, "Device/fleet/project scope (defaults to project)")
-	addScopeFlag(varsDeleteCmd, "Device/fleet/project scope (defaults to project)")
+	addScopeFlag(varsGetCmd, "Device UID/fleet/project scope (defaults to project)")
+	addScopeFlag(varsSetCmd, "Device UID/fleet/project scope (defaults to project)")
+	addScopeFlag(varsDeleteCmd, "Device UID/fleet/project scope (defaults to project)")
 }
