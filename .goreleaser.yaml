@@ -27,6 +27,7 @@ builds:
 
     env:
       - CGO_ENABLED=0
+
     goos:
       - linux
     goarch:
@@ -60,6 +61,7 @@ builds:
 
     env:
       - CGO_ENABLED=1
+
     goos:
       - windows
       - darwin
