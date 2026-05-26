@@ -93,6 +93,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("playtime"),
 				lib.GetFlagByName("commtest"),
 				lib.GetFlagByName("echo"),
+				lib.GetFlagByName("rtc"),
 				lib.GetFlagByName("binpack"),
 				lib.GetFlagByName("pcap"),
 			},
@@ -240,6 +241,8 @@ func main() {
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
 	var actionEcho int
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
+	var actionRTC int
+	flag.IntVar(&actionRTC, "rtc", 0, "measure the Notecard's RTC drift against the host clock, once per second for <N> seconds")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
 	var actionPcap string
@@ -917,6 +920,10 @@ func main() {
 
 	if err == nil && actionEcho != 0 {
 		err = echo(actionEcho)
+	}
+
+	if err == nil && actionRTC != 0 {
+		err = rtc(actionRTC, actionVerbose)
 	}
 
 	if err == nil && actionVersion {
