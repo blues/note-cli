@@ -23,6 +23,15 @@ jobs:
         with:
           go-version: '1.25.0'
       -
+        name: Generate Homebrew tap token
+        uses: actions/create-github-app-token@v2
+        id: tap-token
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: blues
+          repositories: homebrew-note-cli
+      -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -31,7 +40,7 @@ jobs:
           args: release -f .goreleaser.yaml --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
       -
         name: Upload assets
         uses: actions/upload-artifact@v4
