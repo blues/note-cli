@@ -11,41 +11,28 @@ import (
 	"github.com/blues/note-go/notecard"
 )
 
-// rtcProbes is the number of rapid card.time reads taken per measurement. We keep only the one
-// with the smallest host round-trip time, because that sample has the tightest alignment between
-// the Notecard's reported clock and the host clock. This is the standard NTP-style minimum
-// round-trip filter, and it removes most of the per-transaction USB/serial latency jitter.
-const rtcProbes = 8
-
-// rtcSample reads the Notecard's high-resolution clock using {"req":"card.time","now":true}, which
-// returns the time in the "value" field as <epoch-seconds>.<six-digits-of-microseconds>. It probes
-// several times in quick succession and returns the reading with the lowest round-trip latency,
-// expressed in microseconds. cardUs is the Notecard's clock; hostUs is the host clock at the
-// midpoint of that round trip, which is our best estimate of the instant the Notecard sampled.
-func rtcSample() (cardUs int64, hostUs int64, err error) {
-	bestRTTUs := int64(-1)
-	for p := 0; p < rtcProbes; p++ {
-		before := time.Now()
-		var rsp notecard.Request
-		rsp, err = card.TransactionRequest(notecard.Request{Req: "card.time", Now: true})
-		after := time.Now()
-		if err != nil {
-			return
-		}
-		rttUs := after.Sub(before).Microseconds()
-		if bestRTTUs < 0 || rttUs < bestRTTUs {
-			bestRTTUs = rttUs
-			cardUs = int64(rsp.Value * 1000000)
-			hostUs = before.Add(after.Sub(before) / 2).UnixMicro()
-		}
-	}
-	return
+// hostTimeValue expresses a host timestamp as <epoch-seconds>.<six-digits-of-microseconds>, the
+// form the "card.time.calibrate" request expects in its "value" field. We build it from the host's
+// microsecond clock so the Notecard sees the most precise instant we can report.
+func hostTimeValue(t time.Time) float64 {
+	return float64(t.UnixMicro()) / 1000000.0
 }
 
-// rtc measures the drift of the Notecard's real-time clock relative to the host computer's clock,
-// emitting one line per second for the specified number of seconds. This assumes the host has an
-// accurate, high-resolution clock to measure against.
-func rtc(seconds int, verbose bool) (err error) {
+// rtc measures the drift of the Notecard's real-time clock relative to the host computer's clock.
+// Rather than computing the drift on the host, it feeds the host's current time to the Notecard's
+// "card.time.calibrate" calibration request once per second and lets the Notecard do the math, reporting back the
+// estimated daily drift and its confidence in that estimate.
+//
+// The mode selects the behavior:
+//   - "test": run the measurement loop until the Notecard reports 100% confidence, printing each
+//     second's estimate, without altering the Notecard's stored calibration.
+//   - "calibrate": same as "test", but reset the stored calibration on the first request and commit
+//     the freshly measured calibration once 100% confidence is reached.
+//   - "reset": clear the Notecard's stored calibration and exit immediately, without measuring.
+//   - "calibration": print the Notecard's current stored calibration (returned in "daily") and exit.
+//
+// The measuring modes assume the host has an accurate, high-resolution clock to calibrate against.
+func rtc(mode string, verbose bool) (err error) {
 
 	// Quiet the debug output unless the user asked for verbosity, so that our once-per-second
 	// lines aren't interleaved with transaction tracing.
@@ -53,62 +40,82 @@ func rtc(seconds int, verbose bool) (err error) {
 		card.DebugOutput(false, false)
 	}
 
-	// Establish the origin against which all subsequent samples are measured: the host clock and
-	// the Notecard's clock at the same instant, both in microseconds. We measure each sample's
-	// elapsed time relative to this origin so the regression below works with small numbers.
-	originCardUs, originHostUs, err := rtcSample()
+	// The mode selects what we do. "reset" and "calibration" are one-shot requests that exit
+	// immediately; "test" and "calibrate" run the multi-second measurement loop below.
+	var calibrating bool
+	switch mode {
+
+	case "reset":
+		// Clear the Notecard's stored calibration with "reset":true and exit immediately, without
+		// running any measurement.
+		_, err = card.TransactionRequest(notecard.Request{Req: "card.time.calibrate", Reset: true})
+		return
+
+	case "calibration":
+		// Read the Notecard's current stored calibration. A bare "card.time.calibrate" with no
+		// arguments returns the calibration in "daily" as seconds of drift per day.
+		var rsp notecard.Request
+		rsp, err = card.TransactionRequest(notecard.Request{Req: "card.time.calibrate"})
+		if err != nil {
+			return
+		}
+		fmt.Printf("rtc: daily:%.6f\n", rsp.Daily)
+		return
+
+	case "test":
+		calibrating = false
+	case "calibrate":
+		calibrating = true
+	default:
+		return fmt.Errorf("rtc: mode must be \"test\", \"calibrate\", \"reset\", or \"calibration\", not %q", mode)
+	}
+
+	// Open the calibration run with "start":true, handing the Notecard the host's current time as
+	// the origin from which it will track drift. Every "card.time.calibrate" request always carries
+	// "value"; only this first one carries "start". When calibrating, we also reset the Notecard's
+	// stored calibration here so the run starts from a clean slate.
+	_, err = card.TransactionRequest(notecard.Request{Req: "card.time.calibrate", Value: hostTimeValue(time.Now()), Start: true, Reset: calibrating})
 	if err != nil {
 		return
 	}
 
-	// Rather than deriving the drift from just the origin and the current sample (which exposes
-	// the full per-sample measurement noise of those two readings), we fit a least-squares line
-	// through every sample collected so far. We regress the drift itself (microseconds of drift
-	// since start) against the host-elapsed time; the slope of that line is the drift rate. Using
-	// all N samples averages out the per-sample jitter, so the reported figures stabilize as the
-	// run lengthens. We accumulate the regression sums incrementally, seeding them with the origin
-	// point (host-elapsed 0, drift 0).
-	var n, sumX, sumD, sumXX, sumXD float64
-	n = 1 // the origin point (x=0, drift=0) contributes nothing to the sums but counts toward n
-
-	// Emit one measurement per second, on a one-second cadence.
+	// Emit one measurement per second, on a one-second cadence. Each tick sends the host's current
+	// time and prints the drift estimate the Notecard returns. We run until the Notecard reports
+	// 100% confidence three times, then we're done.
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for i := 1; i <= seconds; i++ {
+	hundreds := 0
+	for i := 1; ; i++ {
 		<-ticker.C
 
-		var cardUs, hostUs int64
-		cardUs, hostUs, err = rtcSample()
+		var rsp notecard.Request
+		rsp, err = card.TransactionRequest(notecard.Request{Req: "card.time.calibrate", Value: hostTimeValue(time.Now())})
 		if err != nil {
 			return
 		}
 
-		// Microseconds elapsed on the host, and microseconds of drift, both since the origin.
-		// Drift is how much further the Notecard's clock has advanced than the host's clock; a
-		// positive value means the Notecard's RTC is running fast.
-		x := float64(hostUs - originHostUs)
-		drift := float64((cardUs - originCardUs) - (hostUs - originHostUs))
+		// "daily" is the Notecard's estimated clock drift in seconds per day; "calibration" is the
+		// Notecard's percentage confidence in that estimate, which climbs as the run lengthens. When
+		// the Notecard returns a "status" we append it in parens so the operator sees it each second.
+		msg := fmt.Sprintf("%d rtc: daily:%.6f calibration:%.1f%%", i, rsp.Daily, rsp.Calibration)
+		if rsp.Status != "" {
+			msg += fmt.Sprintf(" (%s)", rsp.Status)
+		}
+		fmt.Println(msg)
 
-		// Accumulate this sample into the running least-squares fit of drift against host-elapsed.
-		n++
-		sumX += x
-		sumD += drift
-		sumXX += x * x
-		sumXD += x * drift
-
-		// Least-squares slope of drift vs host-elapsed: microseconds of drift accrued per
-		// microsecond of host time. Scale that rate to the requested units.
-		avgDriftMsPerSecond := 0.0
-		driftSecsPerDay := 0.0
-		denom := n*sumXX - sumX*sumX
-		if denom != 0 {
-			driftRate := (n*sumXD - sumX*sumD) / denom
-			avgDriftMsPerSecond = driftRate * 1000
-			driftSecsPerDay = driftRate * 86400
+		if rsp.Calibration < 100 {
+			continue
 		}
 
-		fmt.Printf("%d rtc: avgDriftMsPerSecond:%.3f driftSecsPerDay:%.3f\n", i, avgDriftMsPerSecond, driftSecsPerDay)
+		// After a min number of 100% readings we're confident in the measurement and we're done. When
+		// calibrating, commit the freshly measured calibration to the Notecard with "set":true
+		// before exiting.
+		hundreds++
+		if hundreds >= 10 {
+			if calibrating {
+				_, err = card.TransactionRequest(notecard.Request{Req: "card.time.calibrate", Value: hostTimeValue(time.Now()), Set: true})
+			}
+			return
+		}
 	}
-
-	return
 }
