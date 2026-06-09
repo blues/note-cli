@@ -241,8 +241,8 @@ func main() {
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
 	var actionEcho int
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
-	var actionRTC int
-	flag.IntVar(&actionRTC, "rtc", 0, "measure the Notecard's RTC drift against the host clock, once per second for <N> seconds")
+	var actionRTC string
+	flag.StringVar(&actionRTC, "rtc", "", "measure the Notecard's RTC drift against the host clock; use \"test\" to measure, \"calibrate\" to measure and store the calibration, \"reset\" to clear the stored calibration, or \"calibration\" to show the stored calibration")
 	var actionVersion bool
 	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
 	var actionPcap string
@@ -922,7 +922,7 @@ func main() {
 		err = echo(actionEcho)
 	}
 
-	if err == nil && actionRTC != 0 {
+	if err == nil && actionRTC != "" {
 		err = rtc(actionRTC, actionVerbose)
 	}
 
