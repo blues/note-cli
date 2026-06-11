@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -30,8 +31,44 @@ var card *notecard.Context
 var version = "development"
 
 // JSON schema control variables
-var validateJSON bool = false
+var validateJSON bool = true
 var jsonSchemaUrl string = "https://github.com/blues/notecard-schema/releases/latest/download/notecard.api.json"
+
+// skipValidationFile persists a validation skip expiry across invocations
+const skipValidationFile = "/tmp/notecard-skip-validation"
+
+// skipFlag implements flag.Value with optional numeric value.
+// Used as -skip (skip this invocation) or -skip=N (skip for N hours).
+type skipFlag struct {
+	set   bool
+	hours int
+}
+
+func (s *skipFlag) String() string {
+	if !s.set {
+		return ""
+	}
+	if s.hours == 0 {
+		return "true"
+	}
+	return strconv.Itoa(s.hours)
+}
+
+func (s *skipFlag) Set(val string) error {
+	s.set = true
+	if val == "true" {
+		s.hours = 0
+		return nil
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n < 1 {
+		return fmt.Errorf("value must be a positive number of hours")
+	}
+	s.hours = n
+	return nil
+}
+
+func (s *skipFlag) IsBoolFlag() bool { return true }
 
 // getFlagGroups returns the organized flag groups
 func getFlagGroups() []lib.FlagGroup {
@@ -67,6 +104,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("pretty"),
 				lib.GetFlagByName("req"),
 				lib.GetFlagByName("dry"),
+				lib.GetFlagByName("skip"),
 				lib.GetFlagByName("input"),
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
@@ -163,7 +201,6 @@ func main() {
 	}()
 
 	// Check the environment for JSON schema control variables
-	_, validateJSON = os.LookupEnv("BLUES")  // Opt-in Blues employees to validation
 	url := os.Getenv("NOTE_JSON_SCHEMA_URL") // Override the default schema URL
 	if url != "" {
 		jsonSchemaUrl = url
@@ -181,6 +218,8 @@ func main() {
 	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
 	var actionRequestDry bool
 	flag.BoolVar(&actionRequestDry, "dry", false, "validate a -req but do not send it to the Notecard")
+	var actionSkip skipFlag
+	flag.Var(&actionSkip, "skip", "skip JSON schema validation for this request, or for N hours if a number is provided")
 	var actionWhenConnected bool
 	flag.BoolVar(&actionWhenConnected, "when-connected", false, "wait until connected")
 	var actionWhenDisconnected bool
@@ -261,6 +300,21 @@ func main() {
 	if err != nil {
 		fmt.Printf("%s\n", err)
 		exitFailAndCloseCard()
+	}
+	if actionSkip.set {
+		validateJSON = false
+		if actionSkip.hours > 0 {
+			expiry := time.Now().Add(time.Duration(actionSkip.hours) * time.Hour)
+			os.WriteFile(skipValidationFile, []byte(strconv.FormatInt(expiry.Unix(), 10)), 0644)
+		}
+	} else if data, err := os.ReadFile(skipValidationFile); err == nil {
+		if expiry, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil {
+			if time.Now().Unix() < expiry {
+				validateJSON = false
+			} else {
+				os.Remove(skipValidationFile)
+			}
+		}
 	}
 
 	config, err := lib.GetConfig()
