@@ -57,6 +57,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("setup-sku"),
 				lib.GetFlagByName("provision"),
 				lib.GetFlagByName("sideload"),
+				lib.GetFlagByName("nobin"),
 			},
 		},
 		{
@@ -239,6 +240,8 @@ func main() {
 	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to Notecard knowing that {io} errors are to be expected")
 	var actionSideload string
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
+	var actionNoBin bool
+	flag.BoolVar(&actionNoBin, "nobin", false, "when side-loading, force the inline dfu.put path and do not use card.binary")
 	var actionEcho int
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
 	var actionRTC string
@@ -742,7 +745,7 @@ func main() {
 	}
 
 	if err == nil && actionSideload != "" && actionScan == "" {
-		err = dfuSideload(actionSideload, actionVerbose)
+		err = dfuSideload(actionSideload, actionNoBin, actionVerbose)
 	}
 
 	if err == nil && actionUpload != "" {
@@ -882,7 +885,7 @@ func main() {
 	}
 
 	if err == nil && actionScan != "" {
-		err = scan(actionVerbose, actionFactory, actionSetup, actionSetupSKU, actionProvision, actionFactory, actionSideload, actionScan)
+		err = scan(actionVerbose, actionFactory, actionSetup, actionSetupSKU, actionProvision, actionFactory, actionSideload, actionNoBin, actionScan)
 	}
 
 	if err == nil && actionCommtest {
