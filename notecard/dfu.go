@@ -18,27 +18,34 @@ import (
 	"github.com/golang/snappy"
 )
 
-// Side-loads a file to the DFU area of the notecard, to avoid download
-func dfuSideload(filename string, verbose bool) (err error) {
+// Maximum bytes to embed inline in a single dfu.put request when we bypass the
+// card.binary path.
+const dfuInlineChunkMax = 8192
 
-	// Do a card.binary transaction to see if the notecard is capable of
-	// doing binary sideloads, and if so, how large.
+// Side-loads a file to the DFU area of the notecard, to avoid download
+func dfuSideload(filename string, noBin bool, verbose bool) (err error) {
+
+	// Do a card.binary transaction to see if the Notecard is capable of
+	// doing binary sideloads, and if so, how large. The -nobin flag forces
+	// the slower inline dfu.put path that doesn't use card.binary at all.
 	binaryMax := 0
 	var rsp notecard.Request
-	rsp, err = card.TransactionRequest(notecard.Request{Req: "card.binary"})
-	if note.ErrorContains(err, note.ErrCardIo) {
-		return err
-	}
+	if !noBin {
+		rsp, err = card.TransactionRequest(notecard.Request{Req: "card.binary"})
+		if note.ErrorContains(err, note.ErrCardIo) {
+			return err
+		}
 
-	if err == nil {
+		if err == nil {
 
-		// Get the maximum size that the notecard can handle
-		binaryMax = int(rsp.Max)
+			// Get the maximum size that the notecard can handle
+			binaryMax = int(rsp.Max)
 
-		// Use shorter delays when sending to Notecard, for performance
-		notecard.RequestSegmentMaxLen = 1024
-		notecard.RequestSegmentDelayMs = 5
+			// Use shorter delays when sending to Notecard, for performance
+			notecard.RequestSegmentMaxLen = 1024
+			notecard.RequestSegmentDelayMs = 5
 
+		}
 	}
 
 	// Read the file up-front so we can handle this common failure
@@ -179,6 +186,8 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 		// notecard will tell us not to use compression.
 		if binaryMax > 0 {
 			chunkLen = binaryMax
+		} else if chunkLen > dfuInlineChunkMax {
+			chunkLen = dfuInlineChunkMax
 		}
 
 		// Occasionally because of comms being out-of-sync (because of killing
