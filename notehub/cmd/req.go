@@ -1,8 +1,8 @@
-// Copyright 2017 Blues Inc.  All rights reserved.
+// Copyright 2025 Blues Inc.  All rights reserved.
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-package main
+package cmd
 
 import (
 	"bytes"
@@ -13,10 +13,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
-	"github.com/blues/note-go/notehub"
 )
+
+// Used by req functions
+var reqFlagApp string
+var reqFlagProduct string
+var reqFlagDevice string
 
 // Add an arg to an URL query string
 func addQuery(in string, key string, value string) (out string) {
@@ -35,39 +38,8 @@ func addQuery(in string, key string, value string) (out string) {
 	return
 }
 
-// Perform a hub transaction, and promote the returned err response to an error to this method
-func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehub.HubRequest, err error) {
-	var reqJSON []byte
-	reqJSON, err = note.JSONMarshal(request)
-	if err != nil {
-		return
-	}
-	err = reqHubV0(verbose, lib.ConfigAPIHub(), reqJSON, "", "", "", "", false, false, nil, &rsp)
-	if err != nil {
-		return
-	}
-	if rsp.Err != "" {
-		err = fmt.Errorf("%s", rsp.Err)
-	}
-	return
-}
-
-// Process a V0 HTTPS request and unmarshal into an object
-func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
-	var response []byte
-	response, err = reqHubV0JSON(verbose, hub, request, requestFile, filetype, filetags, filenotes, overwrite, dropNonJSON, outq)
-	if err != nil {
-		return
-	}
-	if object == nil {
-		return
-	}
-	return note.JSONUnmarshal(response, object)
-}
-
 // Perform a V0 HTTP request
 func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string) (response []byte, err error) {
-
 	fn := ""
 	path := strings.Split(requestFile, "/")
 	if len(path) > 0 {
@@ -75,15 +47,15 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	}
 
 	if hub == "" {
-		hub = lib.ConfigAPIHub()
+		hub = GetAPIHub()
 	}
 
 	httpurl := fmt.Sprintf("https://%s/req", hub)
-	query := addQuery("", "app", flagApp)
-	if flagApp == "" {
-		query = addQuery("", "product", flagProduct)
+	query := addQuery("", "app", reqFlagApp)
+	if reqFlagApp == "" {
+		query = addQuery("", "product", reqFlagProduct)
 	}
-	query = addQuery(query, "device", flagDevice)
+	query = addQuery(query, "device", reqFlagDevice)
 	query = addQuery(query, "upload", fn)
 	if overwrite {
 		query = addQuery(query, "overwrite", "true")
@@ -123,7 +95,7 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
-	err = lib.ConfigAuthenticationHeader(httpReq)
+	err = AddAuthenticationHeader(httpReq)
 	if err != nil {
 		return
 	}
@@ -132,10 +104,14 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 		fmt.Printf("%s\n", string(request))
 	}
 
-	httpClient := &http.Client{}
+	httpClient := newRetryHTTPClient()
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
-		err = err2
+		if isNetworkError(err2) {
+			err = fmt.Errorf("unable to connect to %s: %w", hub, err2)
+		} else {
+			err = err2
+		}
 		return
 	}
 
@@ -146,18 +122,13 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	for {
 		n, err2 := httpRsp.Body.Read(b)
 		if n > 0 {
-
 			// Append to result buffer if no outq is specified
 			if outq == nil {
-
 				response = append(response, b[:n]...)
-
 			} else {
-
 				// Enqueue lines for monitoring
 				linebuf = append(linebuf, b[:n]...)
 				for {
-
 					// Parse out a full line and queue it, saving the leftover
 					i := bytes.IndexRune(linebuf, '\n')
 					if i == -1 {
@@ -177,9 +148,7 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 					// was an error and we're about to get an io.EOF
 					response = line
 				}
-
 			}
-
 		}
 		if err2 != nil {
 			if err2 != io.EOF {
@@ -195,25 +164,10 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	}
 
 	return
-
-}
-
-// Process a V1 HTTPS request and unmarshal into an object
-func reqHubV1(verbose bool, hub string, verb string, url string, body []byte, object interface{}) (err error) {
-	var response []byte
-	response, err = reqHubV1JSON(verbose, hub, verb, url, body)
-	if err != nil {
-		return
-	}
-	if object == nil {
-		return
-	}
-	return note.JSONUnmarshal(response, object)
 }
 
 // Process an HTTPS request
 func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte) (response []byte, err error) {
-
 	verb = strings.ToUpper(verb)
 
 	httpurl := fmt.Sprintf("https://%s%s", hub, url)
@@ -227,7 +181,7 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 	}
 	httpReq.Header.Set("User-Agent", "notehub-client")
 	httpReq.Header.Set("Content-Type", "application/json")
-	err = lib.ConfigAuthenticationHeader(httpReq)
+	err = AddAuthenticationHeader(httpReq)
 	if err != nil {
 		return
 	}
@@ -239,17 +193,16 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 		}
 	}
 
-	httpClient := &http.Client{}
+	httpClient := newRetryHTTPClient()
 	httpRsp, err2 := httpClient.Do(httpReq)
 	if err2 != nil {
-		err = err2
+		if isNetworkError(err2) {
+			err = fmt.Errorf("unable to connect to %s: %w", hub, err2)
+		} else {
+			err = err2
+		}
 		return
 	}
-	if httpRsp.StatusCode == http.StatusUnauthorized {
-		err = fmt.Errorf("please use -signin to authenticate")
-		return
-	}
-
 	if verbose {
 		fmt.Printf("STATUS %d\n", httpRsp.StatusCode)
 	}
@@ -263,6 +216,28 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 		fmt.Printf("%s\n", string(response))
 	}
 
-	return
+	// Check for HTTP error status codes
+	if httpRsp.StatusCode == http.StatusUnauthorized {
+		err = fmt.Errorf("please use -signin to authenticate")
+		return
+	}
 
+	// Check for other HTTP error status codes (4xx, 5xx)
+	if httpRsp.StatusCode >= 400 {
+		// Try to parse error message from response body
+		if len(response) > 0 {
+			var errResp map[string]interface{}
+			if unmarshalErr := note.JSONUnmarshal(response, &errResp); unmarshalErr == nil {
+				if errMsg, ok := errResp["err"].(string); ok {
+					err = fmt.Errorf("HTTP %d: %s", httpRsp.StatusCode, errMsg)
+					return
+				}
+			}
+		}
+		// Fallback to generic error if we couldn't parse the error message
+		err = fmt.Errorf("HTTP %d: %s", httpRsp.StatusCode, http.StatusText(httpRsp.StatusCode))
+		return
+	}
+
+	return
 }
