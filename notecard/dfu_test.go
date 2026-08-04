@@ -6,7 +6,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/blues/note-go/notecard"
@@ -33,12 +32,12 @@ func mockCard(t *testing.T, transaction func(notecard.Request, bool, []byte) ([]
 	})
 }
 
-func noDfuBinaryRecoveryDelay(t *testing.T) {
+func noDfuBinaryRetryDelay(t *testing.T) {
 	t.Helper()
-	previousDelay := dfuBinaryRecoveryDelay
-	dfuBinaryRecoveryDelay = 0
+	previousDelay := dfuBinaryRetryDelay
+	dfuBinaryRetryDelay = 0
 	t.Cleanup(func() {
-		dfuBinaryRecoveryDelay = previousDelay
+		dfuBinaryRetryDelay = previousDelay
 	})
 }
 
@@ -71,89 +70,98 @@ func TestDfuBinaryCapacityResetsStaleReceive(t *testing.T) {
 	}
 }
 
-func TestLoadBinShrinksBinaryChunksAfterFailedTransfer(t *testing.T) {
-	noDfuBinaryRecoveryDelay(t)
+func TestLoadBinRetriesBadBinValidation(t *testing.T) {
+	noDfuBinaryRetryDelay(t)
 
-	var binaryPutSizes []int
-	var binaryResets int
+	var binaryPuts int
 	var binarySends int
-	var lastBinaryPayloadLen int
-	var sentDFUPuts []notecard.Request
+	var dfuPuts []notecard.Request
 
-	mockCard(t, func(request notecard.Request, noResponse bool, raw []byte) ([]byte, error) {
+	mockCard(t, func(request notecard.Request, noResponse bool, _ []byte) ([]byte, error) {
 		if noResponse {
 			binarySends++
-			if len(raw) == 0 || raw[len(raw)-1] != '\n' {
-				t.Fatalf("binary payload must end in a newline")
-			}
-			decoded, err := notecard.CobsDecode(raw[:len(raw)-1], byte('\n'))
-			if err != nil {
-				t.Fatalf("decode binary payload: %v", err)
-			}
-			lastBinaryPayloadLen = len(decoded)
-			return []byte("{}"), nil
+			return []byte(`{}`), nil
 		}
 
 		switch request.Req {
 		case "dfu.put":
 			if request.Body != nil {
-				return []byte(`{"length":8}`), nil
+				return []byte(`{"length":4}`), nil
 			}
-			sentDFUPuts = append(sentDFUPuts, request)
+			dfuPuts = append(dfuPuts, request)
 			return []byte(`{"pending":false}`), nil
 		case "card.binary.put":
-			binaryPutSizes = append(binaryPutSizes, int(request.Cobs))
+			binaryPuts++
 			return []byte(`{}`), nil
 		case "card.binary":
-			if request.Reset {
-				binaryResets++
-				return []byte(`{}`), nil
-			}
-			switch binarySends {
-			case 1, 2, 3:
+			if binarySends == 1 {
 				return []byte(`{"err":"binary receive prematurely terminated {bad-bin}"}`), nil
-			default:
-				return []byte(fmt.Sprintf(`{"length":%d}`, lastBinaryPayloadLen)), nil
 			}
+			return []byte(`{"length":4}`), nil
 		default:
 			t.Fatalf("unexpected request: %#v", request)
 			return nil, nil
 		}
 	})
 
-	firmware := make([]byte, 16390)
-	for i := range firmware {
-		firmware[i] = byte(i)
-	}
-	if err := loadBin("host", "firmware.bin", firmware, 16384); err != nil {
+	if err := loadBin("host", "firmware.bin", []byte("0123"), 4); err != nil {
 		t.Fatalf("loadBin returned an error: %v", err)
 	}
 
-	if binaryResets != 3 {
-		t.Fatalf("card.binary reset calls = %d, want 3", binaryResets)
+	if binaryPuts != 2 || binarySends != 2 {
+		t.Fatalf("binary transfer attempts = %d puts, %d sends; want 2", binaryPuts, binarySends)
 	}
-	if len(binaryPutSizes) != 6 {
-		t.Fatalf("binary put calls = %d, want 6 (three failed 16 KiB attempts and three 8 KiB attempts)", len(binaryPutSizes))
-	}
-	if binaryPutSizes[0] != binaryPutSizes[1] || binaryPutSizes[1] != binaryPutSizes[2] || binaryPutSizes[2] <= binaryPutSizes[3] || binaryPutSizes[3] != binaryPutSizes[4] || binaryPutSizes[5] >= binaryPutSizes[4] {
-		t.Fatalf("binary COBS transfer sizes = %v, want three 16 KiB attempts followed by 8 KiB chunks", binaryPutSizes)
-	}
-	if len(sentDFUPuts) != 3 {
-		t.Fatalf("dfu.put calls = %d, want 3", len(sentDFUPuts))
-	}
-	for i, request := range sentDFUPuts {
-		if !request.Binary || request.Payload != nil {
-			t.Fatalf("dfu.put %d did not use the staged binary payload: %#v", i, request)
-		}
+	if len(dfuPuts) != 1 || !dfuPuts[0].Binary || dfuPuts[0].Payload != nil {
+		t.Fatalf("dfu.put did not use the validated binary payload: %#v", dfuPuts)
 	}
 }
 
-func TestLoadBinFallsBackToInlineAfterSmallestBinaryChunkFails(t *testing.T) {
-	noDfuBinaryRecoveryDelay(t)
+func TestLoadBinStopsAfterBadBinRetryLimit(t *testing.T) {
+	noDfuBinaryRetryDelay(t)
 
-	var binaryResets int
-	var inlineDFUPuts []notecard.Request
+	var binaryPuts int
+	var binarySends int
+	var dfuPuts int
 
+	mockCard(t, func(request notecard.Request, noResponse bool, _ []byte) ([]byte, error) {
+		if noResponse {
+			binarySends++
+			return []byte(`{}`), nil
+		}
+
+		switch request.Req {
+		case "dfu.put":
+			if request.Body != nil {
+				return []byte(`{"length":4}`), nil
+			}
+			dfuPuts++
+			return []byte(`{"pending":false}`), nil
+		case "card.binary.put":
+			binaryPuts++
+			return []byte(`{}`), nil
+		case "card.binary":
+			return []byte(`{"err":"binary receive prematurely terminated {bad-bin}"}`), nil
+		default:
+			t.Fatalf("unexpected request: %#v", request)
+			return nil, nil
+		}
+	})
+
+	if err := loadBin("host", "firmware.bin", []byte("0123"), 4); err == nil {
+		t.Fatal("loadBin succeeded after exhausting {bad-bin} retries")
+	}
+	if binaryPuts != dfuBinaryRetries || binarySends != dfuBinaryRetries {
+		t.Fatalf("binary transfer attempts = %d puts, %d sends; want %d", binaryPuts, binarySends, dfuBinaryRetries)
+	}
+	if dfuPuts != 0 {
+		t.Fatalf("dfu.put calls = %d, want 0 after failed binary validation", dfuPuts)
+	}
+}
+
+func TestLoadBinDoesNotRetryNonBadBinFailure(t *testing.T) {
+	noDfuBinaryRetryDelay(t)
+
+	var binaryPuts int
 	mockCard(t, func(request notecard.Request, noResponse bool, _ []byte) ([]byte, error) {
 		if noResponse {
 			return []byte(`{}`), nil
@@ -162,37 +170,24 @@ func TestLoadBinFallsBackToInlineAfterSmallestBinaryChunkFails(t *testing.T) {
 		switch request.Req {
 		case "dfu.put":
 			if request.Body != nil {
-				return []byte(`{"length":2}`), nil
+				return []byte(`{"length":4}`), nil
 			}
-			inlineDFUPuts = append(inlineDFUPuts, request)
 			return []byte(`{"pending":false}`), nil
 		case "card.binary.put":
+			binaryPuts++
 			return []byte(`{}`), nil
 		case "card.binary":
-			if request.Reset {
-				binaryResets++
-				return []byte(`{}`), nil
-			}
-			return []byte(`{"err":"binary receive prematurely terminated {bad-bin}"}`), nil
+			return []byte(`{"err":"unrelated binary failure"}`), nil
 		default:
 			t.Fatalf("unexpected request: %#v", request)
 			return nil, nil
 		}
 	})
 
-	if err := loadBin("host", "firmware.bin", []byte("0123"), 2); err != nil {
-		t.Fatalf("loadBin returned an error: %v", err)
+	if err := loadBin("host", "firmware.bin", []byte("0123"), 4); err == nil {
+		t.Fatal("loadBin succeeded after a non-{bad-bin} validation error")
 	}
-
-	if binaryResets != 3 {
-		t.Fatalf("card.binary reset calls = %d, want 3", binaryResets)
-	}
-	if len(inlineDFUPuts) != 2 {
-		t.Fatalf("inline dfu.put calls = %d, want 2", len(inlineDFUPuts))
-	}
-	for i, request := range inlineDFUPuts {
-		if request.Binary || request.Payload == nil || len(*request.Payload) != 2 {
-			t.Fatalf("dfu.put %d did not use a two-byte inline payload: %#v", i, request)
-		}
+	if binaryPuts != 1 {
+		t.Fatalf("binary transfer attempts = %d, want 1 for a non-{bad-bin} error", binaryPuts)
 	}
 }

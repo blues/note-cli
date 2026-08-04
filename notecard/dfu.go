@@ -22,22 +22,18 @@ import (
 // card.binary path.
 const dfuInlineChunkMax = 8192
 
-// Smallest binary chunk worth retrying before we use the inline dfu.put path.
-// This keeps a lossy serial connection from repeatedly attempting a large COBS
-// transfer that it has already shown it cannot complete.
-const dfuBinaryChunkMin = 8192
+// Number of attempts to make when the Notecard rejects a binary transfer with
+// {bad-bin}. This mirrors note-c's NoteBinaryStoreTransmit behavior.
+const dfuBinaryRetries = 3
 
-// Number of times to retry card.binary setup or cleanup. A prior interrupted
-// transfer may consume the first reset request as binary data before the
-// Notecard can process it.
-const dfuBinaryRecoveryAttempts = 3
+var dfuBinaryRetryDelay = time.Second
 
-var dfuBinaryRecoveryDelay = time.Second
+func dfuBadBinError(err error) bool {
+	return note.ErrorContains(err, "{bad-bin}")
+}
 
-// dfuBinaryTransportError reports errors that may leave the Notecard waiting
-// for the remainder of a binary transfer.
-func dfuBinaryTransportError(err error) bool {
-	return note.ErrorContains(err, note.ErrCardIo) || note.ErrorContains(err, "{bad-bin}")
+func dfuRecoverableSetupError(err error) bool {
+	return note.ErrorContains(err, note.ErrCardIo) || dfuBadBinError(err)
 }
 
 // dfuBinaryCapacity clears any prior partial receive, then gets the capacity
@@ -49,7 +45,7 @@ func dfuBinaryCapacity(noBin bool) (int, error) {
 	}
 
 	var lastErr error
-	for attempt := 1; attempt <= dfuBinaryRecoveryAttempts; attempt++ {
+	for attempt := 1; attempt <= dfuBinaryRetries; attempt++ {
 		rsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary", Reset: true})
 		if err == nil {
 			// Use shorter delays when sending to Notecard, for performance.
@@ -60,56 +56,27 @@ func dfuBinaryCapacity(noBin bool) (int, error) {
 
 		// Preserve the historical inline fallback for older Notecards that do
 		// not support card.binary.
-		if !dfuBinaryTransportError(err) {
+		if !dfuRecoverableSetupError(err) {
 			return 0, nil
 		}
 
 		lastErr = err
-		if attempt < dfuBinaryRecoveryAttempts {
-			fmt.Printf("recovering binary transfer state (attempt %d/%d): %s\n", attempt, dfuBinaryRecoveryAttempts, err)
-			time.Sleep(dfuBinaryRecoveryDelay)
+		if attempt < dfuBinaryRetries {
+			fmt.Printf("recovering binary transfer state (attempt %d/%d): %s\n", attempt, dfuBinaryRetries, err)
+			time.Sleep(dfuBinaryRetryDelay)
 		}
 	}
 
 	return 0, lastErr
 }
 
-// dfuResetBinaryBuffer abandons any partial COBS receive before another
-// binary attempt or before switching to the inline sideload path.
-func dfuResetBinaryBuffer() error {
-	var lastErr error
-	for attempt := 1; attempt <= dfuBinaryRecoveryAttempts; attempt++ {
-		_, err := card.TransactionRequest(notecard.Request{Req: "card.binary", Reset: true})
-		if err == nil {
-			return nil
-		}
-		if !dfuBinaryTransportError(err) {
-			return err
-		}
-
-		lastErr = err
-		if attempt < dfuBinaryRecoveryAttempts {
-			time.Sleep(dfuBinaryRecoveryDelay)
-		}
-	}
-
-	return lastErr
-}
-
 // dfuTransferBinary stages and verifies one chunk in the Notecard's binary
-// buffer. On failure it resets the buffer so that the caller can safely retry
-// with a smaller chunk or use inline dfu.put.
+// buffer. Its caller handles the bounded retry of a {bad-bin} validation
+// failure, matching note-c's binary-store transmit path.
 func dfuTransferBinary(payload []byte) error {
 	payloadEncoded, err := notecard.CobsEncodeAppend(payload, byte('\n'), byte('\n'))
 	if err != nil {
 		return err
-	}
-
-	recoverTransfer := func(transferErr error) error {
-		if resetErr := dfuResetBinaryBuffer(); resetErr != nil {
-			return fmt.Errorf("%w; card.binary reset failed: %v", transferErr, resetErr)
-		}
-		return transferErr
 	}
 
 	_, err = card.TransactionRequest(notecard.Request{
@@ -117,34 +84,22 @@ func dfuTransferBinary(payload []byte) error {
 		Cobs: int32(len(payloadEncoded) - 1),
 	})
 	if err != nil {
-		return recoverTransfer(err)
+		return err
 	}
 
 	if err = card.SendBytes(payloadEncoded); err != nil {
-		return recoverTransfer(err)
+		return err
 	}
 
 	rsp, err := card.TransactionRequest(notecard.Request{Req: "card.binary"})
 	if err != nil {
-		return recoverTransfer(err)
+		return err
 	}
 	if int(rsp.Length) != len(payload) {
-		return recoverTransfer(fmt.Errorf("notecard payload is insufficient (%d sent, %d received)", len(payload), rsp.Length))
+		return fmt.Errorf("notecard payload is insufficient (%d sent, %d received)", len(payload), rsp.Length)
 	}
 
 	return nil
-}
-
-func dfuSmallerBinaryChunk(chunkLen int) int {
-	if chunkLen <= dfuBinaryChunkMin {
-		return 0
-	}
-
-	next := chunkLen / 2
-	if next < dfuBinaryChunkMin {
-		next = dfuBinaryChunkMin
-	}
-	return next
 }
 
 // Side-loads a file to the DFU area of the notecard, to avoid download
@@ -249,7 +204,6 @@ func dfuSideload(filename string, noBin bool, verbose bool) (err error) {
 func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax int) (err error) {
 	var req, rsp notecard.Request
 	totalLen := len(bin)
-	binaryChunkLen := binaryMax
 
 	// Clean up the name to be just the filename portion
 	s := strings.Split(filename, "/")
@@ -294,8 +248,8 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 		// If we support binary, use the binary maximum for performance & reliability.
 		// Note that we are guaranteed that if we support large binaries that the
 		// notecard will tell us not to use compression.
-		if binaryChunkLen > 0 {
-			chunkLen = binaryChunkLen
+		if binaryMax > 0 {
+			chunkLen = binaryMax
 		} else if chunkLen > dfuInlineChunkMax {
 			chunkLen = dfuInlineChunkMax
 		}
@@ -313,7 +267,6 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 	// Send the chunk to sideload
 	offset := 0
 	lenRemaining := totalLen
-	binaryChunkRecoveryAttempt := 0
 	beganSecs := time.Now().UTC().Unix()
 	for lenRemaining > 0 {
 
@@ -338,31 +291,20 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 		req.Status = fmt.Sprintf("%x", md5.Sum(*req.Payload))
 
 		// If we're doing binary, do the transaction
-		if binaryChunkLen > 0 {
-			err = dfuTransferBinary(payload)
-			if err != nil {
-				binaryChunkRecoveryAttempt++
-				if binaryChunkRecoveryAttempt < dfuBinaryRecoveryAttempts {
+		if binaryMax > 0 {
+			for attempt := 1; attempt <= dfuBinaryRetries; attempt++ {
+				err = dfuTransferBinary(payload)
+				if err == nil || !dfuBadBinError(err) {
+					break
+				}
+				if attempt < dfuBinaryRetries {
 					fmt.Printf("binary transfer failed at offset %d (%s); waiting %s before retrying the same chunk (attempt %d/%d)\n",
-						offset, err, dfuBinaryRecoveryDelay, binaryChunkRecoveryAttempt+1, dfuBinaryRecoveryAttempts)
-					time.Sleep(dfuBinaryRecoveryDelay)
-					continue
+						offset, err, dfuBinaryRetryDelay, attempt+1, dfuBinaryRetries)
+					time.Sleep(dfuBinaryRetryDelay)
 				}
-
-				binaryChunkRecoveryAttempt = 0
-				if smallerChunkLen := dfuSmallerBinaryChunk(binaryChunkLen); smallerChunkLen > 0 {
-					fmt.Printf("binary transfer failed at offset %d (%s); retrying with %d-byte chunks\n", offset, err, smallerChunkLen)
-					binaryChunkLen = smallerChunkLen
-					chunkLen = binaryChunkLen
-					continue
-				}
-
-				fmt.Printf("binary transfer failed at offset %d (%s); continuing with inline dfu.put\n", offset, err)
-				binaryChunkLen = 0
-				if chunkLen > dfuInlineChunkMax {
-					chunkLen = dfuInlineChunkMax
-				}
-				continue
+			}
+			if err != nil {
+				return fmt.Errorf("binary transfer failed at offset %d after %d attempts: %w", offset, dfuBinaryRetries, err)
 			}
 
 			// Now that it's been received successfully, remove the payload and
@@ -371,8 +313,6 @@ func loadBin(filetype notehub.UploadType, filename string, bin []byte, binaryMax
 			req.Binary = true
 
 		}
-		binaryChunkRecoveryAttempt = 0
-
 		// Perform the request
 		rsp, err = card.TransactionRequest(req)
 		if err != nil {
