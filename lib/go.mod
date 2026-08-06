@@ -1,18 +1,20 @@
 module github.com/note-cli/lib
 
-go 1.17
+go 1.25.0
 
-require github.com/blues/note-go v1.5.0
+require github.com/blues/note-go v1.10.0
 
 require (
-	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
-	github.com/creack/goselect v0.1.2 // indirect
-	github.com/go-ole/go-ole v1.2.4 // indirect
-	github.com/gofrs/flock v0.7.1 // indirect
-	github.com/shirou/gopsutil/v3 v3.21.6 // indirect
-	github.com/tklauser/go-sysconf v0.3.6 // indirect
-	github.com/tklauser/numcpus v0.2.2 // indirect
-	go.bug.st/serial v1.3.4 // indirect
-	golang.org/x/sys v0.0.0-20210823070655-63515b42dcdf // indirect
-	periph.io/x/periph v3.6.2+incompatible // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
+	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
+	github.com/shoenig/go-m1cpu v0.1.6 // indirect
+	github.com/tklauser/go-sysconf v0.3.12 // indirect
+	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	go.bug.st/serial v1.7.1 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	periph.io/x/conn/v3 v3.7.3 // indirect
+	periph.io/x/host/v3 v3.8.5 // indirect
 )
