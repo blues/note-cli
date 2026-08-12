@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
@@ -24,6 +25,12 @@ var (
 
 // cacheDir is the directory where schemas are stored
 const cacheDir = "/tmp/notecard-schema/"
+
+// schemaHTTPClient fetches schemas with a bounded timeout so that a request
+// never blocks indefinitely on the network. Schemas are small, so a short
+// timeout is ample; without it a cold cache while offline would hang the CLI
+// (the default http client has no timeout).
+var schemaHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // extractRefs recursively extracts $ref URLs from a schema
 func extractRefs(schema map[string]interface{}, baseURL string) []string {
@@ -52,7 +59,7 @@ func fetchAndCacheSchema(url string, verbose bool) (io.Reader, error) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "*** fetching schema: %s ***\n", url)
 	}
-	resp, err := http.Get(url)
+	resp, err := schemaHTTPClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema %s: %v", url, err)
 	}

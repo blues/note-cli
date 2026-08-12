@@ -72,6 +72,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
 				lib.GetFlagByName("trace"),
+				lib.GetFlagByName("nohints"),
 			},
 		},
 		{
@@ -242,6 +243,8 @@ func main() {
 	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
 	var actionNoBin bool
 	flag.BoolVar(&actionNoBin, "nobin", false, "when side-loading, force the inline dfu.put path and do not use card.binary")
+	var actionNoHints bool
+	flag.BoolVar(&actionNoHints, "nohints", false, "suppress human-readable hints explaining Notecard error and status codes")
 	var actionEcho int
 	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
 	var actionRTC string
@@ -864,6 +867,11 @@ func main() {
 				rspJSON, _ = note.JSONMarshal(rsp)
 			}
 			fmt.Printf("%s\n", rspJSON)
+
+			// Hint at the meaning of any error/status codes in the response
+			if !actionNoHints {
+				printCodeHints(string(rspJSON), jsonSchemaUrl, actionVerbose)
+			}
 		}
 	}
 
@@ -950,6 +958,11 @@ func main() {
 			fmt.Printf("%s\n", string(jj))
 		} else {
 			fmt.Printf("%s\n", err)
+		}
+
+		// Hint at the meaning of any error/status codes in the error
+		if !actionNoHints {
+			printCodeHints(err.Error(), jsonSchemaUrl, actionVerbose)
 		}
 		exitFailAndCloseCard()
 	}
