@@ -163,8 +163,7 @@ func (config *ConfigSettings) Print() {
 
 		configPort := config.IPort[config.Interface]
 		if configPort.Port == "" {
-			fmt.Printf("   -port -\n")
-			fmt.Printf("   -portconfig -\n")
+			fmt.Printf("   -port auto-detect\n")
 		} else {
 			fmt.Printf("   -port %s\n", configPort.Port)
 			fmt.Printf("   -portconfig %d\n", configPort.PortConfig)
@@ -207,16 +206,13 @@ func (config *ConfigSettings) SetDefaultCredentials(token string, email string, 
 }
 
 func defaultConfig() *ConfigSettings {
-	iface, port, portConfig := notecard.Defaults()
+	iface, _, _ := notecard.Defaults()
 	return &ConfigSettings{
 		When:     time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		Hub:      notehub.DefaultAPIService,
 		HubCreds: map[string]ConfigCreds{},
 		IPort: map[string]ConfigPort{
-			iface: {
-				Port:       port,
-				PortConfig: portConfig,
-			},
+			iface: {},
 		},
 	}
 }
@@ -321,8 +317,9 @@ func ConfigFlagsProcess() (err error) {
 
 	defaultPort := config.IPort[config.Interface]
 
-	if configFlagPort == "-" {
+	if configFlagPort == "-" || strings.EqualFold(configFlagPort, "auto") {
 		defaultPort.Port = ""
+		defaultPort.PortConfig = 0
 	} else if configFlagPort != "" {
 		defaultPort.Port = configFlagPort
 	}
@@ -345,7 +342,7 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 	// Process the commands
 	if notecardFlags {
 		flag.StringVar(&configFlagInterface, "interface", "", "select 'serial' or 'i2c' interface for Notecard")
-		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port for Notecard")
+		flag.StringVar(&configFlagPort, "port", "", "select serial or i2c port ('auto' for auto-detect)")
 		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for Notecard")
 	}
 	if notehubFlags {
@@ -404,9 +401,14 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	// Override via env vars if specified
 	if port := os.Getenv("NOTE_PORT"); port != "" {
 		temp := config.IPort[config.Interface]
-		temp.Port = port
-		if portConfig, err := strconv.Atoi(os.Getenv("NOTE_PORT_CONFIG")); err == nil {
-			temp.PortConfig = portConfig
+		if strings.EqualFold(port, "auto") || port == "-" {
+			temp.Port = ""
+			temp.PortConfig = 0
+		} else {
+			temp.Port = port
+			if portConfig, err := strconv.Atoi(os.Getenv("NOTE_PORT_CONFIG")); err == nil {
+				temp.PortConfig = portConfig
+			}
 		}
 		config.IPort[config.Interface] = temp
 	}
