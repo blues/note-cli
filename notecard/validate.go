@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	_ "github.com/santhosh-tekuri/jsonschema/v5/httploader" // Enable HTTP/HTTPS loading
@@ -24,6 +26,9 @@ var (
 
 // cacheDir is the directory where schemas are stored
 const cacheDir = "/tmp/notecard-schema/"
+
+// schemaCacheTTL is how long before a cached schema is eligible for background refresh
+const schemaCacheTTL = 24 * time.Hour
 
 // extractRefs recursively extracts $ref URLs from a schema
 func extractRefs(schema map[string]interface{}, baseURL string) []string {
@@ -203,26 +208,53 @@ func initSchema(url string, verbose bool) error {
 	return schemaErr
 }
 
-// loadOrFetchSchema loads a schema from cache or fetches it from the URL, caching the result
+// loadOrFetchSchema loads a schema from cache or fetches it from the URL, caching the result.
+// If the cache is stale (older than schemaCacheTTL), the cached version is returned immediately
+// and a background refresh is triggered to update the cache without blocking the caller.
 func loadOrFetchSchema(url string, verbose bool) (io.Reader, error) {
 	cachePath := getCachePath(url)
-	// Try to load from cache
-	if file, err := os.Open(cachePath); err == nil {
-		defer file.Close()
-		data, err := io.ReadAll(file)
+	if info, err := os.Stat(cachePath); err == nil {
+		data, err := os.ReadFile(cachePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read cached schema %s: %v", cachePath, err)
 		}
-		// Verify it's valid JSON
 		var v interface{}
 		if err := json.Unmarshal(data, &v); err != nil {
-			// Invalid cache: proceed to fetch
+			// Invalid cache: fetch synchronously
 			return fetchAndCacheSchema(url, verbose)
+		}
+		if time.Since(info.ModTime()) > schemaCacheTTL {
+			go refreshSchemaCache(url, cachePath, data)
 		}
 		return bytes.NewReader(data), nil
 	}
-	// Cache miss: fetch from URL
+	// Cache miss: fetch synchronously
 	return fetchAndCacheSchema(url, verbose)
+}
+
+// refreshSchemaCache fetches the schema in the background, compares it to the cached version,
+// and updates the cache only if the content has changed. If unchanged, the cache mtime is
+// bumped to defer the next check by another TTL period.
+func refreshSchemaCache(url string, cachePath string, cached []byte) {
+	resp, err := http.Get(url)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return
+	}
+	defer resp.Body.Close()
+	newData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	var v interface{}
+	if err := json.Unmarshal(newData, &v); err != nil {
+		return
+	}
+	if sha256.Sum256(newData) == sha256.Sum256(cached) {
+		now := time.Now()
+		os.Chtimes(cachePath, now, now)
+		return
+	}
+	os.WriteFile(cachePath, newData, 0644)
 }
 
 func resolveSchemaError(reqMap map[string]interface{}, verbose bool) (err error) {
