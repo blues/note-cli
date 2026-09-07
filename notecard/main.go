@@ -68,6 +68,7 @@ func getFlagGroups() []lib.FlagGroup {
 				lib.GetFlagByName("pretty"),
 				lib.GetFlagByName("req"),
 				lib.GetFlagByName("dry"),
+				lib.GetFlagByName("force"),
 				lib.GetFlagByName("input"),
 				lib.GetFlagByName("output"),
 				lib.GetFlagByName("fast"),
@@ -182,6 +183,8 @@ func main() {
 	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
 	var actionRequestDry bool
 	flag.BoolVar(&actionRequestDry, "dry", false, "validate a -req but do not send it to the Notecard")
+	var actionForce bool
+	flag.BoolVar(&actionForce, "force", false, "send a -req without validating it against the JSON schema")
 	var actionWhenConnected bool
 	flag.BoolVar(&actionWhenConnected, "when-connected", false, "wait until connected")
 	var actionWhenDisconnected bool
@@ -779,7 +782,7 @@ func main() {
 		}
 
 		// Validate the request against the schema
-		if err == nil && validateJSON {
+		if err == nil && validateJSON && !actionForce {
 			var reqMap map[string]interface{}
 			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
 			if err == nil {
