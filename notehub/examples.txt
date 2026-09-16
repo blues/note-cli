@@ -1,4 +1,16 @@
 
+// The optional first argument on the command line is a mode keyword, which determines
+// which switches are available and how the rest of the command line is interpreted.
+// With no mode keyword we are in the default mode, which is everything shown below.
+
+// Display the modes, the general options, and the currently saved settings
+notehub
+
+// Display every switch available in a mode
+notehub -help
+notehub default -help
+notehub skills -help
+
 // General note-related
 notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
 notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'

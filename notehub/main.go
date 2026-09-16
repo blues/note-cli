@@ -18,88 +18,8 @@ import (
 const exitOk = 0
 const exitFail = 1
 
-// Used by req.go
-var flagApp string
-var flagProduct string
-var flagDevice string
-
 // CLI Version - Set by ldflags during build/release
 var version = "development"
-
-// getFlagGroups returns the organized flag groups
-func getFlagGroups() []lib.FlagGroup {
-	return []lib.FlagGroup{
-		{
-			Name:        "auth",
-			Description: "Authentication & Session",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("signin"),
-				lib.GetFlagByName("signin-token"),
-				lib.GetFlagByName("signout"),
-				lib.GetFlagByName("token"),
-			},
-		},
-		{
-			Name:        "scope",
-			Description: "Project & Device Scope",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("projects"),
-				lib.GetFlagByName("project"),
-				lib.GetFlagByName("provision"),
-				lib.GetFlagByName("product"),
-				lib.GetFlagByName("device"),
-				lib.GetFlagByName("scope"),
-				lib.GetFlagByName("sn"),
-			},
-		},
-		{
-			Name:        "vars",
-			Description: "Environment Variables",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("get-vars"),
-				lib.GetFlagByName("set-vars"),
-			},
-		},
-		{
-			Name:        "request",
-			Description: "API Request Options",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("req"),
-				lib.GetFlagByName("pretty"),
-				lib.GetFlagByName("json"),
-				lib.GetFlagByName("verbose"),
-			},
-		},
-		{
-			Name:        "operations",
-			Description: "Notefile Operations",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("upload"),
-				lib.GetFlagByName("type"),
-				lib.GetFlagByName("tags"),
-				lib.GetFlagByName("notes"),
-				lib.GetFlagByName("overwrite"),
-				lib.GetFlagByName("out"),
-			},
-		},
-		{
-			Name:        "notefile",
-			Description: "Notefile Management",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("explore"),
-				lib.GetFlagByName("reserved"),
-				lib.GetFlagByName("trace"),
-			},
-		},
-		{
-			Name:        "other",
-			Description: "Other Options",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("version"),
-			},
-		},
-	}
-}
 
 // withCreds validates credentials and then calls the provided function
 func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
@@ -114,63 +34,31 @@ func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
 // Main entry point
 func main() {
 
-	// Override the default usage function to use our grouped format
+	// The first argument on the command line may optionally be a mode keyword, which
+	// determines which switches are available and how the remaining arguments are
+	// interpreted.  When no mode keyword is present we run in default mode, which is
+	// the behavior of this CLI as it was before modes were introduced.
+	mode, args := cliExtractMode(os.Args[1:])
+
+	// Rewrite the command line with the mode keyword removed, so that the flag
+	// package sees exactly the command line that it would have seen had modes never
+	// existed.  This is what makes 'notehub default ...' identical to 'notehub ...',
+	// and it keeps the config processing within lib unchanged.
+	os.Args = append([]string{os.Args[0]}, args...)
+
+	// Register the switches available in this mode, and only those switches, and use
+	// a usage message describing this mode
+	cliRegisterSwitches(mode)
 	flag.Usage = func() {
-		lib.PrintGroupedFlags(getFlagGroups(), "notehub")
+		cliPrintHelp(mode, true)
 	}
 
-	// Process command line
-	var flagReq string
-	flag.StringVar(&flagReq, "req", "", "{json for device-like request}")
-	var flagPretty bool
-	flag.BoolVar(&flagPretty, "pretty", false, "pretty print json output")
-	var flagJson bool
-	flag.BoolVar(&flagJson, "json", false, "strip all non json lines from output")
-	var flagUpload string
-	flag.StringVar(&flagUpload, "upload", "", "filename to upload")
-	var flagType string
-	flag.StringVar(&flagType, "type", "", "indicate file type of image such as 'firmware'")
-	var flagTags string
-	flag.StringVar(&flagTags, "tags", "", "indicate tags to attach to uploaded image")
-	var flagNotes string
-	flag.StringVar(&flagNotes, "notes", "", "indicate notes to attach to uploaded image")
-	var flagTrace bool
-	flag.BoolVar(&flagTrace, "trace", false, "enter trace mode to interactively send requests to notehub")
-	var flagOverwrite bool
-	flag.BoolVar(&flagOverwrite, "overwrite", false, "use exact filename in upload and overwrite it on service")
-	var flagOut string
-	flag.StringVar(&flagOut, "out", "", "output filename")
-	var flagSignIn bool
-	flag.BoolVar(&flagSignIn, "signin", false, "sign-in to the notehub so that API requests may be made")
-	var flagSignInToken string
-	flag.StringVar(&flagSignInToken, "signin-token", "", "sign-in to the notehub with an explicit token")
-	var flagSignOut bool
-	flag.BoolVar(&flagSignOut, "signout", false, "sign out of the notehub")
-	var flagToken bool
-	flag.BoolVar(&flagToken, "token", false, "obtain the signed-in account's Authentication Token")
-	var flagExplore bool
-	flag.BoolVar(&flagExplore, "explore", false, "explore the contents of the device")
-	var flagReserved bool
-	flag.BoolVar(&flagReserved, "reserved", false, "when exploring, include reserved notefiles")
-	var flagVerbose bool
-	flag.BoolVar(&flagVerbose, "verbose", false, "display requests and responses")
-	flag.StringVar(&flagApp, "project", "", "projectUID")
-	flag.StringVar(&flagProduct, "product", "", "productUID")
-	flag.StringVar(&flagDevice, "device", "", "deviceUID")
-	var flagVersion bool
-	flag.BoolVar(&flagVersion, "version", false, "print the current version of the CLI")
-	var flagScope string
-	flag.StringVar(&flagScope, "scope", "", "dev:xx or @fleet:xx or fleet:xx or @filename")
-	var flagVarsGet bool
-	flag.BoolVar(&flagVarsGet, "get-vars", false, "get environment vars")
-	var flagVarsSet string
-	flag.StringVar(&flagVarsSet, "set-vars", "", "set environment vars using a json template")
-	var flagSn string
-	flag.StringVar(&flagSn, "sn", "", "serial number")
-	var flagProvision bool
-	flag.BoolVar(&flagProvision, "provision", false, "provision devices")
-	var flagProjects bool
-	flag.BoolVar(&flagProjects, "projects", false, "list all projects")
+	// Diagnose a switch that exists but that is not available in this mode, which the
+	// flag package would otherwise report as simply being undefined
+	if err := cliValidateSwitches(mode, args); err != nil {
+		fmt.Printf("%s\n", err)
+		os.Exit(exitFail)
+	}
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
@@ -186,9 +74,28 @@ func main() {
 		os.Exit(exitFail)
 	}
 
-	// If no commands found, just show the config
+	// Display everything available in this mode, if that's all that was asked for
+	if flagHelp {
+		cliPrintHelp(mode, true)
+		os.Exit(exitOk)
+	}
+
+	// Run the mode
+	if err = mode.Run(config); err != nil {
+		fmt.Printf("%s\n", err)
+		os.Exit(exitFail)
+	}
+	os.Exit(exitOk)
+
+}
+
+// runDefault is the handler for the default mode, which is what we run when no mode
+// keyword is specified on the command line
+func runDefault(config *lib.ConfigSettings) (err error) {
+
+	// If no commands found, just show where to go next along with the config
 	if len(os.Args) == 1 {
-		lib.PrintGroupedFlags(getFlagGroups(), "notehub")
+		cliPrintHelp(cliModeNamed(modeDefault), false)
 		config.Print()
 		os.Exit(exitOk)
 	}
@@ -250,6 +157,13 @@ func main() {
 	// Process the main part of the command line as a -req
 	argsLeft := len(flag.Args())
 	if argsLeft == 1 {
+		// The only non-switch argument accepted in this mode is a device-like request,
+		// which is either JSON or an @filename.  A bare word in that position is far
+		// more likely to be a misplaced or misspelled mode keyword than a request, so
+		// say so rather than sending it to the service as a request that can't succeed.
+		if err = cliCheckNotAMode(flag.Args()[0]); err != nil {
+			return err
+		}
 		flagReq = flag.Args()[0]
 	} else if argsLeft != 0 {
 		remainingArgs := strings.Join(flag.Args()[1:], " ")
@@ -486,11 +400,7 @@ func main() {
 		})
 	}
 
-	// Exit
-	if err != nil {
-		fmt.Printf("%s\n", err)
-		os.Exit(exitFail)
-	}
-	os.Exit(exitOk)
+	// Done
+	return err
 
 }
