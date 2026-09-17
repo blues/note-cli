@@ -46,9 +46,13 @@ func cliModes() []*cliMode {
 			},
 			{
 				Name:     modeSkills,
-				Summary:  "build and manage Notehub skills",
+				Summary:  "Markdown that teaches an agent how to use Notehub",
+				Args:     "[skill]",
 				Commands: skillsCommands(),
-				Run:      runSkills,
+				Detail: "With no skill named, 'notehub skills' emits the overview, which introduces\n" +
+					"Notehub's surface area and indexes the skills.  That output is Markdown\n" +
+					"written to be read by an agent rather than by a person.",
+				Run: runSkills,
 			},
 			{
 				Name:    modeHelp,
