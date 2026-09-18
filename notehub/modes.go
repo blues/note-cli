@@ -46,12 +46,12 @@ func cliModes() []*cliMode {
 			},
 			{
 				Name:     modeSkills,
-				Summary:  "Markdown that teaches an agent how to use Notehub",
-				Args:     "[skill]",
+				Summary:  "teach a Notehub project about the product it serves",
+				Args:     "[command]",
 				Commands: skillsCommands(),
-				Detail: "With no skill named, 'notehub skills' emits the overview, which introduces\n" +
-					"Notehub's surface area and indexes the skills.  That output is Markdown\n" +
-					"written to be read by an agent rather than by a person.",
+				Detail: "With no command, 'notehub skills' emits the protocol that turns an AI\n" +
+					"harness into the teacher.  That output is Markdown written to be read by\n" +
+					"an agent rather than by a person, and it is where the teaching begins.",
 				Run: runSkills,
 			},
 			{

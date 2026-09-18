@@ -141,7 +141,7 @@ func notehubSwitches() []*cliSwitch {
 			Usage: "pretty print json output"},
 		{Name: "json", Target: &flagJson, Group: "request", Modes: inDefault,
 			Usage: "strip all non json lines from output"},
-		{Name: "verbose", Target: &flagVerbose, Group: "request", Modes: inDefault,
+		{Name: "verbose", Target: &flagVerbose, Group: "request", Modes: inDefaultAndSkills,
 			Usage: "display requests and responses"},
 
 		// Notefile Operations

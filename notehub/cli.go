@@ -309,11 +309,65 @@ func cliDispatch(mode *cliMode, config *lib.ConfigSettings, args []string) error
 	}
 	for i := range mode.Commands {
 		if strings.EqualFold(args[0], mode.Commands[i].Name) {
-			return mode.Commands[i].Run(config, args[1:])
+			positional, err := cliParseCommandSwitches(mode, args[1:])
+			if err != nil {
+				return err
+			}
+			return mode.Commands[i].Run(config, positional)
 		}
 	}
 	return fmt.Errorf("'%s' is not a %s %s command - use '%s %s -help' to see what is available",
 		args[0], cliName, mode.Name, cliName, mode.Name)
+}
+
+// cliParseCommandSwitches parses the switches that follow a command word, wherever they
+// appear among that command's arguments, and returns the arguments that remain.
+//
+// This is needed because the flag package stops parsing at the first argument that isn't
+// a switch, which would make 'notehub skills pull ./dir -project x' silently ignore the
+// project.  Putting a switch after the thing it applies to is what both people and agents
+// naturally do, so within a mode's commands we accept switches anywhere.
+func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string, err error) {
+
+	// Separate the switches from everything else, using the switch definitions to know
+	// which of them consume the argument that follows
+	switches := []string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if len(arg) < 2 || arg[0] != '-' {
+			positional = append(positional, arg)
+			continue
+		}
+		name := strings.TrimPrefix(arg[1:], "-")
+		if name == "" || name[0] == '-' || name[0] == '=' {
+			return nil, fmt.Errorf("bad flag syntax: %s", arg)
+		}
+		switches = append(switches, arg)
+		if !strings.Contains(name, "=") {
+			if s := cliSwitchNamed(name); s != nil && s.takesValue() && i+1 < len(args) {
+				i++
+				switches = append(switches, args[i])
+			}
+		}
+	}
+
+	// Hold them to the same mode rules as the switches that precede the command
+	if err = cliValidateSwitches(mode, switches); err != nil {
+		return nil, err
+	}
+
+	// Parsing again adds these to whatever was already parsed, because the flag package
+	// leaves a switch alone unless it is set again
+	if err = flag.CommandLine.Parse(switches); err != nil {
+		return nil, err
+	}
+
+	return positional, nil
+
 }
 
 // cliPrintHelp displays help for the specified mode.  The short form is what we

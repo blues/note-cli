@@ -2,66 +2,48 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// The skill builder, which is everything done by 'notehub skills'.
+// The teaching tool, which is everything done by 'notehub skills'.
 //
-// A skill is a Markdown document that teaches an agent how to do one kind of job with
-// Notehub: which interface to use, the vocabulary it expects, the procedure, and how
-// to verify the result.  The documents live in the skills directory as ordinary
-// Markdown files and are compiled into the binary, so a skill is written and reviewed
-// as Markdown rather than as Go.
+// A Notehub project knows the mechanics of the data flowing through it, but not what the
+// product is, what its fields mean, or what anyone would want to ask about it.  This mode
+// exists so that a developer, working through an AI harness, can write that knowledge
+// down as a small set of Markdown files stored in the project itself, where any agent
+// with read access can later find it.
 //
-// 'notehub skills' emits the overview, which introduces Notehub's surface area and
-// indexes the skills that are available.  'notehub skills <name>' emits one of them.
-// Help meant for a person is displayed by 'notehub skills -help', and never by the
-// bare command, because the bare command's output belongs to the agent that asked for
-// it.
+// The CLI is not the teacher.  The harness is.  'notehub skills' emits the protocol that
+// turns a harness into the teacher, and the remaining commands move Markdown in and out
+// of the project's Skills Storage.  Everything else a harness needs - listing projects,
+// sampling events, reading schemas - it already does through the CLI's default mode or
+// the HTTP API directly, so none of it is duplicated here.
 //
-// This mode has its own switches and its own commands, neither of which have anything
-// to do with the switches used to interact with Notehub directly.  The switches it
-// does share with the default mode are -project and -product, which are marked as
-// being available in this mode in switches.go.
+// 'notehub skills' with no command emits the protocol, because its output is meant for
+// the agent that asked for it.  Help meant for a person is displayed by
+// 'notehub skills -help', and never by the bare command.
 
 package main
 
 import (
-	"embed"
+	_ "embed"
 	"flag"
 	"fmt"
-	"io/fs"
 	"strings"
 
 	"github.com/blues/note-cli/lib"
 )
 
-// The skills themselves.  To add one, add a Markdown file to the skills directory
-// with front matter naming it and describing it, and it becomes a command of its own.
+// The protocol that turns a harness into the teacher
 //
-//go:embed skills/*.md
-var skillsFS embed.FS
-
-// skillsDir is where the skills live, and skillsOverview is the one of them that the
-// bare 'notehub skills' emits rather than it being a command
-const skillsDir = "skills"
-const skillsOverview = "overview"
-
-// skillsSkill is one Markdown document that teaches an agent how to do something
-type skillsSkill struct {
-	// Name is how the skill is named on the command line, from its filename
-	Name string
-	// Description is the one-line summary from the document's front matter
-	Description string
-	// Body is the document with its front matter removed
-	Body string
-}
+//go:embed skills/teach.md
+var skillsTeachingProtocol string
 
 // The variables into which this mode's switches are parsed go here, alongside the
 // switch definitions below
 
-// skillsSwitches returns the switches that are specific to the skill builder.  These
-// are defined here, rather than alongside the switches used to interact with Notehub,
-// so that everything belonging to the skill builder stays in one place, but they are
-// part of the same table and so they are registered, validated, and documented in
-// exactly the same way.
+// skillsSwitches returns the switches that are specific to the teaching tool.  These are
+// defined here, rather than alongside the switches used to interact with Notehub, so that
+// everything belonging to the teaching tool stays in one place, but they are part of the
+// same table and so they are registered, validated, and documented in exactly the same
+// way.
 func skillsSwitches() []*cliSwitch {
 	return []*cliSwitch{
 		// For example:
@@ -70,34 +52,35 @@ func skillsSwitches() []*cliSwitch {
 	}
 }
 
-// skillsCommands returns the commands accepted by the skill builder, which are the
-// skills themselves
+// skillsCommands returns the commands accepted by the teaching tool.  They are built
+// around the working copy: teaching happens there, and nothing reaches the project until
+// it is pushed.
 func skillsCommands() []cliCommand {
-	commands := []cliCommand{}
-	for _, skill := range skillsAll() {
-		if skill.Name == skillsOverview {
-			continue
-		}
-		name := skill.Name
-		commands = append(commands, cliCommand{
-			Name:    name,
-			Summary: skill.Description,
-			Run: func(config *lib.ConfigSettings, args []string) error {
-				return skillsEmit(name)
-			},
-		})
+	return []cliCommand{
+		{Name: "status", Summary: "show the working copy and what is pending",
+			Run: skillsStatusCommand},
+		{Name: "pull", Summary: "refresh the working copy from the project",
+			Run: skillsPullCommand},
+		{Name: "push", Summary: "upload new and changed skills to the project",
+			Run: skillsPushCommand},
+		{Name: "delete", Args: "<name>", Summary: "remove one skill from the project",
+			Run: skillsDeleteCommand},
+		{Name: "backup", Args: "[file]", Summary: "save the working copy as a zip file",
+			Run: skillsBackupCommand},
+		{Name: "restore", Args: "<file>", Summary: "replace the working copy from a zip file",
+			Run: skillsRestoreCommand},
 	}
-	return commands
 }
 
 // runSkills is the handler for 'notehub skills'
 func runSkills(config *lib.ConfigSettings) error {
 
-	// With no command, perform this mode's default action rather than displaying
-	// help, which is displayed only by -help
+	// With no command, emit the teaching protocol rather than displaying help, which is
+	// displayed only by -help
 	args := flag.Args()
 	if len(args) == 0 {
-		return skillsDescribe(config)
+		fmt.Printf("%s\n", strings.TrimRight(skillsTeachingProtocol, "\n"))
+		return nil
 	}
 
 	// Run the specified command
@@ -105,98 +88,218 @@ func runSkills(config *lib.ConfigSettings) error {
 
 }
 
-// skillsDescribe is the default action of 'notehub skills', which emits the overview
-// followed by an index of the skills that are available.  The index is generated
-// rather than written down, so that it can't drift from what is actually installed.
-func skillsDescribe(config *lib.ConfigSettings) error {
+// skillsStatusCommand says where the working copy is and what would change in the project
+// if it were pushed.  This is what the person is shown before anything is uploaded.
+func skillsStatusCommand(config *lib.ConfigSettings, args []string) error {
 
-	if err := skillsEmit(skillsOverview); err != nil {
+	project, dir, err := skillsWorkingCopy()
+	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\n## Skills\n\n")
-	for _, skill := range skillsAll() {
-		if skill.Name == skillsOverview {
+	fmt.Printf("project:      %s\n", project)
+	fmt.Printf("working copy: %s\n", dir)
+	if pulled := skillsBaselineNote(dir, skillsPulledFile); pulled != "" {
+		fmt.Printf("last synced:  %s\n", pulled)
+	} else {
+		fmt.Printf("last synced:  never\n")
+	}
+
+	changes, err := skillsPending(dir)
+	if err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		fmt.Printf("\nNo pending changes.\n")
+		return nil
+	}
+
+	// What kind of knowledge each pending skill holds
+	working, err := skillsReadDir(dir)
+	if err != nil {
+		return err
+	}
+	kinds := map[string]string{}
+	problems := map[string]string{}
+	width := 0
+	for _, change := range changes {
+		kind, kindErr := skillsKinds(working[change.Name])
+		switch {
+		case kindErr != nil:
+			problems[change.Name] = kindErr.Error()
 			continue
+		case change.State == "deleted":
+			kind = ""
+		case kind == "":
+			kind = "(no kind)"
 		}
-		fmt.Printf("- `%s %s %s` - %s\n", cliName, modeSkills, skill.Name, skill.Description)
+		kinds[change.Name] = kind
+		if len(kind) > width {
+			width = len(kind)
+		}
+	}
+
+	fmt.Printf("\nPending changes:\n")
+	for _, change := range changes {
+		fmt.Printf("  %-9s %*s%s\n", change.State, -(width + 2), kinds[change.Name], change.Name)
+	}
+
+	// A kind that would be refused on upload is worth knowing about before pushing
+	if len(problems) != 0 {
+		fmt.Printf("\nProblems:\n")
+		for _, change := range changes {
+			if problem, found := problems[change.Name]; found {
+				fmt.Printf("  %s: %s\n", change.Name, problem)
+			}
+		}
+	}
+
+	fmt.Printf("\nUpload the new and changed skills with '%s %s push'.\n", cliName, modeSkills)
+	for _, change := range changes {
+		if change.State == "deleted" {
+			fmt.Printf("A skill deleted here stays in the project until it is removed with '%s %s delete <name>'.\n",
+				cliName, modeSkills)
+			break
+		}
 	}
 
 	return nil
 
 }
 
-// skillsEmit displays the named skill
-func skillsEmit(name string) error {
-	for _, skill := range skillsAll() {
-		if skill.Name == name {
-			fmt.Printf("%s\n", strings.TrimRight(skill.Body, "\n"))
-			return nil
-		}
+// skillsPullCommand refreshes the working copy from the project
+func skillsPullCommand(config *lib.ConfigSettings, args []string) error {
+
+	project, dir, err := skillsWorkingCopy()
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("there is no '%s' skill", name)
+
+	// Pulling over unpushed work would throw it away without asking
+	changes, err := skillsPending(dir)
+	if err != nil {
+		return err
+	}
+	if len(changes) != 0 {
+		return fmt.Errorf("the working copy has %d pending change(s), which pulling would overwrite - push them, or save them with '%s %s backup', and then pull",
+			len(changes), cliName, modeSkills)
+	}
+
+	return skillsStoragePull(project, dir)
+
 }
 
-// skillsAll returns every skill, in the order in which they are displayed
-func skillsAll() []skillsSkill {
+// skillsPushCommand uploads the new and changed skills to the project
+func skillsPushCommand(config *lib.ConfigSettings, args []string) error {
 
-	if skillsTable != nil {
-		return skillsTable
+	project, dir, err := skillsWorkingCopy()
+	if err != nil {
+		return err
 	}
 
-	entries, err := fs.ReadDir(skillsFS, skillsDir)
+	changes, err := skillsPending(dir)
 	if err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		fmt.Printf("No pending changes.\n")
 		return nil
 	}
 
-	for _, entry := range entries {
-		filename := entry.Name()
-		if !strings.HasSuffix(filename, ".md") {
-			continue
-		}
-		contents, err := fs.ReadFile(skillsFS, skillsDir+"/"+filename)
-		if err != nil {
-			continue
-		}
-		description, body := skillsParseFrontMatter(string(contents))
-		skillsTable = append(skillsTable, skillsSkill{
-			Name:        strings.TrimSuffix(filename, ".md"),
-			Description: description,
-			Body:        body,
-		})
-	}
-
-	return skillsTable
+	return skillsStoragePush(project, dir, changes)
 
 }
 
-var skillsTable []skillsSkill
+// skillsDeleteCommand removes a skill from the project, which is kept separate from
+// pushing so that a skill is never removed from a project merely because a file went
+// missing from somebody's working copy
+func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 
-// skillsParseFrontMatter separates a skill's front matter from its body, returning the
-// description from the front matter along with the body.  The front matter is what
-// makes a skill self-describing, and it is removed before the skill is emitted because
-// it is metadata about the document rather than part of what it teaches.
-func skillsParseFrontMatter(contents string) (description string, body string) {
+	project, dir, err := skillsWorkingCopy()
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("usage: %s %s delete <name>", cliName, modeSkills)
+	}
 
-	body = contents
+	return skillsStorageDelete(project, dir, args[0])
 
-	const fence = "---\n"
-	if !strings.HasPrefix(body, fence) {
+}
+
+// skillsBackupCommand saves the working copy as a zip file
+func skillsBackupCommand(config *lib.ConfigSettings, args []string) error {
+
+	project, dir, err := skillsWorkingCopy()
+	if err != nil {
+		return err
+	}
+
+	filename := ""
+	switch len(args) {
+	case 0:
+		filename = skillsBackupPath(dir, project)
+	case 1:
+		filename = args[0]
+	default:
+		return fmt.Errorf("usage: %s %s backup [file]", cliName, modeSkills)
+	}
+
+	count, err := skillsBackup(dir, filename)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d skill(s) saved to %s\n", count, filename)
+	return nil
+
+}
+
+// skillsRestoreCommand replaces the working copy with the contents of a backup
+func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
+
+	_, dir, err := skillsWorkingCopy()
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("usage: %s %s restore <file>", cliName, modeSkills)
+	}
+
+	restored, err := skillsRestore(dir, args[0])
+	if err != nil {
+		return err
+	}
+	if len(restored) == 0 {
+		fmt.Printf("The working copy already matches %s.\n", args[0])
+		return nil
+	}
+
+	fmt.Printf("Restored into %s:\n", dir)
+	for _, change := range restored {
+		fmt.Printf("  %-9s %s\n", change.State, change.Name)
+	}
+	fmt.Printf("\nNothing has reached the project yet - see '%s %s status'.\n", cliName, modeSkills)
+	return nil
+
+}
+
+// skillsWorkingCopy returns the project being taught along with its working copy
+func skillsWorkingCopy() (project string, dir string, err error) {
+	project, err = skillsProject()
+	if err != nil {
 		return
 	}
-	end := strings.Index(body[len(fence):], "\n"+strings.TrimSuffix(fence, "\n"))
-	if end < 0 {
-		return
-	}
-	frontMatter := body[len(fence) : len(fence)+end]
-	body = strings.TrimLeft(body[len(fence)+end+len(fence)+1:], "\n")
-
-	for _, line := range strings.Split(frontMatter, "\n") {
-		if field, value, found := strings.Cut(line, ":"); found && strings.TrimSpace(field) == "description" {
-			description = strings.TrimSpace(value)
-		}
-	}
-
+	dir, err = skillsLocalDir(project)
 	return
+}
 
+// skillsProject returns the project being taught, which every command needs
+func skillsProject() (project string, err error) {
+	if flagApp != "" {
+		return flagApp, nil
+	}
+	if flagProduct != "" {
+		return flagProduct, nil
+	}
+	return "", fmt.Errorf("specify the project being taught with -project or -product")
 }

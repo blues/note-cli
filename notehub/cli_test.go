@@ -5,6 +5,8 @@
 package main
 
 import (
+	"flag"
+	"io"
 	"slices"
 	"testing"
 )
@@ -86,8 +88,9 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSkills, []string{"-product", "net.ozzie.ray:t"}, true},
 		{modeSkills, []string{"-hub", "api.notefile.net"}, true},
 		{modeSkills, []string{"-upload", "f.bin"}, false},
-		{modeSkills, []string{"-project", "app:1", "-verbose"}, false},
+		{modeSkills, []string{"-project", "app:1", "-verbose"}, true},
 		{modeSkills, []string{"-explore"}, false},
+		{modeSkills, []string{"-scope", "dev:1"}, false},
 
 		// The general options are available no matter what mode is being run
 		{modeSkills, []string{"-help"}, true},
@@ -105,6 +108,46 @@ func TestValidateSwitches(t *testing.T) {
 			t.Errorf("%s %v: unexpectedly accepted", test.mode, test.args)
 		}
 	}
+}
+
+// A command's switches are accepted wherever they appear among its arguments, because
+// putting one after the thing it applies to is what both people and agents naturally do
+func TestParseCommandSwitches(t *testing.T) {
+	tests := []struct {
+		args       []string
+		positional []string
+		project    string
+	}{
+		{[]string{"-project", "app:1"}, nil, "app:1"},
+		{[]string{"notefiles", "-project", "app:1"}, []string{"notefiles"}, "app:1"},
+		{[]string{"-project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1"},
+		{[]string{"./dir", "-project=app:1"}, []string{"./dir"}, "app:1"},
+		{[]string{"a", "-project", "app:1", "b"}, []string{"a", "b"}, "app:1"},
+		{[]string{"--", "-notaswitch"}, []string{"-notaswitch"}, ""},
+	}
+	// Register this mode's switches into a command line of our own, because the test
+	// binary owns the real one
+	saved := flag.CommandLine
+	flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	cliRegisterSwitches(cliModeNamed(modeSkills))
+	t.Cleanup(func() { flag.CommandLine = saved })
+
+	for _, test := range tests {
+		flagApp = ""
+		positional, err := cliParseCommandSwitches(cliModeNamed(modeSkills), test.args)
+		if err != nil {
+			t.Errorf("%v: %s", test.args, err)
+			continue
+		}
+		if !slices.Equal(positional, test.positional) {
+			t.Errorf("%v: positional args are %v, expected %v", test.args, positional, test.positional)
+		}
+		if flagApp != test.project {
+			t.Errorf("%v: -project is %q, expected %q", test.args, flagApp, test.project)
+		}
+	}
+	flagApp = ""
 }
 
 // A bare word is a mistyped or misplaced mode keyword rather than a request
@@ -231,5 +274,65 @@ func TestModeDefinitions(t *testing.T) {
 	}
 	if !seen[modeDefault] {
 		t.Errorf("there is no '%s' mode", modeDefault)
+	}
+}
+
+// A skill's kind is what lets an agent load only the knowledge a question needs, and it
+// becomes the upload's tags, which the service requires to be comma-separated without
+// whitespace and to stay clear of the one tag it reserves
+func TestSkillsKinds(t *testing.T) {
+	tests := []struct {
+		contents string
+		kinds    string
+		refused  bool
+	}{
+		{"---\nkind: glossary\n---\n\n# G\n", "glossary", false},
+		{"---\nkind: schema, execution\n---\n\n# S\n", "schema,execution", false},
+		{"---\nkinds: Schema,GLOSSARY\n---\n\n# S\n", "schema,glossary", false},
+		{"---\ndescription: no kind here\n---\n\n# D\n", "", false},
+		{"# no front matter at all\n", "", false},
+		{"---\nkind: \"quoted\"\n---\n\n# Q\n", "quoted", false},
+		{"---\nkind: glossary\n---\nkind: notthisone\n", "glossary", false},
+
+		// The service reserves this one, and a tag may not carry whitespace
+		{"---\nkind: publish\n---\n\n# P\n", "", true},
+		{"---\nkind: schema,publish\n---\n\n# P\n", "", true},
+		{"---\nkind: two words\n---\n\n# W\n", "", true},
+	}
+	for _, test := range tests {
+		kinds, err := skillsKinds([]byte(test.contents))
+		if test.refused && err == nil {
+			t.Errorf("%q: unexpectedly accepted as %q", test.contents, kinds)
+			continue
+		}
+		if !test.refused && err != nil {
+			t.Errorf("%q: unexpectedly refused: %s", test.contents, err)
+			continue
+		}
+		if !test.refused && kinds != test.kinds {
+			t.Errorf("%q: kinds are %q, expected %q", test.contents, kinds, test.kinds)
+		}
+	}
+}
+
+// Only Markdown is a skill, so that a project holding data files of its own does not
+// have them pulled down as though they were knowledge
+func TestIsSkill(t *testing.T) {
+	tests := []struct {
+		source string
+		skill  bool
+	}{
+		{"glossary.md", true},
+		{"references/schema.md", true},
+		{"GLOSSARY.MD", true},
+		{"model.bin", false},
+		{"notes.txt", false},
+		{"", false},
+	}
+	for _, test := range tests {
+		upload := skillsUpload{Source: test.source}
+		if upload.isSkill() != test.skill {
+			t.Errorf("'%s': expected isSkill to be %v", test.source, test.skill)
+		}
 	}
 }
