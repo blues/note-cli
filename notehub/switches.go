@@ -34,6 +34,7 @@ var (
 	flagSignIn      bool
 	flagSignInToken string
 	flagSignOut     bool
+	flagWhoAmI      bool
 	flagToken       bool
 	flagExplore     bool
 	flagReserved    bool
@@ -109,6 +110,8 @@ func notehubSwitches() []*cliSwitch {
 			Usage: "sign-in to the notehub with an explicit token"},
 		{Name: "signout", Target: &flagSignOut, Group: "auth", Modes: inDefault,
 			Usage: "sign out of the notehub"},
+		{Name: "whoami", Target: &flagWhoAmI, Group: "auth", Modes: inDefault,
+			Usage: "report whether signed in to the configured hub, and as whom (exit 0 if so)"},
 		{Name: "token", Target: &flagToken, Group: "auth", Modes: inDefault,
 			Usage: "obtain the signed-in account's Authentication Token"},
 

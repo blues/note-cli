@@ -23,18 +23,11 @@
 package main
 
 import (
-	_ "embed"
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/blues/note-cli/lib"
 )
-
-// The protocol that turns a harness into the teacher
-//
-//go:embed skills/teach.md
-var skillsTeachingProtocol string
 
 // The variables into which this mode's switches are parsed go here, alongside the
 // switch definitions below
@@ -75,12 +68,11 @@ func skillsCommands() []cliCommand {
 // runSkills is the handler for 'notehub skills'
 func runSkills(config *lib.ConfigSettings) error {
 
-	// With no command, emit the teaching protocol rather than displaying help, which is
-	// displayed only by -help
+	// With no command, show where things stand.  Running a training session is
+	// 'notehub train'; this mode is for inspecting and managing what it produced.
 	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Printf("%s\n", strings.TrimRight(skillsTeachingProtocol, "\n"))
-		return nil
+		return skillsStatusCommand(config, nil)
 	}
 
 	// Run the specified command

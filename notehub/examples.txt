@@ -11,6 +11,13 @@ notehub -help
 notehub default -help
 notehub skills -help
 
+// Check whether you are signed in to the configured hub, and as whom.  Exits 0 if so,
+// and otherwise prints why not.  Costs at most one small request, and none at all when
+// the answer is already known locally, so it is safe to run before every session.
+notehub -whoami
+notehub -whoami -json
+notehub -hub preprod.blues.tools -whoami
+
 // General note-related
 notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
 notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'

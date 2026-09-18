@@ -495,8 +495,12 @@ func cliCheckNotAMode(arg string) error {
 		return nil
 	}
 	if mode := cliModeNamed(arg); mode != nil {
-		return fmt.Errorf("'%s' is a mode, and a mode must be the first thing on the command line: %s %s ...",
-			arg, cliName, mode.Name)
+		usage := cliName + " " + mode.Name + " [options]"
+		if mode.Args != "" {
+			usage += " " + mode.Args
+		}
+		return fmt.Errorf("'%s' is a mode, and a mode must be the first thing on the command line, as in: %s",
+			arg, usage)
 	}
 	return fmt.Errorf("'%s' is neither a request nor a mode - a request is JSON or @filename, and the modes are: %s",
 		arg, strings.Join(cliModeNames(), ", "))

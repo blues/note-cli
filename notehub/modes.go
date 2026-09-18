@@ -26,7 +26,11 @@ const (
 	// explicitly is identical to not specifying a mode at all.
 	modeDefault = "default"
 
-	// modeSkills is the skill builder
+	// modeTrain runs a training session: it emits the protocol that turns an AI harness
+	// into the trainer, and the harness does the rest
+	modeTrain = "train"
+
+	// modeSkills manages what a training run produced
 	modeSkills = "skills"
 
 	// modeHelp displays help.  Help is displayed with -help, and this keyword is a
@@ -45,13 +49,22 @@ func cliModes() []*cliMode {
 				Run:     runDefault,
 			},
 			{
+				Name:    modeTrain,
+				Summary: "train this project to understand its physical product",
+				Detail: "'notehub train' emits the training protocol: the instructions that turn an\n" +
+					"AI harness into the trainer.  Run it inside Claude, Codex or any other\n" +
+					"competent harness and it will interview you about your product and write\n" +
+					"down what it learns.  The output is Markdown for the harness to read, not\n" +
+					"for you - what you will see is the conversation it starts.",
+				Run: runTrain,
+			},
+			{
 				Name:     modeSkills,
-				Summary:  "teach a Notehub project about the product it serves",
+				Summary:  "inspect and manage what training produced",
 				Args:     "[command]",
 				Commands: skillsCommands(),
-				Detail: "With no command, 'notehub skills' emits the protocol that turns an AI\n" +
-					"harness into the teacher.  That output is Markdown written to be read by\n" +
-					"an agent rather than by a person, and it is where the teaching begins.",
+				Detail: "With no command, 'notehub skills' shows the working copy and what is\n" +
+					"pending.  To run a training session, use 'notehub train'.",
 				Run: runSkills,
 			},
 			{

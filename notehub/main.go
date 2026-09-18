@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
@@ -125,6 +126,18 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	if flagSignOut {
 		if err := config.RemoveDefaultCredentials(); err != nil {
 			fmt.Printf("sign-out: %s\n", err)
+			os.Exit(exitFail)
+		}
+		os.Exit(exitOk)
+	}
+
+	// Report whether we are signed in, with an exit code that says so.  This is the
+	// question that an agent asks before doing anything else, so it is answered with a
+	// single line and at most one small request to the hub
+	if flagWhoAmI {
+		status := authWhoAmI(config.Hub, credentials, time.Now())
+		authWhoAmIPrint(status, flagJson)
+		if !status.SignedIn {
 			os.Exit(exitFail)
 		}
 		os.Exit(exitOk)
