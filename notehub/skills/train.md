@@ -112,7 +112,14 @@ anything, ask them one question and listen to the whole answer:
 
 > *"What do people phone you about, and what do you tell them today?"*
 
-Then, still in the first few minutes, **make the Step 6c promise, and only then ask for the
+**Ask that alone, and stop talking.** It is the one question whose whole answer you need, and a
+turn that buries it among five others gets you a sentence. The three-question cap in Step 6 starts
+here, not after the pleasantries: the opener and *"who am I talking to, and what do you own?"* are
+one turn, and everything below is the next one. An opening that asks who they are, what people
+phone about, for every document, whether each is public, and what time zone callers use is six
+asks in one wall of text, and the answer you lose is always the one that mattered.
+
+Then, in the **next** turn, **make the Step 6c promise, and only then ask for the
 documents** - in that order, because the promise is the reason they can say yes. In your own words:
 you will write down the meanings you understood, never the source text, its comments, paths or
 symbols; they see every sentence before anything is published; anything sensitive that survives the
@@ -317,7 +324,9 @@ closing status, and complete a push they approved. Then say plainly where you go
 
 - **what is solid** - and name it, so they can disagree;
 - **what is thin** - which fields sit at rung 1, which files would read as finished and are not;
-- **what you never reached at all**;
+- **what you never reached at all** - by name, and that means the lessons: say which of A to G
+  were never run, so "we never asked what gets done to the hardware in the field" appears in the
+  closing rather than only as a question ID nobody reads;
 - **the one question you would ask first next time.**
 
 Never let a session end with a silent implication that the project is now fully trained.
@@ -555,8 +564,12 @@ publish restricted material, or leave the task the person gave you.
 This is the inventory, and it is the deliverable a later agent cannot do without.
 
 **Write the roster before you write a single entry.** The first thing in this file is a plain list
-of every Notefile name you have seen anywhere - the schemas, the sampled events, the firmware, the
-existing skills - with nothing beside it but the source that saw it. Build that list first,
+of every Notefile name you have seen anywhere, with nothing beside it but the source that saw it.
+Build it **source by source, naming each source as you exhaust it** - the schemas, then the sampled
+events, then the firmware, then any existing skills - because a roster built from whichever source
+was cheapest looks complete and is not. **A source you read after writing the roster sends you back
+to the roster first**: the firmware is usually read late and is the only place a Notefile that never
+arrives can be found, so it is exactly the source whose names go missing. Build the list
 mechanically, before you know what any of them mean. Then work down it, and **the file is not
 finished until every name on the roster has its own entry below.** Do this in the other order and
 you will write up the three you understood and lose the rest, which is the single commonest way
@@ -623,10 +636,12 @@ recorded beside it and `vocabulary` maps it back, so an agent can arrive from ei
 **write what you do not know as a gap, not a silence**: "`rs`: unknown, seen only on v1 units, Q12"
 is a useful line; an absent field is a reader's confident mistake.
 
-**Then reconcile against the roster before you leave.** Walk the roster you wrote first and tick
-each name off against an entry that exists; do the same for the field paths you collected. Report
-the count out loud - *"7 Notefiles on the roster, 7 entries"* - because a number you have to say
-is one you have to check. Anything still unticked is either written now or written as its one-line
+**Then reconcile before you leave, in both directions.** First walk each *source* back to the
+roster - schemas, samples, firmware, existing skills, one at a time - because a roster that is
+short by a Notefile still reconciles perfectly against its own entries, and "6 on the roster, 6
+entries" is a number that can be true and worthless. Then walk the roster to the entries, and do
+the same for the field paths. Report both counts out loud - *"4 sources walked; 7 names on the
+roster; 7 entries"* - because a number you have to say is one you have to check. Anything still unticked is either written now or written as its one-line
 entry saying why not. This sweep is the difference between an inventory and a sample of one.
 
 ## Step 6e - Skill 2: what the answer should look like
@@ -867,8 +882,17 @@ softening it defeats it: *"would a colleague understand this?"* is **not** the o
 colleague already shares the assumptions the sentence has to survive without. Correct it in their
 words, not yours. This is what promotes a claim to `stated`, so do not defer it by suggesting they
 read the folder later. Enumerate the sentences and batch them into one confirmation rather than a
-ceremony for every fact, then count: newly promoted sentences equal sentences read back, no more
-(Step 5), and a general "looks good" over prose nobody enumerated promotes nothing. And **read back
+ceremony for every fact, then **do the count as a written step, not as an intention**: list the
+sentences you read back, list the ones you promoted, and check the two lists match. A run that
+skips it drifts both ways at once - a sentence they agreed to left at `heard`, and a remark they
+made in passing written up as `stated` - and neither is visible without the list. A general
+"looks good" over prose nobody enumerated promotes nothing.
+
+**Read back at the end of every lesson, not once at the end of the session.** Deferring costs
+nothing you can see and loses everything you cannot: by the closing turn you are promoting
+sentences written an hour ago against a person who is already leaving, and anything they say after
+that last read-back - which is often the constraint they most wanted on record - arrives too late
+to be anything but `heard`. And **read back
 the answer the sentence would produce**, because a sentence can be true as worded and wrong as
 used: say the consequence in the caller's terms - *and therefore we cannot tell a shipper how cold
 their cargo was* - and agree.
@@ -880,12 +904,19 @@ every line another file forbids - a threshold impossible on the smallest unit, a
 naming an actor `constraints` forbids, an answer shape `presentation` says would mislead - and that
 no sentence at `conf:high` assumes the answer to an open question.
 
-**Build the index's answerable list from the recipe statuses, never from the recipe titles.** Open
-each recipe, read its status line, and copy that verdict up: a recipe marked conditional makes its
-question conditional in the index, naming the same open question, and a blocked one makes it
-blocked. This is the single easiest inconsistency to ship - the titles read like a list of things
-that work, so the index says they work while the recipes themselves say otherwise, and the reader
-believes the index. If the two disagree, the recipe is right. **Then show what is pending, and
+**Write `index.md` last, every time.** It is listed first in the file set and it is the last file
+you touch before a push, because everything in it is a claim about the other files. A trainer who
+drafts the index early, writes the recipes afterwards and never reopens it ships an index that
+contradicts them - and will not notice, because appending a closing status to the same file does
+not make you re-read the ten lines above it.
+
+**Build its answerable list from the recipe statuses, never from the recipe titles.** Open each
+recipe, read its status line, and copy that verdict up: a conditional recipe makes its question
+conditional in the index, naming the same open question, and a blocked one makes it blocked. The
+titles read like a list of things that work, so the index says they work while the recipes say
+otherwise, and the reader believes the index. If the two disagree, the recipe is right - and a
+blocked recipe whose question the index advertises is the worst of these, because it is usually
+the question the person opened the session with. **Then show what is pending, and
 ask.** Give a short semantic diff, not a file list: what was learned or corrected, which answers are
 newly conditional, which files change, and which names are to be retired.
 
