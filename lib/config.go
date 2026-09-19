@@ -39,6 +39,12 @@ func (creds ConfigCreds) IsOAuthAccessToken() bool {
 	return true
 }
 
+// ExpiredAt reports whether the credentials have expired as of the given time.  Expired
+// credentials are as good as none, because the hub will reject them.
+func (creds ConfigCreds) ExpiredAt(now time.Time) bool {
+	return creds.ExpiresAt != nil && !creds.ExpiresAt.After(now)
+}
+
 func (creds ConfigCreds) AddHttpAuthHeader(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+creds.Token)
 }
@@ -139,24 +145,29 @@ func (config *ConfigSettings) Print() {
 	if config.Hub != "" {
 		fmt.Printf("       hub: %s\n", config.Hub)
 	}
-	if len(config.HubCreds) != 0 {
-		fmt.Printf("     creds:\n")
-		for hub, cred := range config.HubCreds {
-			tokenType := "PAT"
-			if cred.IsOAuthAccessToken() {
-				tokenType = "OAuth"
-			}
-
-			expires := ""
-			if cred.ExpiresAt != nil {
-				if cred.ExpiresAt.Before(time.Now()) {
-					expires = fmt.Sprintf(" (expired)")
-				} else {
-					expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
-				}
-			}
-			fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+	// Expired credentials are not shown, because we are effectively not signed in to
+	// that hub, and a hub we are not signed in to is not a saved value worth showing
+	now := time.Now()
+	shownCreds := false
+	for hub, cred := range config.HubCreds {
+		if cred.ExpiredAt(now) {
+			continue
 		}
+		if !shownCreds {
+			fmt.Printf("     creds:\n")
+			shownCreds = true
+		}
+
+		tokenType := "PAT"
+		if cred.IsOAuthAccessToken() {
+			tokenType = "OAuth"
+		}
+
+		expires := ""
+		if cred.ExpiresAt != nil {
+			expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+		}
+		fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
 	}
 	if config.Interface != "" {
 		fmt.Printf("   -interface %s\n", config.Interface)
