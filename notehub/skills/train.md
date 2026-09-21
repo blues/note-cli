@@ -58,27 +58,27 @@ meaningful event is the note that never arrived. Each is a hole in skill 1; Step
 notehub -whoami
 ```
 
-Exit 0 and one line means you are signed in, naming the hub, the account and, for an OAuth sign-in,
+Exit 0 and one line means you are signed in, the account and, 
 when it expires - warn them if a long task would outlive it. Any other exit code means you cannot
 proceed, and the line says why: not signed in, rejected, or the hub unreachable, which have
 different remedies. Sign-in opens a browser, so the person must do it: ask them to run `notehub
--signin` in their own terminal, then `notehub -whoami` again, and if the command is not found point
+-signin` in their own terminal, then you run `notehub -whoami` again, and if the command is not found point
 them at https://dev.blues.io/tools-and-sdks/notehub-cli. Meanwhile keep going on what needs no
 access, and label the remote checks as not done.
 
 ## Step 2 - Choose the project, and bind the session to it
 
 ```
-notehub -projects -pretty
+notehub -projects
 ```
 
-If they already named a project or product, use it and do not ask again; otherwise ask which project
+If they already named a project, use it and do not ask again; otherwise ask which project
 you are training. Either way, **ask who you are talking to and what they own.** Do not assume they
 are the developer: they may be the person who *uses* this data, and if so they hold most of skill 2 -
 the thresholds, the customers, the consequences, the form an answer has to arrive in - which no
 engineer can give you. Say so out loud: the firmware questions can wait for somebody else.
 
-Bind the session to one identity - the **hub**, the **canonical projectUID**, and any **product
+Bind the session to one identity - the **canonical projectUID** and its name, and any **product
 aliases** - record it in `index.md` as "What the skills carry" item 1 describes, and pass an explicit
 `-project <projectUID>` or `-product <productUID>` on every command from here on. A product UID found
 in firmware is evidence to check, not a reason to switch the project the person asked for.

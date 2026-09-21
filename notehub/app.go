@@ -305,6 +305,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 type ProjectInfo struct {
 	Name     string     `json:"name,omitempty"`
 	UID      string     `json:"uid,omitempty"`
+	Role     string     `json:"role"`
 	Products []Metadata `json:"products,omitempty"`
 }
 
@@ -327,7 +328,8 @@ func appListProjects(flagVerbose bool) (projects []ProjectInfo, err error) {
 		}
 		uid, _ := p["uid"].(string)
 		label, _ := p["label"].(string)
-		info := ProjectInfo{Name: label, UID: uid}
+		role, _ := p["role"].(string)
+		info := ProjectInfo{Name: label, UID: uid, Role: role}
 
 		// Fetch products for this project
 		productsRsp := map[string]interface{}{}
