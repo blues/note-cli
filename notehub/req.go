@@ -246,7 +246,7 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 		return
 	}
 	if httpRsp.StatusCode == http.StatusUnauthorized {
-		err = fmt.Errorf("please use -signin to authenticate")
+		err = fmt.Errorf("please use --signin to authenticate")
 		return
 	}
 

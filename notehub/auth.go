@@ -73,7 +73,7 @@ const authExpiresFormat = "2006-01-02 15:04:05 MST"
 
 // The remedy that we suggest when a sign-in is required.  Sign-in opens a browser, so
 // an agent that reads this must hand it to the person rather than run it itself.
-const authSignInAction = "notehub -signin"
+const authSignInAction = "notehub --signin"
 
 // authWhoAmI determines whether we are signed in to the configured hub, and as whom.
 // This is intended to be cheap enough that an agent can run it at the start of every

@@ -7,65 +7,65 @@
 notehub
 
 // Display every switch available in a mode
-notehub -help
-notehub default -help
-notehub skills -help
+notehub --help
+notehub default --help
+notehub skills --help
 
 // Check whether you are signed in to the configured hub, and as whom.  Exits 0 if so,
 // and otherwise prints why not.  Costs at most one small request, and none at all when
 // the answer is already known locally, so it is safe to run before every session.
-notehub -whoami
-notehub -whoami -json
-notehub -hub preprod.blues.tools -whoami
+notehub --whoami
+notehub --whoami --json
+notehub --hub preprod.blues.tools --whoami
 
 // General note-related
-notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
-notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'
+notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
+notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'
 
 // Explore what notefiles exist on the notehub
-notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 -explore
-notehub -product net.ozzie.ray:t -device dev:94deb82a98d0 -explore -reserved
+notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 --explore
+notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 --explore --reserved
 
 // See what files have been uploaded to the app
-notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.query"}'
+notehub --product net.ozzie.ray:t '{"req":"hub.app.upload.query"}'
 
 // Upload a file to an app
-notehub -product net.ozzie.ray:t -upload test.bin
+notehub --product net.ozzie.ray:t --upload test.bin
 
 // Delete an uploaded file
-notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.delete","name":"test-20181002225319.bin"}'
+notehub --product net.ozzie.ray:t '{"req":"hub.app.upload.delete","name":"test-20181002225319.bin"}'
 
 // Get the metadata of an uploaded file
-notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin"}'
+notehub --product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin"}'
 
 // Get the data from an uploaded file once you know the length from the metadata
-notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin","offset":0,"length":10}'
+notehub --product net.ozzie.ray:t '{"req":"hub.app.upload.get","name":"test-20181002225319.bin","offset":0,"length":10}'
 
 // Set the metadata on an uploaded file
-notehub -product net.ozzie.ray:t '{"req":"hub.app.upload.set","name":"test-20181002225319.bin","body":{"testing":123},"contains":"Generate Python"}'
+notehub --product net.ozzie.ray:t '{"req":"hub.app.upload.set","name":"test-20181002225319.bin","body":{"testing":123},"contains":"Generate Python"}'
 
 // Get the env vars for various scopes, returning a JSON object containing them
-notehub -product net.ozzie.ray:t -pretty -scope fleet:60379c1da2401609b8e1fb3eec2a186e -get-vars
-notehub -product net.ozzie.ray:t -pretty -scope dev:864475040518622 -get-vars
-notehub -product net.ozzie.ray:t -pretty -scope "Ray's Fleet" -get-vars
-notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -get-vars
+notehub --product net.ozzie.ray:t --pretty --scope fleet:60379c1da2401609b8e1fb3eec2a186e --get-vars
+notehub --product net.ozzie.ray:t --pretty --scope dev:864475040518622 --get-vars
+notehub --product net.ozzie.ray:t --pretty --scope "Ray's Fleet" --get-vars
+notehub --product net.ozzie.ray:t --pretty --scope "@Ray's Fleet" --get-vars
 
 // Get the env vars for a list of fleets stored in a file, returning a JSON object containing them
 fleets.txt
 	Ray's Fleet
 	fleet:60379c1da2401609b8e1fb3eec2a186e
-notehub -product net.ozzie.ray:t -pretty -scope @fleets.txt -get-vars
+notehub --product net.ozzie.ray:t --pretty --scope @fleets.txt --get-vars
 
 // Get the env vars for a list of devices stored in a file, returning a JSON object containing them
 devices.txt
 	@Ray's Fleet
 	dev:864475040518622
-notehub -product net.ozzie.ray:t -pretty -scope @devices.txt -get-vars -pretty
+notehub --product net.ozzie.ray:t --pretty --scope @devices.txt --get-vars --pretty
 
 // Set one env vars and remove one using a template directly on the command line
-notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -set-vars '{"var1":"val1","var2":"-"}'
+notehub --product net.ozzie.ray:t --pretty --scope "@Ray's Fleet" --set-vars '{"var1":"val1","var2":"-"}'
 
 // Set env vars through a file-based template
-notehub -product net.ozzie.ray:t -pretty -scope "@Ray's Fleet" -set-vars @template
+notehub --product net.ozzie.ray:t --pretty --scope "@Ray's Fleet" --set-vars @template
 
 

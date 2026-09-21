@@ -27,7 +27,7 @@ func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
 	if err := credentials.Validate(); err != nil {
 		config, _ := lib.GetConfig()
 		fmt.Printf("invalid credentials for %s: %s\n", config.Hub, err)
-		return fmt.Errorf("please use 'notehub -signin' or 'notehub -signin-token' to sign into Notehub")
+		return fmt.Errorf("please use 'notehub --signin' or 'notehub --signin-token' to sign into Notehub")
 	}
 	return fn()
 }
@@ -146,7 +146,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Display the token
 	if flagToken {
 		if credentials == nil {
-			fmt.Printf("please sign in using -signin or -signin-token\n")
+			fmt.Printf("please sign in using --signin or --signin-token\n")
 			os.Exit(exitFail)
 		}
 
@@ -159,7 +159,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// See if we did something
 	didSomething := false
 
-	// Create an output function that will be used during -req processing
+	// Create an output function that will be used during --req processing
 	outq := make(chan string)
 	go func() {
 		for {
@@ -167,7 +167,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		}
 	}()
 
-	// Process the main part of the command line as a -req
+	// Process the main part of the command line as a --req
 	argsLeft := len(flag.Args())
 	if argsLeft == 1 {
 		// The only non-switch argument accepted in this mode is a device-like request,
@@ -297,7 +297,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		didSomething = true
 		err = withCreds(credentials, func() error {
 			if flagScope == "" {
-				return fmt.Errorf("use -scope to specify device(s) to be provisioned")
+				return fmt.Errorf("use --scope to specify device(s) to be provisioned")
 			}
 			if flagProduct == "" {
 				return fmt.Errorf("productUID must be specified")

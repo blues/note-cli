@@ -72,7 +72,8 @@ type cliCommand struct {
 
 // cliSwitch is the definition of a single command line switch
 type cliSwitch struct {
-	// Name is the switch as typed on the command line, without its leading '-'
+	// Name is the switch without its leading hyphens.  Help spells it --name, which
+	// is also how it should be spelled anywhere we mention it.
 	Name string
 	// Target is where the parsed value is stored, and must be a *bool, *string or
 	// *int.  It is nil for switches that are registered by another package.
@@ -175,16 +176,28 @@ func (s *cliSwitch) displayName() string {
 // makes the mode keyword purely additive: every command line that was legal before
 // modes existed still means exactly what it has always meant.
 //
-// A mode keyword is recognized only in the very first position and only when it is a
-// bare word.  Anything beginning with '-' is a switch, and the only other argument
-// that has ever been legal in the first position is a device-like request, which is
-// either JSON or an @filename, so no pre-existing command line can be mistaken for a
-// mode keyword.
+// A mode keyword is recognized only in the very first position.  A bare word there is
+// unambiguous: the only other argument that has ever been legal in the first position
+// is a device-like request, which is either JSON or an @filename, so no pre-existing
+// command line can be mistaken for a mode keyword.  A mode typed as though it were a
+// switch, as in '--train', is also accepted there, because a mode keyword looks like
+// one to anyone used to a CLI whose command line is nothing but switches, and it is a
+// natural thing to type.  These hyphenated forms work but are deliberately not
+// mentioned in help, and a name that is a real switch is always left to the flag
+// package, so '--help' remains the help switch rather than the hidden help mode.
 func cliExtractMode(args []string) (mode *cliMode, remaining []string) {
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		if mode = cliModeNamed(args[0]); mode != nil {
-			return mode, args[1:]
+	if len(args) == 0 {
+		return cliModeNamed(modeDefault), args
+	}
+	name := args[0]
+	if strings.HasPrefix(name, "-") {
+		name = strings.TrimPrefix(strings.TrimPrefix(name, "-"), "-")
+		if !cliIsBareWord(name) || cliSwitchNamed(name) != nil {
+			return cliModeNamed(modeDefault), args
 		}
+	}
+	if mode = cliModeNamed(name); mode != nil {
+		return mode, args[1:]
 	}
 	return cliModeNamed(modeDefault), args
 }
@@ -247,7 +260,7 @@ func cliRegisterSwitches(mode *cliMode) {
 			defaultValue, _ := s.Default.(int)
 			flag.IntVar(target, s.Name, defaultValue, s.Usage)
 		default:
-			panic(fmt.Sprintf("-%s is defined with an unsupported target type %T", s.Name, s.Target))
+			panic(fmt.Sprintf("--%s is defined with an unsupported target type %T", s.Name, s.Target))
 		}
 	}
 }
@@ -262,7 +275,7 @@ func cliValidateSwitches(mode *cliMode, args []string) error {
 		if s == nil || s.allowedIn(mode.Name) {
 			continue
 		}
-		return fmt.Errorf("-%s is not available in '%s' mode (it is available in: %s)", name, mode.Name, s.modeList())
+		return fmt.Errorf("--%s is not available in '%s' mode (it is available in: %s)", name, mode.Name, s.modeList())
 	}
 	return nil
 }
@@ -316,7 +329,7 @@ func cliDispatch(mode *cliMode, config *lib.ConfigSettings, args []string) error
 			return mode.Commands[i].Run(config, positional)
 		}
 	}
-	return fmt.Errorf("'%s' is not a %s %s command - use '%s %s -help' to see what is available",
+	return fmt.Errorf("'%s' is not a %s %s command - use '%s %s --help' to see what is available",
 		args[0], cliName, mode.Name, cliName, mode.Name)
 }
 
@@ -324,7 +337,7 @@ func cliDispatch(mode *cliMode, config *lib.ConfigSettings, args []string) error
 // appear among that command's arguments, and returns the arguments that remain.
 //
 // This is needed because the flag package stops parsing at the first argument that isn't
-// a switch, which would make 'notehub skills pull ./dir -project x' silently ignore the
+// a switch, which would make 'notehub skills pull ./dir --project x' silently ignore the
 // project.  Putting a switch after the thing it applies to is what both people and agents
 // naturally do, so within a mode's commands we accept switches anywhere.
 func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string, err error) {
@@ -373,7 +386,7 @@ func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string,
 // cliPrintHelp displays help for the specified mode.  The short form is what we
 // display when we are invoked with nothing to do, and it shows only where to go
 // next: the modes, this mode's commands, and the general options.  The full form,
-// which is what -help displays, adds every switch available in the mode.
+// which is what --help displays, adds every switch available in the mode.
 func cliPrintHelp(mode *cliMode, full bool) {
 
 	// Header
@@ -429,7 +442,7 @@ func cliPrintHelp(mode *cliMode, full bool) {
 	if len(modes) != 0 {
 		fmt.Printf("Modes:\n")
 		for _, m := range modes {
-			fmt.Printf("  %*s%s\n", -(padding + 1), cliModeLabel(m), m.Summary)
+			fmt.Printf("  %*s%s\n", -(padding + 2), cliModeLabel(m), m.Summary)
 		}
 		fmt.Println()
 	}
@@ -438,7 +451,7 @@ func cliPrintHelp(mode *cliMode, full bool) {
 	if len(mode.Commands) != 0 {
 		fmt.Printf("Commands:\n")
 		for _, c := range mode.Commands {
-			fmt.Printf("  %*s%s\n", -(padding + 1), cliCommandLabel(c), c.Summary)
+			fmt.Printf("  %*s%s\n", -(padding + 2), cliCommandLabel(c), c.Summary)
 		}
 		fmt.Println()
 	}
@@ -455,7 +468,7 @@ func cliPrintHelp(mode *cliMode, full bool) {
 				printedGroup = true
 			}
 			_, usage := s.unquoteUsage()
-			fmt.Printf("  -%*s%s\n", -padding, s.displayName(), usage)
+			fmt.Printf("  --%*s%s\n", -padding, s.displayName(), usage)
 		}
 		if printedGroup {
 			fmt.Println()

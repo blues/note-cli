@@ -33,7 +33,7 @@ const (
 	// modeSkills manages what a training run produced
 	modeSkills = "skills"
 
-	// modeHelp displays help.  Help is displayed with -help, and this keyword is a
+	// modeHelp displays help.  Help is displayed with --help, and this keyword is a
 	// hidden alias of it for those who type it out of habit.
 	modeHelp = "help"
 )

@@ -66,32 +66,58 @@ meaningful event is the note that never arrived. Each is a hole in skill 2; Step
 ## Step 1 - Confirm you are signed in to Notehub
 
 ```
-notehub -whoami
+notehub --whoami
 ```
 
 Exit 0 and one line means you are signed in, the account and, 
 when it expires - warn them if a long task would outlive it. Any other exit code means you cannot
 proceed, and the line says why: not signed in, rejected, or the service unreachable, which have
 different remedies. Sign-in opens a browser, so the person must do it: ask them to run `notehub
--signin` in their own terminal, then you run `notehub -whoami` again, and if the command is not found point
+--signin` in their own terminal, then you run `notehub --whoami` again, and if the command is not found point
 them at https://dev.blues.io/tools-and-sdks/notehub-cli. Meanwhile keep going on what needs no
 access, and label the remote checks as not done.
 
 ## Step 2 - Choose the project, and bind the session to it
 
 ```
-notehub -projects
+notehub --projects
 ```
 
 If they already named a project, use it and do not ask again; otherwise ask which project
-you are training. Either way, **ask who you are talking to and what they own.** Do not assume they
-are the developer: they may be the person who *uses* this data, and if so they hold most of skill 1 -
-the thresholds, the customers, the consequences, the form an answer has to arrive in - which no
-engineer can give you. Say so out loud: the firmware questions can wait for somebody else.
+you are training. Either way, **ask who you are talking to and what they own**, and then wait. Do
+not assume they are the developer: they may be the person who *uses* this data, and if so they hold
+most of skill 1 - the thresholds, the customers, the consequences, the form an answer has to arrive
+in - which no engineer can give you.
+
+**Before you ask them for anything, say what happens to what they give you.** This is the one
+thing in this document you say *before* asking rather than after, it takes two sentences, and it is
+not a plan announced to a stranger - it is the terms under which somebody can hand you a
+specification. In your own words:
+
+> *Everything you show me - requirements, specifications, design documents, firmware, source - I
+> read to learn from, and I copy nothing out of it. What gets written down is what I understood,
+> in plain Markdown files in a folder on this machine that you can open, read and correct; nothing
+> reaches the project until you have seen it and said yes; and the source itself never goes
+> anywhere.*
+
+**The reason people withhold a specification is almost never that it is secret - it is that nobody
+told them what would happen to it**, and the material they are least sure about is usually the
+material that would teach you the most. Saying this before the first ask is what makes the ask in
+Step 3 answerable. Step 6c is the full form of the promise, the limits on what you may promise,
+how to ask well, and - if they ask what the *tool* keeps, which is a different question and not
+yours - how to answer that without guessing and without going away to research it.
+
+**Once they have answered, and only then, say what it means for them.** To somebody who turns out to
+be an operator, *"the firmware questions can wait for somebody else"* is a relief and it is worth
+saying. Said before you know, it is a plan announced to a stranger - and to the person who actually
+wrote the firmware it sounds like you are declining the best thing they have. The same goes for
+everything else in this document: **ask, then react to the answer.** Do not open by narrating what
+you intend to do, in what order, or what you will not need; nobody has told you enough yet for any
+of it to be true.
 
 Bind the session to one identity - the **canonical projectUID** and its name, and any **product
 aliases** - record it in `index.md` as "What the skills carry" item 1 describes, and pass an explicit
-`-project <projectUID>` or `-product <productUID>` on every command from here on. A product UID found
+`--project <projectUID>` or `--product <productUID>` on every command from here on. A product UID found
 in firmware is evidence to check, not a reason to switch the project the person asked for.
 Publishing requires write access: establish it from the server's response, not a job title, and say
 plainly when a step is refused - a viewer can still interview and draft locally.
@@ -99,12 +125,12 @@ plainly when a step is refused - a viewer can still interview and draft locally.
 ## Step 3 - Preserve the working copy, then find out which kind of run this is
 
 ```
-notehub skills status -project <projectUID>
+notehub skills status --project <projectUID>
 ```
 
 Training happens in a **working copy**, a folder on this machine for this project. `status` says
 where it is, when it last synced, and what is pending; run it *before* anything else, because the
-next command can refuse or destroy work. If it is clean, `notehub skills pull -project
+next command can refuse or destroy work. If it is clean, `notehub skills pull --project
 <projectUID>`, then list what came down including any file nothing links to - that is how a stale
 skill survives unnoticed.
 
@@ -195,10 +221,11 @@ documents** - in that order, because the promise is the reason they can say yes.
 you will write down the meanings you understood, never the source text, its comments, paths or
 symbols; they see every sentence before anything is published; anything sensitive that survives the
 paraphrase stays out until they say so. Then one short invitation - firmware, requirements or design
-docs, manual, datasheet, website, whatever is handy now - and **ask of each whether it is public or
-restricted.** Ask early: somebody who has to find a specification needs the request before they run
-out of time. An offer nobody pinned is no offer, so write it into `questions` with their name and a
-date; it leaves that list when the file arrives, not when it is promised, and before the session
+docs, manual, datasheet, website, whatever is handy now - **specific about the artifact and about
+what each one saves them** (Step 6c), and **ask of each whether it is public or restricted.** Ask
+early: somebody who has to find a specification needs the request before they run out of time. An
+offer nobody pinned is no offer, so write it into `questions` with their name and a date; it leaves
+that list when the file arrives, not when it is promised, and before the session
 ends say which never came. One thirty-second question goes in the same breath, its answer into
 `config`: *"when somebody says 'yesterday' or 'overnight', whose clock is that - yours, or the
 site where the machine is?"* Those are routinely different, and every window rule depends on it. Then do not read the project in silence:
@@ -362,6 +389,28 @@ the list below and ask them to choose: propose the one that follows from what yo
 it, and come back here saying what you now know that you did not before. A lesson already done is
 worth doing again.
 
+**Every turn ends with the next ask, and this loop is what you always come back to.** A turn that
+ends with a read-back, a correction, a request for permission or a summary and *nothing else* hands
+the person a conversation with no next move, and an agent that looks like it has finished. They
+will not know whether to wait, to answer something, or to go back to work - and the session dies
+there, mid-interview, with the job half done. So:
+
+- **A clarification is never the end of a turn.** When they answer one, record it, say in one
+  sentence what it changed, and **in the same turn go on** - the next question, the next lesson, or
+  the thing you just found while they were typing. The answer to a question is a return to this
+  loop, not an exit from it.
+- **A read-back and a push offer carry the next lesson with them.** Ask *"does this say what you
+  meant?"*, ask *"may I publish it?"*, and then ask the next thing, so a one-word yes moves the
+  session forward instead of ending it. Within the three-question cap: a confirmation is not one of
+  the three.
+- **If you genuinely have nothing to ask, you have not looked.** Read the `questions` worklist,
+  take the lesson that is thinnest, and propose it by name: *"next I would like to go through
+  `_health.qo` field by field - shall we?"* An explicit proposal is a question; *"let me know if
+  you want anything else"* is not.
+- **The only turn that ends without a question is the closing one**, after they have told you to
+  stop - and it says so in words, with the account "How it ends" describes. Silence is never how a
+  person learns the interview is over.
+
 **Early passes go to skill 1, and the lesson list below is in that order deliberately.** A to D are
 the things only this person can tell you - what the product is, how it is worked, who asks about it
 and in what words. E to G are the machine-readable sources, and they will still be there next month.
@@ -511,9 +560,11 @@ schema will - but a fleet name is a clue, not a definition, and today's membersh
 historical. Feeds `notefiles`, `population`, `config`.
 
 **F. Learn from the host firmware.** *(Skill 2.)* Ask for the firmware that drives the Notecard, and
-its version. Read every `note.add`, `note.template`, `note.get`, environment-variable read and
-Notefile name - but what you are really after is **when each fires, and under what conditions**:
-power tiers, transport choice, modes, thresholds, the state machine. That is where `scenarios`
+its version - and ask for it the way Step 6c says to, naming the file you want and what it buys,
+because this is the lesson most often lost to a request nobody bothered to make twice. Read every
+`note.add`, `note.template`, `note.get`, environment-variable read and Notefile name - but what
+you are really after is **when each fires, and under what conditions**: power tiers, transport
+choice, modes, thresholds, the state machine. That is where `scenarios`
 comes from, and it turns an unexplained gap into "this device is on its winter battery tier,
 behaving as designed". Firmware is also the only place carrying **`derivation`** - the constants
 and formulas behind a field - and much of **`sentinels`**; a template declares each field's *wire
@@ -601,7 +652,9 @@ enough to read aloud, and it shrinks. The loop:
    the anomaly with their explanation**, with their name and the date, marked `heard` until Step
    8's read-back promotes it like any other claim; an answer given in passing is not a read-back.
    It stays in the file forever, so the *next* run finds it waiting: **the same question is never
-   asked twice.**
+   asked twice.** Then **keep going in the same turn**: recording their answer is the middle of a
+   turn, never the end of one, and the turn that reports a resolved anomaly carries the next
+   question with it.
 4. If the explanation turned the anomaly into a mechanism, **also put it where a reader will use
    it** - beside the field in the inventory, or in `scenarios` or `population` - and leave a
    pointer.
@@ -614,19 +667,23 @@ a question because you worked around it**: it leaves the list when it is *answer
 proceeded on an assumption the question stays and the assumption is marked `assumed`. And **an
 anomaly with no question is one nobody will ever resolve.**
 
-## Step 6c - The promise you make about their firmware
+## Step 6c - The promise you make about what they share, and how to ask for it
 
-Firmware, requirements and design documents are where the how and the why live. Step 3 has you
-make this promise before the first invitation and lesson H again on an update run; this is the
-full form of it, to be said in your own words:
+Firmware, requirements and design documents are where the how and the why live. Step 2 has you say
+the short form before the first ask, Step 3 has you make the promise before the first invitation,
+and lesson H again on an update run; this is the full form of it, to be said in your own words:
 
 > Give me the firmware and the internal documents and I will read them, and **what I write down is
 > what I understood, never what I read.** No source, no comments, no file names or paths, no
 > internal symbol names, no excerpts - only the meaning of a field, when a reading is taken, why a
 > gap appears, written so that it stands on its own as a description of the data your project
-> already contains. You will see every sentence before anything is published, and these files are
-> readable by anyone with viewer access to this project, so if something I understood is itself
-> sensitive, say so and it stays out.
+> already contains. **Your files stay where they are:** I read them in place, nothing is copied out
+> of them, and the source is not uploaded anywhere. What I write goes into plain Markdown files in
+> a folder on this machine - open them, read them, correct them, delete a sentence you do not like
+> - and a later agent answering somebody's question reads *those sentences*, never your source. You
+> will see every sentence before anything is published, and these files are readable by anyone with
+> viewer access to this project, so if something I understood is itself sensitive, say so and it
+> stays out.
 
 **Make that promise and no larger one.** You cannot promise that nothing confidential can be derived
 from what you write - a calibration constant or a contractual rule can be sensitive with every trace
@@ -637,6 +694,78 @@ local files, where they can be reviewed before anything is pushed, because a ski
 decoder is useless. Ask a focused sharing question only where there is an explicit restriction or a
 genuinely sensitive derived detail, keep that out of the upload set until it is settled, and carry
 on with the rest.
+
+**Now ask for it properly, because a tepid invitation gets a tepid answer.** *"Send me any docs you
+have"* is an errand; it gets nothing. Say what the source buys, be specific about the artifact, and
+make the trade visible - **every document they find is an hour of their own time they do not spend
+being interviewed**, and that is the argument that works on a busy person:
+
+- **The host firmware is the single most valuable thing anyone can hand you**, and most sessions
+  never get it because nobody asks twice. It is the only written record of *when* a reading is
+  taken and under what conditions, the only place the constants and formulas behind a derived field
+  exist, and it declares each field's wire type, which is what decides whether a test on that field
+  can detect anything at all. Ask for the specific piece: *"even just the file where the Notefile
+  templates and the `note.add` calls live - that one file gives me the units, the sentinels and the
+  cadence for every field, and saves you answering forty questions one at a time."*
+- **Requirements and design documents say why**, which nothing else does, and a PRD is usually
+  where the thresholds and the audiences are written down in the company's own words.
+- **The manual, the datasheet and the support articles** carry the vocabulary your skills have to
+  match, and the customer-facing dashboard is the shape an answer has to arrive in.
+
+**Name what you are missing, every time you notice it**, rather than working around it in silence:
+*"I am guessing at what a zero in this field means - is there a header or a comment that would
+settle it?"* **Take "not now" as "not now".** An offer nobody pinned is no offer, so it goes into
+`questions` with their name and a date (Step 3), you say before the session ends which sources
+never came, and lesson H asks again next run - with the promise re-made first, because the person
+saying yes the second time may not be the person who heard it the first. And when something does
+arrive, **say what it changed** - *"your firmware settled eleven fields I had marked assumed"* -
+because a person who sees what their document bought goes and finds the next one.
+
+**When they ask "is it safe to share this with you?", answer it yourself, in that turn.** Do not go
+away and research it. A trainer that meets a question about confidentiality by searching the web has
+already answered it badly: it tells the person that the thing about to read their source does not
+know what it does with it, and the silence where a plain answer should have been is what they will
+remember. You do know. Say it, in two or three sentences, and then get on with the work.
+
+**Two questions hide inside that one, and running them together is what turns the answer to mush.**
+Separate them out loud:
+
+- **What this training does with it.** Yours, and you answer it definitively and without hedging:
+  the source is read, never copied; what gets written is the meaning, into the Markdown files in
+  the working copy on this machine; you read the load-bearing sentences back to them before
+  anything is published; nothing reaches the project until they say yes; and once published those
+  files are readable by anyone with viewer access to this project - which is exactly who, and no
+  one else. That is the whole of the promise above and you can state every line of it flatly.
+- **What the harness you are running inside does with the conversation** - what it logs, how long
+  it keeps a transcript, whether the vendor trains on it, what an enterprise or zero-retention
+  setting changes. **Not yours.** You cannot see it, you must not characterise it, and above all you
+  must not go and look it up: a policy page found in a search is not this account's settings, and
+  a confident answer assembled from one is worse than no answer. Say what it is - a separate
+  question about the tool they are running you in and the terms on their account, which they or
+  their administrator can settle in a minute - say that it changes nothing in the paragraph above,
+  and leave it with them.
+
+**Then lower the exposure rather than argue about it.** You are running on their machine, and
+**reading a file in place is not the same as pasting it into a conversation** - so offer that first:
+point me at the path and I will read it there. Offer the narrower artifact - the one header, the
+templates, the file where the `note.add` calls live - rather than the tree. And if they are still
+unsure, say the fallback plainly: they can answer the questions that file would have answered. It
+is slower, it is worse, and it works.
+
+**An unreleased version is a scope question, not a secrecy question.** When they offer next year's
+firmware to explain this year's data - *"v3 is highly compatible, you will see small
+discrepancies"* - that is a gift: read it, and let it explain what the deployed fleet is doing.
+But what the **skills** say is about the data this project holds, dated and scoped. A v3 meaning
+does not go in as current behaviour; a field no deployed unit sends yet is left out or written with
+its scope on it, as not yet observed; and when v3 ships, what it will add, and why, is on the "may
+never appear" list below with everything else about unreleased plans. So ask which of it may be
+written down at all, mark what you do write `[scope: v3 firmware, not yet deployed]`, and keep the
+rest as the reason you now understand the v2 discrepancies. Where the two versions disagree about a
+field, that belongs in `anomalies` with both scopes named - not silently merged into one sentence.
+
+**Then answer the question they actually asked and carry on.** A trust question settled and left
+hanging is the same dead turn Step 6 forbids: say it, take the file or take the fallback, and go
+straight into the next lesson.
 
 **What may never appear in a skill:** source code; comments, quoted or paraphrased; file names,
 paths, line numbers, commit hashes, branch or repository names; internal symbol names; anything
@@ -980,7 +1109,10 @@ list of files is not a training status.
 never offer a choice between "save" and "publish" in which "save" silently means the project gets
 nothing. A one-word reply to a two-part offer is not consent to the half you prefer: say which you
 did. If they have already told you to publish reviewed work as you go, that is standing
-authorization for this target and scope - stop asking and report each push instead.
+authorization for this target and scope - stop asking and report each push instead. **And never
+let the offer be the whole turn**: a push offer that stands alone leaves the person holding a yes
+or no and nothing to do afterwards, so it goes out together with the next lesson's question (Step
+6) and the session keeps moving whichever way they answer.
 
 **Read back before you push.** Take the two or three load-bearing sentences you just wrote - the
 ones that would change what somebody does - and put them in front of the person:
@@ -1032,9 +1164,9 @@ ask.** Give a short semantic diff, not a file list: what was learned or correcte
 newly conditional, which files change, and which names are to be retired.
 
 ```
-notehub skills status -project <projectUID>      # what would change, and of what kind
-notehub skills push -project <projectUID>        # upload the new and changed skills
-notehub skills delete <name> -project <projectUID>
+notehub skills status --project <projectUID>      # what would change, and of what kind
+notehub skills push --project <projectUID>        # upload the new and changed skills
+notehub skills delete <name> --project <projectUID>
 ```
 
 **`push` uploads the whole pending set**, including edits the person made by hand and anything left
@@ -1049,8 +1181,8 @@ replacement *before* retiring it and check nothing points at the old name. `skil
 `.baseline` and compare names, tags and contents against what you reviewed:
 
 ```
-notehub -project <projectUID> -req '{"req":"hub.app.upload.query","type":"data"}'
-notehub -project <projectUID> -req '{"req":"hub.app.upload.get","type":"data","name":"<name>","offset":0,"length":<length>}'
+notehub --project <projectUID> --req '{"req":"hub.app.upload.query","type":"data"}'
+notehub --project <projectUID> --req '{"req":"hub.app.upload.get","type":"data","name":"<name>","offset":0,"length":<length>}'
 ```
 
 The record carries the Markdown filename in `source`, the kinds in `tags`, and base64 payloads that
@@ -1069,18 +1201,18 @@ Nothing else: not paging, not filters, not tool signatures, and not what you lea
 or about which analytical interfaces this project happens to have today. You have the person's
 credentials through the CLI:
 
-Where your harness has an HTTP client, read `notehub -token` inside the process making the request
+Where your harness has an HTTP client, read `notehub --token` inside the process making the request
 and set the header there. From a shell, keep it out of the argument vector as well - `-H
-"Authorization: Bearer $(notehub -token)"` expands the token into curl's **argv**, where `ps` and
+"Authorization: Bearer $(notehub --token)"` expands the token into curl's **argv**, where `ps` and
 any command log can read it:
 
 ```
-{ printf 'header = "Authorization: Bearer '; notehub -token | tr -d '\n'; printf '"\n'; } \
+{ printf 'header = "Authorization: Bearer '; notehub --token | tr -d '\n'; printf '"\n'; } \
   | curl -s -K - --url "https://api.notefile.net/v1/projects/<projectUID>/schemas"
 ```
 
 Send the credential to that host and nowhere else. **Never run
-`notehub -token` on its own**, never echo it, never put it in a variable or a file you later print,
+`notehub --token` on its own**, never echo it, never put it in a variable or a file you later print,
 and never write it into a skill - bare, it lands a live credential in your context and transcript.
 Keep shell tracing off. Routes carry headers and connection settings, so read only the fields you
 need from a route and strip secrets before displaying or saving any response.
@@ -1186,3 +1318,9 @@ could capture.
 Two skills and nothing else: what the data means, and what people mean. **Meaning in the skills,
 mechanics only in your own head.** And **never put a secret in a skill or go looking for one** -
 route credentials are not shape, and `hub.app.get` returns them.
+
+Say what happens to what they share before you ask for any of it, and ask for the firmware like you
+mean it. **Answer a confidentiality question yourself, in the turn it is asked** - what this
+training does with their material is yours to state plainly; what the harness retains is theirs to
+check, and neither is ever settled by a web search. **Never end a turn without a question** - the
+interview ends when they stop you, not when you run out of things to confirm.

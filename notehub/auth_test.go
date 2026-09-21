@@ -13,7 +13,7 @@ import (
 	"github.com/blues/note-go/note"
 )
 
-// The whole point of -whoami is that an agent can run it cheaply before every session,
+// The whole point of --whoami is that an agent can run it cheaply before every session,
 // so the cases whose answer is known locally must be answered without touching the hub.
 // These tests use a hub that cannot resolve, so any request would fail loudly.
 const unreachableHub = "whoami-test.invalid"
@@ -75,7 +75,7 @@ func TestWhoAmIJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := `{"hub":"whoami-test.invalid","signed_in":false,"reason":"not signed in","action":"notehub -signin"}`
+	expected := `{"hub":"whoami-test.invalid","signed_in":false,"reason":"not signed in","action":"notehub --signin"}`
 	if string(statusJSON) != expected {
 		t.Errorf("got  %s\nwant %s", statusJSON, expected)
 	}

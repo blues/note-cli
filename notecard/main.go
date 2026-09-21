@@ -181,7 +181,7 @@ func main() {
 	var actionRequest string
 	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
 	var actionRequestDry bool
-	flag.BoolVar(&actionRequestDry, "dry", false, "validate a -req but do not send it to the Notecard")
+	flag.BoolVar(&actionRequestDry, "dry", false, "validate a --req but do not send it to the Notecard")
 	var actionWhenConnected bool
 	flag.BoolVar(&actionWhenConnected, "when-connected", false, "wait until connected")
 	var actionWhenDisconnected bool
@@ -255,7 +255,7 @@ func main() {
 	var actionUpload string
 	flag.StringVar(&actionUpload, "upload", "", "upload a file to Notehub via a proxy route using efficient binary transfer")
 	var actionRoute string
-	flag.StringVar(&actionRoute, "route", "", "Notehub proxy route alias for upload (required with -upload)")
+	flag.StringVar(&actionRoute, "route", "", "Notehub proxy route alias for upload (required with --upload)")
 	var actionTarget string
 	flag.StringVar(&actionTarget, "target", "", "optional URL path appended to the route (becomes 'name' in web.post); use [filename] for the uploaded filename")
 
@@ -272,22 +272,22 @@ func main() {
 		exitFailAndCloseCard()
 	}
 
-	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
+	// If no action specified (i.e. just --port x), exit so that we don't touch the wrong port
 	if len(os.Args) == 1 {
 		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
 		config.Print()
 		fmt.Printf("\n")
 		fmt.Printf("Upload Usage:\n")
-		fmt.Printf("  notecard -upload <filepath> -route <route_alias>\n")
-		fmt.Printf("  notecard -upload <filepath> -route <route_alias> -target <url_path>\n")
-		fmt.Printf("  Example: notecard -upload ./data.bin -route MyRoute\n")
-		fmt.Printf("  Example: notecard -upload ./firmware.bin -route Upload -target /devices/[filename]\n")
+		fmt.Printf("  notecard --upload <filepath> --route <route_alias>\n")
+		fmt.Printf("  notecard --upload <filepath> --route <route_alias> --target <url_path>\n")
+		fmt.Printf("  Example: notecard --upload ./data.bin --route MyRoute\n")
+		fmt.Printf("  Example: notecard --upload ./firmware.bin --route Upload --target /devices/[filename]\n")
 		fmt.Printf("\n")
 		fmt.Printf("PCAP Usage:\n")
-		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
-		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -portconfig <baud> -output <path.pcap>\n")
-		fmt.Printf("  Example: notecard -port /dev/ttyUSB0 -pcap usb -output capture.pcap\n")
-		fmt.Printf("  Example: notecard -port /dev/ttyAMA0 -pcap aux -portconfig 115200 -output capture.pcap\n")
+		fmt.Printf("  notecard --port <port_path> --pcap <usb|aux> --output <path.pcap>\n")
+		fmt.Printf("  notecard --port <port_path> --pcap <usb|aux> --portconfig <baud> --output <path.pcap>\n")
+		fmt.Printf("  Example: notecard --port /dev/ttyUSB0 --pcap usb --output capture.pcap\n")
+		fmt.Printf("  Example: notecard --port /dev/ttyAMA0 --pcap aux --portconfig 115200 --output capture.pcap\n")
 		fmt.Printf("\n")
 		nInterface, nPort, _ := notecard.Defaults()
 		if config.Interface != "" {
@@ -319,7 +319,7 @@ func main() {
 		return
 	}
 
-	// Process the main part of the command line as a -req if neither Req nor DFU are specified
+	// Process the main part of the command line as a --req if neither Req nor DFU are specified
 	if actionDFUPackage == "" && actionRequest == "" {
 		argsLeft := len(flag.Args())
 		if argsLeft == 1 {
@@ -332,19 +332,19 @@ func main() {
 
 	// Both actionDFUPackage and actionRequest potentially use the 'remaining args' outside the flags
 	if actionDFUPackage != "" && actionRequest != "" {
-		fmt.Printf("-req and -binpack may not be combined into one command")
+		fmt.Printf("--req and --binpack may not be combined into one command")
 		exitFailAndCloseCard()
 	}
 
 	// PCAP mode is exclusive with other actions
 	if actionPcap != "" && (actionRequest != "" || actionDFUPackage != "" || actionTrace || actionPlayground || actionCommtest || actionEcho != 0) {
-		fmt.Printf("-pcap cannot be combined with other actions")
+		fmt.Printf("--pcap cannot be combined with other actions")
 		exitFailAndCloseCard()
 	}
 
 	// Validate PCAP mode argument
 	if actionPcap != "" && actionPcap != "usb" && actionPcap != "aux" {
-		fmt.Printf("-pcap argument must be 'usb' or 'aux'")
+		fmt.Printf("--pcap argument must be 'usb' or 'aux'")
 		exitFailAndCloseCard()
 	}
 

@@ -72,7 +72,7 @@ func (upload skillsUpload) isSkill() bool {
 }
 
 // skillsRequest performs one v0 upload request.  The project is already on the URL, put
-// there from -project or -product, which is how every other v0 request in this CLI is
+// there from --project or --product, which is how every other v0 request in this CLI is
 // scoped.
 func skillsRequest(request map[string]any) (rsp skillsUploadResponse, err error) {
 

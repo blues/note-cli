@@ -18,7 +18,7 @@
 //
 // 'notehub skills' with no command emits the protocol, because its output is meant for
 // the agent that asked for it.  Help meant for a person is displayed by
-// 'notehub skills -help', and never by the bare command.
+// 'notehub skills --help', and never by the bare command.
 
 package main
 
@@ -293,5 +293,5 @@ func skillsProject() (project string, err error) {
 	if flagProduct != "" {
 		return flagProduct, nil
 	}
-	return "", fmt.Errorf("specify the project being taught with -project or -product")
+	return "", fmt.Errorf("specify the project being taught with --project or --product")
 }

@@ -169,16 +169,19 @@ func (config *ConfigSettings) Print() {
 		}
 		fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
 	}
+	// These are shown as the options that would set them, so that they can be copied
+	// straight onto a command line.  They are spelled with two hyphens because that is
+	// the spelling we now document, and the single-hyphen spelling means the same thing
 	if config.Interface != "" {
-		fmt.Printf("   -interface %s\n", config.Interface)
+		fmt.Printf("   --interface %s\n", config.Interface)
 
 		configPort := config.IPort[config.Interface]
 		if configPort.Port == "" {
-			fmt.Printf("   -port -\n")
-			fmt.Printf("   -portconfig -\n")
+			fmt.Printf("   --port -\n")
+			fmt.Printf("   --portconfig -\n")
 		} else {
-			fmt.Printf("   -port %s\n", configPort.Port)
-			fmt.Printf("   -portconfig %d\n", configPort.PortConfig)
+			fmt.Printf("   --port %s\n", configPort.Port)
+			fmt.Printf("   --portconfig %d\n", configPort.PortConfig)
 		}
 	}
 }
@@ -380,28 +383,9 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 		return
 	}
 
-	// If our flags were the only ones present, save them
-	configOnly := true
-	if len(os.Args) == 1 {
-		configOnly = false
-	} else {
-		for i, arg := range os.Args {
-			// Even arguments are parameters, odd args are flags
-			if (i & 1) != 0 {
-				switch arg {
-				case "-interface":
-				case "-port":
-				case "-portconfig":
-				case "-hub":
-				// any odd argument that isn't one of our switches
-				default:
-					configOnly = false
-				}
-			}
-		}
-	}
-
-	if configOnly && config.Interface != "lease" {
+	// Save only when configuration flags are the entire request.  Use parsed names
+	// so -hub value, --hub value and --hub=value all have the same behavior.
+	if configFlagsOnly(flag.CommandLine) && config.Interface != "lease" {
 		if err := config.Write(); err != nil {
 			return fmt.Errorf("could not write config file: %w", err)
 		}
@@ -427,6 +411,23 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 
 }
 
+// configFlagsOnly reports whether the command line only sets configuration, with
+// no operation flags or positional arguments that would make the settings temporary.
+func configFlagsOnly(flags *flag.FlagSet) bool {
+	if flags.NFlag() == 0 || flags.NArg() != 0 {
+		return false
+	}
+	configOnly := true
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "interface", "port", "portconfig", "hub":
+		default:
+			configOnly = false
+		}
+	})
+	return configOnly
+}
+
 // ConfigSignedIn returns info about whether or not we're signed in
 //
 // TODO: check credentials by issuing an HTTP request
@@ -445,7 +446,7 @@ func ConfigAuthenticationHeader(httpReq *http.Request) error {
 	// Exit if not signed in
 	credentials := ConfigSignedIn()
 	if credentials == nil {
-		return fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", config.Hub)
+		return fmt.Errorf("not authenticated to %s: please use 'notehub --signin' to sign into the Notehub service", config.Hub)
 	}
 
 	// Set the header

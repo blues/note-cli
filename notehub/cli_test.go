@@ -29,14 +29,32 @@ func TestExtractMode(t *testing.T) {
 		// Naming the default mode is the same as not naming a mode at all
 		{[]string{"default"}, modeDefault, []string{}},
 		{[]string{"default", "-version"}, modeDefault, []string{"-version"}},
+		{[]string{"default", "--version"}, modeDefault, []string{"--version"}},
 
 		// Mode keywords
 		{[]string{"skills"}, modeSkills, []string{}},
 		{[]string{"SKILLS", "-project", "app:1"}, modeSkills, []string{"-project", "app:1"}},
+		{[]string{"skills", "--project=app:1"}, modeSkills, []string{"--project=app:1"}},
 		{[]string{"help", "skills"}, modeHelp, []string{"skills"}},
+
+		// A mode typed as though it were a switch, which is a natural mistake
+		{[]string{"-train"}, modeTrain, []string{}},
+		{[]string{"--train"}, modeTrain, []string{}},
+		{[]string{"--TRAIN"}, modeTrain, []string{}},
+		{[]string{"--skills", "pull", "-project", "app:1"}, modeSkills, []string{"pull", "-project", "app:1"}},
+
+		// A switch is always a switch, even when a mode has the same name
+		{[]string{"--help"}, modeDefault, []string{"--help"}},
+		{[]string{"-help"}, modeDefault, []string{"-help"}},
+		{[]string{"--verbose"}, modeDefault, []string{"--verbose"}},
+
+		// A hyphenated word that isn't a mode is left for the flag package to diagnose
+		{[]string{"--notamode"}, modeDefault, []string{"--notamode"}},
+		{[]string{"--train=yes"}, modeDefault, []string{"--train=yes"}},
 
 		// A mode keyword is recognized only in the first position
 		{[]string{"-pretty", "skills"}, modeDefault, []string{"-pretty", "skills"}},
+		{[]string{"-pretty", "--train"}, modeDefault, []string{"-pretty", "--train"}},
 
 		// A word that isn't a mode is left alone for the mode to interpret
 		{[]string{"notamode"}, modeDefault, []string{"notamode"}},
@@ -62,6 +80,8 @@ func TestScanSwitchNames(t *testing.T) {
 		{[]string{"-project", "app:1", "-verbose", "-upload", "f.bin"}, []string{"project", "verbose", "upload"}},
 		{[]string{"-project=app:1", "-pretty"}, []string{"project", "pretty"}},
 		{[]string{"--project", "app:1", "--pretty"}, []string{"project", "pretty"}},
+		{[]string{"--project=app:1", "-pretty", "--verbose=false"}, []string{"project", "pretty", "verbose"}},
+		{[]string{"--project", "-pretty", "--verbose"}, []string{"project", "verbose"}},
 		{[]string{"-pretty", `{"req":"hub.app.get"}`}, []string{"pretty"}},
 		{[]string{`{"req":"hub.app.get"}`, "-pretty"}, nil},
 		{[]string{"--", "-pretty"}, nil},
@@ -91,6 +111,10 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSkills, []string{"-project", "app:1", "-verbose"}, true},
 		{modeSkills, []string{"-explore"}, false},
 		{modeSkills, []string{"-scope", "dev:1"}, false},
+		{modeSkills, []string{"--project=app:1", "-verbose"}, true},
+		{modeSkills, []string{"--hub", "api.notefile.net"}, true},
+		{modeSkills, []string{"--upload=f.bin"}, false},
+		{modeSkills, []string{"--explore"}, false},
 
 		// The general options are available no matter what mode is being run
 		{modeSkills, []string{"-help"}, true},
@@ -110,6 +134,45 @@ func TestValidateSwitches(t *testing.T) {
 	}
 }
 
+// Both spellings must produce the same values and preserve the default mode's
+// argument boundaries.  In particular, values are never rewritten as switches.
+func TestParseSwitchSpellings(t *testing.T) {
+	tests := []struct {
+		args       []string
+		project    string
+		pretty     bool
+		positional []string
+	}{
+		{[]string{"-project", "app:1", "-pretty"}, "app:1", true, nil},
+		{[]string{"--project", "app:1", "--pretty"}, "app:1", true, nil},
+		{[]string{"-project=app:1", "-pretty=false"}, "app:1", false, nil},
+		{[]string{"--project=app:1", "--pretty=false"}, "app:1", false, nil},
+		{[]string{"-project", "app:1", "--pretty"}, "app:1", true, nil},
+		{[]string{"--project=app:1", "-project", "app:2", "--pretty", "-pretty=false"}, "app:2", false, nil},
+		{[]string{"--project", "--pretty"}, "--pretty", false, nil},
+		{[]string{"--project", "--"}, "--", false, nil},
+		{[]string{"--pretty", "--", "-project", "app:1"}, "", true, []string{"-project", "app:1"}},
+		{[]string{"@request.json", "--pretty"}, "", false, []string{"@request.json", "--pretty"}},
+	}
+	saved := flag.CommandLine
+	t.Cleanup(func() { flag.CommandLine = saved })
+	for _, test := range tests {
+		flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
+		flag.CommandLine.SetOutput(io.Discard)
+		cliRegisterSwitches(cliModeNamed(modeDefault))
+		if err := flag.CommandLine.Parse(test.args); err != nil {
+			t.Errorf("%v: %s", test.args, err)
+			continue
+		}
+		if flagApp != test.project || flagPretty != test.pretty || !slices.Equal(flag.Args(), test.positional) {
+			t.Errorf("%v: got project=%q pretty=%v args=%v; expected project=%q pretty=%v args=%v",
+				test.args, flagApp, flagPretty, flag.Args(), test.project, test.pretty, test.positional)
+		}
+	}
+	flagApp = ""
+	flagPretty = false
+}
+
 // A command's switches are accepted wherever they appear among its arguments, because
 // putting one after the thing it applies to is what both people and agents naturally do
 func TestParseCommandSwitches(t *testing.T) {
@@ -123,7 +186,14 @@ func TestParseCommandSwitches(t *testing.T) {
 		{[]string{"-project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1"},
 		{[]string{"./dir", "-project=app:1"}, []string{"./dir"}, "app:1"},
 		{[]string{"a", "-project", "app:1", "b"}, []string{"a", "b"}, "app:1"},
+		{[]string{"--project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1"},
+		{[]string{"./dir", "--project=app:1"}, []string{"./dir"}, "app:1"},
+		{[]string{"a", "--project", "app:1", "b"}, []string{"a", "b"}, "app:1"},
+		{[]string{"-project", "app:1", "./dir", "--project=app:2"}, []string{"./dir"}, "app:2"},
+		{[]string{"--project", "--verbose"}, nil, "--verbose"},
+		{[]string{"--project", "--"}, nil, "--"},
 		{[]string{"--", "-notaswitch"}, []string{"-notaswitch"}, ""},
+		{[]string{"--project=app:1", "--", "--project=app:2"}, []string{"--project=app:2"}, "app:1"},
 	}
 	// Register this mode's switches into a command line of our own, because the test
 	// binary owns the real one
