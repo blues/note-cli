@@ -8,10 +8,12 @@
 // which is a JSON request posted to /req.  Skills are kept as project uploads, and a few
 // properties of that API shape everything here:
 //
-//   - The upload type is "data".  The "skill" type is not yet deployed, and "data" has
-//     the same permissions, so it is what we use.  A project's data uploads may include
-//     files that have nothing to do with skills, so every skill is tagged, and only
-//     tagged uploads are ever treated as one.
+//   - The upload type is "skill", which is the project's skill store and holds nothing
+//     else.  Each upload is tagged with the kinds of knowledge it carries, so that a
+//     reader can load only the kinds a question needs.
+//
+//   - A query may ask for the contents as well, and returns the whole set in one
+//     transaction.
 //
 //   - The name under which an upload is stored is assigned by the service, and is opaque.
 //     What we choose is the source, which the service records alongside it, and which we
@@ -37,7 +39,7 @@ import (
 
 const (
 	// skillsUploadType is the upload type that skills are stored as
-	skillsUploadType = "data"
+	skillsUploadType = "skill"
 
 	// skillsReservedTag is the one tag that means something to the service already,
 	// and so is the one tag a skill may not claim as a kind
@@ -52,7 +54,8 @@ type skillsUpload struct {
 	Length   int    `json:"length,omitempty"`
 	Created  int64  `json:"created,omitempty"`
 	Modified int64  `json:"modified,omitempty"`
-	Payload  []byte `json:"payload,omitempty"` // present only when the query asks for it
+	Text     string `json:"text,omitempty"`    // the contents, when the query asked for them
+	Payload  []byte `json:"payload,omitempty"` // the contents of a range read
 }
 
 // skillsUploadResponse is what the upload API replies with
@@ -64,9 +67,9 @@ type skillsUploadResponse struct {
 	Payload []byte         `json:"payload,omitempty"` // a range read returns bytes here
 }
 
-// isSkill reports whether an upload is one of this project's skills rather than some
-// other data file that happens to live in the same project.  A skill is Markdown, and
-// its tags say what kind of knowledge it holds rather than that it is a skill at all.
+// isSkill reports whether an upload is one of this project's skills.  The store holds
+// nothing else, so this is a guard rather than a filter: a skill is Markdown, and its
+// tags say what kind of knowledge it holds rather than that it is a skill at all.
 func (upload skillsUpload) isSkill() bool {
 	return upload.Source != "" && strings.HasSuffix(strings.ToLower(upload.Source), skillsExt)
 }
@@ -154,13 +157,15 @@ func skillsStorageCurrent(uploads []skillsUpload) (current map[string]skillsUplo
 
 // skillsStorageRead returns the contents of one stored skill.
 //
-// Asking a query for contents is a single transaction for the whole project, and is what
-// we would rather do, but it is not yet deployed everywhere.  Where it isn't, the upload
-// comes back without its payload and we fall back to reading the bytes as a range, which
-// every deployment supports.  Nothing here needs to change when the one-transaction form
-// arrives: it simply stops falling back.
+// A query that asked for contents has already brought them back, for the whole project in
+// one transaction, and that is the path every caller takes.  An upload that arrives
+// without its text - one read from a query that did not ask, or a skill stored empty - is
+// read as a range instead, so that a caller never has to know which kind of query it holds.
 func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
+	if upload.Text != "" {
+		return []byte(upload.Text), nil
+	}
 	if upload.Payload != nil || upload.Length == 0 {
 		return upload.Payload, nil
 	}

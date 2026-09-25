@@ -16,15 +16,17 @@
 // sampling events, reading schemas - it already does through the CLI's default mode or
 // the HTTP API directly, so none of it is duplicated here.
 //
-// 'notehub skills' with no command emits the protocol, because its output is meant for
-// the agent that asked for it.  Help meant for a person is displayed by
-// 'notehub skills --help', and never by the bare command.
+// 'notehub skills' with no command writes the project's whole skill set to stdout as one
+// assembled document, because its output is meant for whoever or whatever asked to read
+// the skills.  Help meant for a person is displayed by 'notehub skills --help', and never
+// by the bare command.
 
 package main
 
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/blues/note-cli/lib"
 )
@@ -50,6 +52,10 @@ func skillsSwitches() []*cliSwitch {
 // it is pushed.
 func skillsCommands() []cliCommand {
 	return []cliCommand{
+		{Name: "show", Args: "[name|all]", Summary: "write one skill, or the whole set as one document, to stdout",
+			Run: skillsShowCommand},
+		{Name: "list", Summary: "list the skills the project holds",
+			Run: skillsListCommand},
 		{Name: "status", Summary: "show the working copy and what is pending",
 			Run: skillsStatusCommand},
 		{Name: "pull", Summary: "refresh the working copy from the project",
@@ -68,16 +74,37 @@ func skillsCommands() []cliCommand {
 // runSkills is the handler for 'notehub skills'
 func runSkills(config *lib.ConfigSettings) error {
 
-	// With no command, show where things stand.  Running a training session is
+	// With no command, show what the project holds, assembled into one document.  That
+	// is what somebody asking about a project's skills is asking for, and it is the one
+	// output of this mode worth piping somewhere.  Running a training session is
 	// 'notehub train'; this mode is for inspecting and managing what it produced.
 	args := flag.Args()
 	if len(args) == 0 {
-		return skillsStatusCommand(config, nil)
+		return skillsShowCommand(config, []string{skillsShowAll})
+	}
+
+	// A skill's name where a command would go means to show it, because that is the only
+	// thing it could mean and it is what everybody types.  A command word always wins:
+	// a project whose skills collide with one is read with an explicit 'show'.
+	if !strings.EqualFold(args[0], modeHelp) && skillsCommandNamed(args[0]) == nil {
+		args = append([]string{"show"}, args...)
 	}
 
 	// Run the specified command
 	return cliDispatch(cliModeNamed(modeSkills), config, args)
 
+}
+
+// skillsCommandNamed returns the named command of this mode, or nil if there is no such
+// command
+func skillsCommandNamed(name string) *cliCommand {
+	commands := skillsCommands()
+	for i := range commands {
+		if strings.EqualFold(name, commands[i].Name) {
+			return &commands[i]
+		}
+	}
+	return nil
 }
 
 // skillsStatusCommand says where the working copy is and what would change in the project

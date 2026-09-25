@@ -63,8 +63,11 @@ func cliModes() []*cliMode {
 				Summary:  "inspect and manage what training produced",
 				Args:     "[command]",
 				Commands: skillsCommands(),
-				Detail: "With no command, 'notehub skills' shows the working copy and what is\n" +
-					"pending.  To run a training session, use 'notehub train'.",
+				Detail: "With no command, 'notehub skills' writes everything the project holds to\n" +
+					"stdout as one document, with the index first and every cross-reference\n" +
+					"turned into a link.  A skill's name where a command would go means 'show'\n" +
+					"it, so 'notehub skills index.md' reads that one file.  To run a training\n" +
+					"session, use 'notehub train'.",
 				Run: runSkills,
 			},
 			{

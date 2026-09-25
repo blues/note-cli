@@ -43,7 +43,7 @@ you are confirming.
 ### What you do **not** have to teach
 
 **The agent that will answer people's questions is smart, and it has its own authorized access.**
-Given the project identity and the API documentation URLs - the two pointers listed under "What the
+Given the product in words and the documentation URLs - the two pointers listed under "What the
 skills carry so a reader can query" - it works out its own queries, and needs no pagination, cursor
 semantics, filter encoding, SQL dialect, tool signature or call sequence from you. Every line spent
 on those is taken from the meaning only this interview can capture. "Exploring the live project",
@@ -115,10 +115,13 @@ everything else in this document: **ask, then react to the answer.** Do not open
 you intend to do, in what order, or what you will not need; nobody has told you enough yet for any
 of it to be true.
 
-Bind the session to one identity - the **canonical projectUID** and its name, and any **product
-aliases** - record it in `index.md` as "What the skills carry" item 1 describes, and pass an explicit
-`--project <projectUID>` or `--product <productUID>` on every command from here on. A product UID found
-in firmware is evidence to check, not a reason to switch the project the person asked for.
+Bind the session to one identity - the **canonical projectUID** and any **product UIDs or aliases**
+- and pass an explicit `--project <projectUID>` or `--product <productUID>` on every command from
+here on. **That binding is for your commands and your notes only.** No UID of any kind is ever
+written into a skill: the files describe a product, which is deployed more than once, and an
+identifier in them welds the set to this one project (Step 6c, rule 3). What `index.md` carries
+instead is the product in words, as "What the skills carry" describes. A product UID found in
+firmware is evidence to check, not a reason to switch the project the person asked for.
 Publishing requires write access: establish it from the server's response, not a job title, and say
 plainly when a step is refused - a viewer can still interview and draft locally.
 
@@ -224,7 +227,7 @@ paraphrase stays out until they say so. Then one short invitation - firmware, re
 docs, manual, datasheet, website, whatever is handy now - **specific about the artifact and about
 what each one saves them** (Step 6c), and **ask of each whether it is public or restricted.** Ask
 early: somebody who has to find a specification needs the request before they run out of time. An
-offer nobody pinned is no offer, so write it into `questions` with their name and a date; it leaves
+offer nobody pinned is no offer, so write it into `questions` against their role and a date; it leaves
 that list when the file arrives, not when it is promised, and before the session
 ends say which never came. One thirty-second question goes in the same breath, its answer into
 `config`: *"when somebody says 'yesterday' or 'overnight', whose clock is that - yours, or the
@@ -320,7 +323,7 @@ Conversions` and nothing else, because the origin stays with the sentence in the
 Every claim carries a marker saying where it came from, how sure you are, and what it applies to:
 
 ```markdown
-- An excursion means above 8 degrees for fifteen consecutive minutes. `[stated:dana, operations 2026-09-17 conf:high]`
+- An excursion means above 8 degrees for fifteen consecutive minutes. `[stated:trainer, operations 2026-09-17 conf:high]`
 - The median interval between notes is 15 minutes across 240 devices. `[observed:events 2026-08-18..2026-09-17 n=31,000 has_more=false conf:high]`
 - The 8-degree limit may be contractual rather than physical. `[assumed conf:low]`
 ```
@@ -328,21 +331,23 @@ Every claim carries a marker saying where it came from, how sure you are, and wh
 Five origins, and they are not interchangeable:
 
 - **`stated`** - a human told you, in conversation with you, in this session, **and you read the
-  sentence back to them and they agreed to it.** Record **who**. A document that quotes a human is
+  sentence back to them and they agreed to it.** Record **which role** said it - `trainer`, or
+  `operator`, or `on-call`, never a name (Step 6c). A document that quotes a human is
   `documented`; your own paraphrase they never heard is `heard` until they have seen the words.
   `stated` is the one origin a later run may never silently overwrite. A read-back promotes exactly
   the sentences read: a batched "yes, fine" promotes each sentence you enumerated and nothing in the
   prose around them, and one promoted sentence may be cited in many places, so demoting a genuine
   claim to make citations match read-backs is data loss.
 - **`documented`** - you read it in firmware, a datasheet, a manual, a website. Record the source
-  and its version or review date; an assertion stored by a previous run is a prior assertion, not a
-  fresh verification.
+  *as Step 6c has you describe it* - "the V3 firmware", "the published owner's guide" - never its
+  title, path or link, along with its version or review date; an assertion stored by a previous run
+  is a prior assertion, not a fresh verification.
 - **`observed`** - you inferred it from data. Record the window, the filters, how many events, and
   whether more were available; a large row count is not representativeness.
 - **`assumed`** - you guessed. Say so, keep the open question, and never let it reach an answer
   unhedged or become a decision rule.
-- **`heard`** - the person said it in this session and has not yet heard it read back. Record who
-  and when. It outranks `assumed`, may be corrected, and becomes `stated` only by read-back - so a
+- **`heard`** - the person said it in this session and has not yet heard it read back. Record the
+  role and when. It outranks `assumed`, may be corrected, and becomes `stated` only by read-back - so a
   rule that was not read back is `heard`, and the recipe says so.
 
 Use short source IDs (`F1`, `E3`) from the front matter rather than a long citation on every line,
@@ -379,8 +384,14 @@ description: Every Notefile in this project, and what each field means
 updated: 2026-09-17T14:02:00Z
 sources:
   - F1: host firmware v2, restricted, reviewed 2026-09-17
+  - P1: the guide published for owners of the product, public, revised 2022-07, reviewed 2026-09-17
+  - H1: trainer, interview 2026-09-17
 ---
 ```
+
+**That roster is what a source roster looks like.** Each line says what kind of thing it was, how
+far it may be trusted and when it was read - and none of them could be used to find the document,
+name who wrote it, or say whose product this is.
 
 ## Step 6 - The lessons: a loop, not a menu
 
@@ -481,7 +492,7 @@ not the script:
 - *What here is contractual - what carries a fine, a warranty claim, or a regulator?* Ask to see or
   hear the clause; record the rule in the document's own terms, having confirmed under Step 6c that
   quoting this particular clause is allowed - a contractual definition the customer already shares
-  with a counterparty usually is, an internal one is not - with who holds it, and which record and
+  with a counterparty usually is, an internal one is not - with which role holds it, and which record and
   statistic it is decided on. An answer turning on a clause nobody has read says so in the sentence.
 - *Who gets escalated to and what happens out of hours, and what is the worst thing an agent could
   say to a customer about this product?*
@@ -598,6 +609,17 @@ session is `heard`, not `documented` - and check which documents a previous run 
 never received, and ask again. Do not re-ask a settled question unless new evidence makes its scope
 doubtful, and then say what changed first.
 
+**And read the stored set against Step 6c before you add to it.** An earlier run may have written a
+name, a UID, a link, a document title or a quoted line into a file that is now published, and a
+rule nobody enforces retroactively is a rule that only applies to the careful. Sweep every file for
+the four kinds: a person or organization named; a projectUID, productUID, deviceUID, fleet UID,
+serial number or credential; a URL that is not one of the documentation URLs; a source named rather
+than described. **Fixing these is a correction, not a retraction** - the claim survives, its
+identifying detail is replaced by a role or a description, and the meaning is untouched - so it
+needs no read-back and no permission, only telling them what you changed and why before the push.
+Report what you found by count and kind, because a set that had them once will have them again
+wherever the next run is careless.
+
 ## Step 6a - Never accept the first answer
 
 The first answer is the top of a ladder, not the end of it. Every field, every fleet and every
@@ -649,7 +671,7 @@ enough to read aloud, and it shrinks. The loop:
    these seven fields and I can't find any of them in a year of events - did something change?"*
    Order by how much each would change an answer.
 3. **Remove the question** - a worklist that keeps finished items stops being read - and **update
-   the anomaly with their explanation**, with their name and the date, marked `heard` until Step
+   the anomaly with their explanation**, against their role and the date, marked `heard` until Step
    8's read-back promotes it like any other claim; an answer given in passing is not a read-back.
    It stays in the file forever, so the *next* run finds it waiting: **the same question is never
    asked twice.** Then **keep going in the same turn**: recording their answer is the middle of a
@@ -715,7 +737,7 @@ being interviewed**, and that is the argument that works on a busy person:
 **Name what you are missing, every time you notice it**, rather than working around it in silence:
 *"I am guessing at what a zero in this field means - is there a header or a comment that would
 settle it?"* **Take "not now" as "not now".** An offer nobody pinned is no offer, so it goes into
-`questions` with their name and a date (Step 3), you say before the session ends which sources
+`questions` against their role and a date (Step 3), you say before the session ends which sources
 never came, and lesson H asks again next run - with the promise re-made first, because the person
 saying yes the second time may not be the person who heard it the first. And when something does
 arrive, **say what it changed** - *"your firmware settled eleven fields I had marked assumed"* -
@@ -767,16 +789,50 @@ field, that belongs in `anomalies` with both scopes named - not silently merged 
 hanging is the same dead turn Step 6 forbids: say it, take the file or take the fallback, and go
 straight into the next lesson.
 
-**What may never appear in a skill:** source code; comments, quoted or paraphrased; file names,
-paths, line numbers, commit hashes, branch or repository names; internal symbol names; anything
-quoted from a requirements or design document, or in it about unreleased plans, costs, suppliers,
-schedules or customers; architecture not visible in the data; credentials; and any description so
-specific that a reader could reconstruct the source. Keep private pointers **outside** the working
-copy. **What may, and should:** what a field means, its units, range and absence; when data is
-produced and what governs the cadence; what situation produces what output; a relationship between
-values as a relationship rather than an implementation; and anything already public. **Keep the
+**What may never appear in a skill.** Four kinds of thing, and none of them has an exception you
+are entitled to make. They apply to every file you write, including `questions` and `anomalies`,
+which are uploaded exactly like the rest.
+
+1. **Anything literal from the session.** Source code; comments, quoted or paraphrased; file names,
+   paths, line numbers, commit hashes, branch or repository names; internal symbol names; **any URL
+   you were given**, whether or not it is public; anything quoted from a requirements or design
+   document, or in one about unreleased plans, costs, suppliers, schedules or customers;
+   architecture not visible in the data; and any description so specific that a reader could
+   reconstruct the source. You write what you understood, never what you read, and a sentence that
+   could only have been written with the source open is already too close to it.
+
+2. **Names - of people and of organizations, without exception.** Not the person training you, not
+   their colleagues, not their customers, partners, suppliers or employer, not the organization
+   running a deployment you were told about, not a place that identifies one. Where a sentence
+   needs an actor it takes a **role**: **`Trainer`** for the person in this session, and "an
+   operator", "the on-call engineer", "a customer", "a technician" for anybody else. This holds in
+   prose, in every provenance marker, in the open questions, in the anomalies, and in the source
+   roster in front matter.
+
+3. **Identifiers.** No projectUID, appUID, productUID, deviceUID, fleet UID or serial number, and
+   no token, key or credential. Two reasons, either sufficient: they are not knowledge, and **an
+   identifier welds the set to one project.** What you are writing describes a *product*, and a
+   product is deployed more than once - a skill set that names its project cannot be lifted into
+   the next one, and being liftable is most of what makes it worth writing. The reader arrives
+   already holding the project it read these files from; it does not need to be told which one it
+   is in.
+
+4. **An explicit list of sources, or a product identity block.** No document titles, no links, no
+   roster of what you were handed. **Describe each source in general terms instead** - *"the
+   hardware specification for the V2 product"*, *"the source code for the V3 firmware"*, *"a public
+   article describing a humanitarian monitoring deployment"*, *"the guide published for owners of
+   the product"*. That is enough for a reader to weigh a claim by, and it gives nothing away. A
+   description that identifies its source to anybody who has seen it is not a description, it is a
+   citation with the punctuation removed.
+
+**What may, and should:** what a field means, its units, range and absence; when data is produced
+and what governs the cadence; what situation produces what output; a relationship between values as
+a relationship rather than an implementation; the product's own name and the names of its variants
+and generations, which are what everybody calls the thing; and anything already public. **Keep the
 on-wire Notefile and field names and API-visible environment-variable keys** - interface vocabulary
-even when the firmware uses them as symbol names, and skill 2 needs them.
+even when the firmware uses them as symbol names, and skill 2 needs them. The only links a skill
+ever contains are the fixed documentation URLs listed under "What the skills carry"; every other
+URL, and every private pointer, stays **outside** the working copy, in your own notes.
 
 **Provenance for a confidential source names the source, not the place in it.** Write
 `[documented:host firmware v2, reviewed 2026-09-18 conf:high]`, never
@@ -1090,8 +1146,8 @@ dependents reading as verified is worse than one that never retracted it, becaus
 invents a different replacement - which is the failure the retraction existed to prevent.
 
 ```markdown
-- ~~Devices report every 15 minutes.~~ `[stated:dana 2026-09-17]` superseded by dana 2026-09-18:
-  before 2026-03-01 they are 15 minutes apart, from that date 30. `[stated:dana 2026-09-18]`
+- ~~Devices report every 15 minutes.~~ `[stated:trainer 2026-09-17]` superseded 2026-09-18:
+  before 2026-03-01 they are 15 minutes apart, from that date 30. `[stated:trainer 2026-09-18]`
 ```
 
 ## Step 8 - Write into the working copy, review, publish, and verify
@@ -1147,6 +1203,13 @@ every line another file forbids - a threshold impossible on the smallest unit, a
 naming an actor `constraints` forbids, an answer shape `presentation` says would mislead - and that
 no sentence at `conf:high` assumes the answer to an open question.
 
+**And the Step 6c pass, in the same breath.** Read what you are about to push for the four things
+that may never appear in it - a person or an organization named; an identifier of any kind; a URL
+that is not one of the documentation URLs; a source named or quoted rather than described - and fix
+what you find before the push rather than after it. This is a scan of the text, not a memory of
+having been careful: the sentence that carries a name is always the one written at speed while the
+person was still talking, and once pushed it is readable by everyone with access to the project.
+
 **Write `index.md` last, every time.** It is listed first in the file set and it is the last file
 you touch before a push, because everything in it is a claim about the other files. A trainer who
 drafts the index early, writes the recipes afterwards and never reopens it ships an index that
@@ -1177,17 +1240,18 @@ the working copy does not remove it from the project**: only `delete` does, so p
 replacement *before* retiring it and check nothing points at the old name. `skills backup` and
 `skills restore <file>` are there before a restructuring.
 
-**Verify what the server now holds.** After a push, read the stored skills back independently of
-`.baseline` and compare names, tags and contents against what you reviewed:
+**Verify what the server now holds.** After a push, read the stored skills back from the project
+itself - not from the working copy or `.baseline`, which would only tell you what you meant to send
+- and compare names, kinds and contents against what you reviewed:
 
 ```
-notehub --project <projectUID> --req '{"req":"hub.app.upload.query","type":"data"}'
-notehub --project <projectUID> --req '{"req":"hub.app.upload.get","type":"data","name":"<name>","offset":0,"length":<length>}'
+notehub skills list --project <projectUID>          # what the project holds, by name, kind and date
+notehub skills show <name> --project <projectUID>   # one stored skill, as stored
+notehub skills --project <projectUID>               # the whole set as one linked document
 ```
 
-The record carries the Markdown filename in `source`, the kinds in `tags`, and base64 payloads that
-`"full":true` returns inline only on some deployments - elsewhere read each file, and keep the
-`source` filename and the upload's opaque `name` distinct when you do. **An upload is not atomic
+`list` names each file, its kinds and its size, so a file you did not expect and a file that never
+arrived are both visible in one line each. **An upload is not atomic
 across files**: if only part of the set lands, stop every dependent deletion, read the actual server
 state, and report which changes are saved and which are still only local - never "published" for the
 whole set. The working copy is theirs to edit, so tell them where it is, what reached the project,
@@ -1196,7 +1260,7 @@ and the closing account Step 6 asks for.
 ## Exploring the live project - **for you, not for a skill**
 
 You need enough of the interfaces to look at this project honestly today. **None of it belongs in a
-skill except the two documentation URLs below**, which "What the skills carry" puts in `index.md`.
+skill except the documentation URLs below**, which "What the skills carry" puts in `index.md`.
 Nothing else: not paging, not filters, not tool signatures, and not what you learn here about access
 or about which analytical interfaces this project happens to have today. You have the person's
 credentials through the CLI:
@@ -1263,21 +1327,27 @@ datasets during training - that is not a read.
 file. Onboarding state is a dated fact, and a skill asserting it is wrong the day it changes. What
 belongs in a skill is the durable half: which questions are aggregate questions, which Notefiles
 and fields carry the data they need, and what answering them well would require. IQ's own
-documentation URL is durable and may go in `index.md`, phrased as a conditional ("if this project
-is IQ-enabled, its documentation is at ..."), never as a claim that it is.
+documentation is durable and may go in `index.md` - its specification, and the instructions for
+installing its MCP endpoint - phrased as a conditional ("if this project is IQ-enabled, its
+documentation is at ..."), never as a claim that it is.
 
 ## What the skills carry so a reader can query
 
 The answering agent needs only this from you, and will do the rest itself. Put it in `index.md`,
 in a short block near the top:
 
-1. **The project identity** - the canonical projectUID and its name, and any product UID or alias
-   people use for it, exactly as Step 2 bound them. A skill set that never names its project is
-   one nobody can run.
-2. **Where the documentation is** - the API reference and the OpenAPI specification, by URL, as
-   above: the whole of what a capable reader needs about endpoints, parameters, paging and filters.
-   The analytical interface's documentation URL may join them, phrased as a conditional and never
-   as an assertion that this project has it.
+1. **The product, in words** - what the thing is called, its variants and generations, and the
+   words people use for it. **Never a UID**, of the project, the product, a device or a fleet, and
+   never the name of whoever owns or runs it (Step 6c, rules 2 and 3). The reader is already
+   holding the project it read these files from, so it needs no identifier to find it - and the
+   set stays liftable into the next deployment of the same product, which is the point.
+2. **Where the documentation is** - the Notehub API reference and the OpenAPI specification, by
+   URL: the whole of what a capable reader needs about endpoints, parameters, paging and filters.
+   The analytical interface's documentation may join them - its specification and the instructions
+   for installing its MCP endpoint - phrased as a conditional and never as an assertion that this
+   project has it. **These are the only URLs a skill may contain.** They are fixed, public and
+   supplied by this protocol rather than by the session, which is exactly what separates them from
+   every link the person sends you.
 
 `index.md` also says **what a reader does with a question no recipe matches**, because a recipe set
 is a handful of recorded utterances and askers have not read it: which recipe's meaning may be
@@ -1318,6 +1388,10 @@ could capture.
 Two skills and nothing else: what the data means, and what people mean. **Meaning in the skills,
 mechanics only in your own head.** And **never put a secret in a skill or go looking for one** -
 route credentials are not shape, and `hub.app.get` returns them.
+
+**No names, no identifiers, no links, no sources named rather than described** (Step 6c) - a skill
+describes a product, and one that names a person or a project is both a disclosure and a set that
+cannot be lifted into the next deployment.
 
 Say what happens to what they share before you ask for any of it, and ask for the firmware like you
 mean it. **Answer a confidentiality question yourself, in the turn it is asked** - what this
