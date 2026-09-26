@@ -13,8 +13,7 @@ import (
 	"testing"
 )
 
-// The mode keyword is additive, so every command line that was legal before modes
-// existed must still be parsed as the default mode with its arguments untouched
+// Every command line that predates modes must parse as the default mode, unchanged
 func TestExtractMode(t *testing.T) {
 	tests := []struct {
 		args      []string
@@ -41,7 +40,7 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"skills", "--project=app:1"}, modeSkills, []string{"--project=app:1"}},
 		{[]string{"help", "skills"}, modeHelp, []string{"skills"}},
 
-		// A mode typed as though it were a switch, which is a natural mistake
+		// A mode typed as a switch
 		{[]string{"-skills"}, modeSkills, []string{}},
 		{[]string{"--skills"}, modeSkills, []string{}},
 		{[]string{"--SKILLS"}, modeSkills, []string{}},
@@ -57,7 +56,6 @@ func TestExtractMode(t *testing.T) {
 		// A hyphenated word that isn't a mode is left for the flag package to diagnose
 		{[]string{"--notamode"}, modeDefault, []string{"--notamode"}},
 		{[]string{"--skills=yes"}, modeDefault, []string{"--skills=yes"}},
-		{[]string{"--train"}, modeDefault, []string{"--train"}},
 
 		// A mode keyword is recognized only in the first position
 		{[]string{"-pretty", "skills"}, modeDefault, []string{"-pretty", "skills"}},
@@ -77,8 +75,7 @@ func TestExtractMode(t *testing.T) {
 	}
 }
 
-// The switches on a command line must be identified in the same way that the flag
-// package identifies them, because that is what the mode check is performed against
+// Switches must be found the way the flag package finds them
 func TestScanSwitchNames(t *testing.T) {
 	tests := []struct {
 		args  []string
@@ -190,8 +187,7 @@ func TestParseSwitchSpellings(t *testing.T) {
 	flagPretty = false
 }
 
-// A command's switches are accepted wherever they appear among its arguments, because
-// putting one after the thing it applies to is what both people and agents naturally do
+// A command's switches are accepted anywhere among its arguments
 func TestParseCommandSwitches(t *testing.T) {
 	tests := []struct {
 		args       []string
@@ -212,8 +208,7 @@ func TestParseCommandSwitches(t *testing.T) {
 		{[]string{"--", "-notaswitch"}, []string{"-notaswitch"}, ""},
 		{[]string{"--project=app:1", "--", "--project=app:2"}, []string{"--project=app:2"}, "app:1"},
 	}
-	// Register this mode's switches into a command line of our own, because the test
-	// binary owns the real one
+	// Use a command line of our own; the test binary owns the real one
 	saved := flag.CommandLine
 	flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
 	flag.CommandLine.SetOutput(io.Discard)
@@ -259,9 +254,7 @@ func TestIsBareWord(t *testing.T) {
 	}
 }
 
-// Every switch must be defined in a way that the framework can register, validate
-// and display, which is checked here so that a mistake in the table is caught at
-// test time rather than when the switch is first used
+// Every switch in the table must be one the framework can register, validate and display
 func TestSwitchDefinitions(t *testing.T) {
 	seen := map[string]bool{}
 	for _, s := range cliSwitches() {
@@ -301,8 +294,7 @@ func TestSwitchDefinitions(t *testing.T) {
 	}
 }
 
-// The general options are what the short form of help displays, so they must be
-// exactly the switches that belong to the CLI rather than to any one mode
+// The general options, which short help shows, must be available in every mode
 func TestGeneralOptions(t *testing.T) {
 	general := []string{}
 	for _, s := range cliSwitches() {
@@ -366,9 +358,8 @@ func TestModeDefinitions(t *testing.T) {
 	}
 }
 
-// A skill's kind is what lets an agent load only the knowledge a question needs, and it
-// becomes the upload's tags, which the service requires to be comma-separated without
-// whitespace and to stay clear of the one tag it reserves
+// A skill's kinds become its upload's tags: comma-separated, without spaces, and never
+// the reserved one
 func TestSkillsKinds(t *testing.T) {
 	tests := []struct {
 		contents string
@@ -378,12 +369,18 @@ func TestSkillsKinds(t *testing.T) {
 		{"---\nkind: glossary\n---\n\n# G\n", "glossary", false},
 		{"---\nkind: schema, execution\n---\n\n# S\n", "schema,execution", false},
 		{"---\nkinds: Schema,GLOSSARY\n---\n\n# S\n", "schema,glossary", false},
+
+		// 'tags' is a synonym, and 'kind' wins when both are there
+		{"---\ntags: glossary, schema\n---\n", "glossary,schema", false},
+		{"---\ntags: [glossary, schema]\n---\n", "glossary,schema", false},
+		{"---\nkind: glossary\ntags: other\n---\n", "glossary", false},
+		{"---\ntags: publish\n---\n", "", true},
 		{"---\ndescription: no kind here\n---\n\n# D\n", "", false},
 		{"# no front matter at all\n", "", false},
 		{"---\nkind: \"quoted\"\n---\n\n# Q\n", "quoted", false},
 		{"---\nkind: glossary\n---\nkind: notthisone\n", "glossary", false},
 
-		// A list of kinds is written as YAML writes a list, in either of its forms
+		// Either form of YAML list
 		{"---\nkind: [schema, glossary]\n---\n", "schema,glossary", false},
 		{"---\nkind: [\"schema\", 'glossary']\n---\n", "schema,glossary", false},
 		{"---\nkind:\n  - schema\n  - glossary\ndescription: after the list\n---\n", "schema,glossary", false},
@@ -394,8 +391,7 @@ func TestSkillsKinds(t *testing.T) {
 		{"---\nkind: schema # what the fields are\n---\n", "schema", false},
 		{"---\r\nkind: schema\r\n---\r\n", "schema", false},
 
-		// Only the top-level field is the kind, and only the kind is read, so a slip
-		// elsewhere in the front matter - or a blank line in it - changes nothing
+		// Only the top-level field is read, so a slip or blank line elsewhere doesn't matter
 		{"---\nmetadata:\n  kind: nested\ndescription: x\n---\n", "", false},
 		{"---\nmetadata:\n  kind: nested\nkind: schema\n---\n", "schema", false},
 		{"---\ndescription: Use when: writing notes\nkind: schema\n---\n", "schema", false},
@@ -435,8 +431,7 @@ func TestSkillsKinds(t *testing.T) {
 	}
 }
 
-// Only Markdown is a skill, so that a project holding data files of its own does not
-// have them pulled down as though they were knowledge
+// Only Markdown uploads are skills
 func TestIsSkill(t *testing.T) {
 	tests := []struct {
 		source string
@@ -457,8 +452,8 @@ func TestIsSkill(t *testing.T) {
 	}
 }
 
-// A skill is stored under its path, written the one way a path can be written, so that
-// the same file is never stored under two names and no name climbs out of a directory
+// A skill's name must be a clean relative path, so a file has one name and none escapes
+// its directory
 func TestSkillsCheckName(t *testing.T) {
 	for name, allowed := range map[string]bool{
 		"index.md":            true,
@@ -480,8 +475,7 @@ func TestSkillsCheckName(t *testing.T) {
 	}
 }
 
-// Getting a skill never overwrites a local file that holds something else unless forced,
-// because that file may hold edits nobody has stored yet
+// get keeps a local file that differs unless forced, since it may hold unstored edits
 func TestSkillsSaveFile(t *testing.T) {
 	dir := t.TempDir()
 	filename := filepath.Join(dir, "nested", "index.md")
@@ -508,8 +502,7 @@ func TestSkillsSaveFile(t *testing.T) {
 	}
 }
 
-// Setting a directory stores the skills in it by their paths within it, and nothing else:
-// a file that isn't a skill and anything hidden are the person's own business
+// set on a directory stores its skills by relative path, skipping hidden and other files
 func TestSkillsReadDir(t *testing.T) {
 	dir := t.TempDir()
 	for name, contents := range map[string]string{
@@ -537,8 +530,7 @@ func TestSkillsReadDir(t *testing.T) {
 	}
 }
 
-// Replacing or removing a skill has to account for every upload stored under its name,
-// the superseded ones as well as the current one
+// Replacing or removing a skill covers every upload under its name, superseded ones too
 func TestSkillsStorageNames(t *testing.T) {
 	names := skillsStorageNames([]skillsUpload{
 		{Name: "index$2.md", Source: "index.md"},

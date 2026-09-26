@@ -1,7 +1,6 @@
 
-// The optional first argument on the command line is a mode keyword, which determines
-// which switches are available and how the rest of the command line is interpreted.
-// With no mode keyword we are in the default mode, which is everything shown below.
+// The first argument may be a mode keyword, such as 'signin' or 'skills'.  Without one,
+// the CLI runs in its default mode, as in the examples after the skills ones.
 
 // Display the modes, the general options, and the currently saved settings
 notehub
@@ -11,21 +10,16 @@ notehub --help
 notehub default --help
 notehub skills --help
 
-// Check whether you are signed in to the configured hub, and as whom.  Exits 0 if so,
-// and otherwise prints why not.  Costs at most one small request, and none at all when
-// the answer is already known locally, so it is safe to run before every session.
+// Check whether you are signed in, and as whom; exits 0 if so, and otherwise says why not
 notehub --whoami
 notehub --whoami --json
 notehub --hub preprod.blues.tools --whoami
 
-// Sign in to Notehub, which opens your browser and saves the credentials that the
-// requests below will use
+// Sign in to Notehub in your browser
 notehub signin
 notehub signin --hub preprod.blues.tools
 
-// Read and manage the skills a project holds: Markdown that tells any AI agent what the
-// product behind the data is, written by training the project with any AI agent pointed
-// at https://notehub.md.  With no command, every skill assembled into one document.
+// Read and manage the skills a project holds; with no command, the whole set as one document
 notehub skills --product net.ozzie.ray:t
 notehub skills list --product net.ozzie.ray:t
 notehub skills show index.md --product net.ozzie.ray:t
@@ -33,9 +27,11 @@ notehub skills get index.md --product net.ozzie.ray:t
 notehub skills get all ./skills --product net.ozzie.ray:t
 notehub skills set ./skills --dry-run --product net.ozzie.ray:t
 notehub skills set ./skills --product net.ozzie.ray:t
-notehub skills set my-notes.md recipes.md --product net.ozzie.ray:t
 notehub skills delete old.md --product net.ozzie.ray:t
 notehub skills delete all --force --product net.ozzie.ray:t
+
+// Store a file as a skill with a different name
+notehub skills set my-notes.md recipes.md --product net.ozzie.ray:t
 
 // General note-related
 notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'

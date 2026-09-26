@@ -51,10 +51,9 @@ settings apply only to that one invocation.
 notehub [mode] [options]
 ```
 
-The optional leading `mode` keyword determines which options are available and how the
-rest of the command line is interpreted. With no mode keyword the CLI runs in its
-default mode; naming the default mode explicitly is identical to not naming a mode
-at all.
+The optional `mode` keyword, which must come first, selects which options are
+available and how the rest of the command line is read. Without one, the CLI runs in
+its default mode.
 
 | Mode | Purpose |
 | --- | --- |
@@ -62,11 +61,8 @@ at all.
 | `signin` | Sign in to Notehub in your browser |
 | `skills` | Read and manage the skills a project holds: show, list, get, set, delete |
 
-A mode keyword, when used, must be the first argument on the command line.
-
-Naming a mode with nothing else performs that mode's own default action, which is not
-necessarily output meant for a person to read. Help is always displayed by `--help`,
-which describes the options belonging to the mode being run:
+A mode named on its own performs its default action. `--help` describes the options
+of the mode being run:
 
 ```bash
 notehub                 # the modes, the general options, and the saved settings
@@ -87,10 +83,10 @@ With other options or a request, specifying `--hub` does not by itself save the 
 
 ### Skills
 
-A project's skills are Markdown files stored in the project itself, which tell any AI
-agent what the product behind the data is and what its data means. They are written by
-training the project: point any AI agent at https://notehub.md and ask it to train your
-project. The `skills` mode is how you read them and manage them yourself:
+A project's skills are Markdown files, stored in the project, that tell an AI agent
+what the product is and what its data means. To write them, point any AI agent at
+https://notehub.md and ask it to train your project. The `skills` mode reads and
+manages them:
 
 ```bash
 notehub skills --project app:123                      # every skill, assembled into one linked document
@@ -102,10 +98,12 @@ notehub skills set ./skills --project app:123         # store the ones that chan
 notehub skills delete old.md --project app:123        # remove one skill from the project
 ```
 
-Every command talks to the project directly and keeps nothing locally between runs.
-`get` never overwrites a local file that differs from the project's copy unless given
-`--force`, `set` stores only the files that differ from what the project holds and
-never removes anything, and `delete all` removes every skill only when given `--force`.
+A skill's kinds, such as `product` or `recipe`, are stored as its tags, taken from the
+`kind:` (or `tags:`) line of its front matter. To change them, edit that line and `set`
+the file again.
+
+`get` won't overwrite a local file that differs unless given `--force`. `set` stores
+only what differs, and never removes anything. `delete all` requires `--force`.
 
 ## Building the CLIs
 

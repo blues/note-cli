@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -39,8 +38,7 @@ func (creds ConfigCreds) IsOAuthAccessToken() bool {
 	return true
 }
 
-// ExpiredAt reports whether the credentials have expired as of the given time.  Expired
-// credentials are as good as none, because the hub will reject them.
+// ExpiredAt reports whether the credentials had expired by the given time
 func (creds ConfigCreds) ExpiredAt(now time.Time) bool {
 	return creds.ExpiresAt != nil && !creds.ExpiresAt.After(now)
 }
@@ -145,17 +143,12 @@ func (config *ConfigSettings) Print() {
 	if config.Hub != "" {
 		fmt.Printf("       hub: %s\n", config.Hub)
 	}
-	// Expired credentials are not shown, because we are effectively not signed in to
-	// that hub, and a hub we are not signed in to is not a saved value worth showing
+	// Skip expired credentials, which the hub would reject
 	now := time.Now()
 	shownCreds := false
 	for hub, cred := range config.HubCreds {
 		if cred.ExpiredAt(now) {
 			continue
-		}
-		if !shownCreds {
-			fmt.Printf("     creds:\n")
-			shownCreds = true
 		}
 
 		tokenType := "PAT"
@@ -167,11 +160,14 @@ func (config *ConfigSettings) Print() {
 		if cred.ExpiresAt != nil {
 			expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
 		}
-		fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+		if !shownCreds {
+			shownCreds = true
+			fmt.Printf("     creds: %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+		} else {
+			fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+		}
 	}
-	// These are shown as the options that would set them, so that they can be copied
-	// straight onto a command line.  They are spelled with two hyphens because that is
-	// the spelling we now document, and the single-hyphen spelling means the same thing
+	// Shown as the options that set them, so they can be pasted onto a command line
 	if config.Interface != "" {
 		fmt.Printf("   --interface %s\n", config.Interface)
 
@@ -281,10 +277,6 @@ func GetConfig() (*ConfigSettings, error) {
 // ConfigRead reads the current info from config file
 func ConfigRead() error {
 
-	// As a convenience to all tools, generate a new random seed for each iteration
-	rand.Seed(time.Now().UnixNano())
-	rand.Seed(rand.Int63() ^ time.Now().UnixNano())
-
 	// Read the config file
 	configPath := configSettingsPath()
 	contents, err := os.ReadFile(configPath)
@@ -383,8 +375,7 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 		return
 	}
 
-	// Save only when configuration flags are the entire request.  Use parsed names
-	// so -hub value, --hub value and --hub=value all have the same behavior.
+	// Save only when the command line does nothing but set configuration
 	if configFlagsOnly(flag.CommandLine) && config.Interface != "lease" {
 		if err := config.Write(); err != nil {
 			return fmt.Errorf("could not write config file: %w", err)
@@ -411,8 +402,7 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 
 }
 
-// configFlagsOnly reports whether the command line only sets configuration, with
-// no operation flags or positional arguments that would make the settings temporary.
+// configFlagsOnly reports whether the command line sets configuration and nothing else
 func configFlagsOnly(flags *flag.FlagSet) bool {
 	if flags.NFlag() == 0 || flags.NArg() != 0 {
 		return false

@@ -2,26 +2,10 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Skills Storage, which is where a project's skills live.
-//
-// Unlike everything else this CLI reaches, skills are stored through the older "v0" API,
-// which is a JSON request posted to /req.  Skills are kept as project uploads, and a few
-// properties of that API shape everything here:
-//
-//   - The upload type is "skill", which is the project's skill store and holds nothing
-//     else.  Each upload is tagged with the kinds of knowledge it carries, so that a
-//     reader can load only the kinds a question needs.
-//
-//   - A query may ask for the contents as well, and returns the whole set in one
-//     transaction.
-//
-//   - The name under which an upload is stored is assigned by the service, and is opaque.
-//     What we choose is the source, which the service records alongside it, and which is
-//     the skill's name as everyone else knows it: its path, such as index.md.
-//
-//   - Uploading never replaces.  Adding a skill that already exists creates a second
-//     upload with the same source and a newer name, so after adding we delete the ones it
-//     supersedes.  That ordering matters: a failed upload leaves the old one in place.
+// Skills are stored as project uploads of type "skill", through the v0 /req API.  The
+// service gives each upload an opaque name and records the skill's path as its source.
+// Adding never replaces, so storing a skill adds a new upload and then removes the older
+// ones, in that order so that a failure leaves the old one in place.
 
 package main
 
@@ -39,8 +23,7 @@ const (
 	// skillsUploadType is the upload type that skills are stored as
 	skillsUploadType = "skill"
 
-	// skillsReservedTag is the one tag that means something to the service already,
-	// and so is the one tag a skill may not claim as a kind
+	// skillsReservedTag is a tag the service reserves, so no kind may use it
 	skillsReservedTag = "publish"
 )
 
@@ -65,16 +48,12 @@ type skillsUploadResponse struct {
 	Payload []byte         `json:"payload,omitempty"` // a range read returns bytes here
 }
 
-// isSkill reports whether an upload is one of this project's skills.  The store holds
-// nothing else, so this is a guard rather than a filter: a skill is Markdown, and its
-// tags say what kind of knowledge it holds rather than that it is a skill at all.
+// isSkill reports whether an upload is a skill, which is a Markdown file
 func (upload skillsUpload) isSkill() bool {
 	return upload.Source != "" && strings.HasSuffix(strings.ToLower(upload.Source), skillsExt)
 }
 
-// skillsRequest performs one v0 upload request.  The project is already on the URL, put
-// there from --project or --product, which is how every other v0 request in this CLI is
-// scoped.
+// skillsRequest performs one v0 upload request, scoped by --project or --product
 func skillsRequest(request map[string]any) (rsp skillsUploadResponse, err error) {
 
 	requestJSON, err := note.JSONMarshal(request)
@@ -94,9 +73,8 @@ func skillsRequest(request map[string]any) (rsp skillsUploadResponse, err error)
 
 }
 
-// skillsStorageQuery returns the project's stored skills, newest first for any source
-// that has more than one, and with their contents when they are asked for.  Retrieving
-// every skill, contents included, is a single transaction.
+// skillsStorageQuery returns the project's stored skills, newest first within each
+// source, with their contents if asked
 func skillsStorageQuery(contents bool) (uploads []skillsUpload, err error) {
 
 	request := map[string]any{
@@ -118,7 +96,7 @@ func skillsStorageQuery(contents bool) (uploads []skillsUpload, err error) {
 		}
 	}
 
-	// Newest first, so that the first upload seen for a source is the current one
+	// Newest first within each source, so the first one seen is current
 	sort.SliceStable(uploads, func(i, j int) bool {
 		if uploads[i].Source != uploads[j].Source {
 			return uploads[i].Source < uploads[j].Source
@@ -138,8 +116,8 @@ func skillsUploadWhen(upload skillsUpload) int64 {
 	return upload.Created
 }
 
-// skillsStorageCurrent reduces the stored skills to the current one for each source,
-// along with the names of the uploads that each of them supersedes
+// skillsStorageCurrent returns the current upload for each source, and the names of the
+// older ones it supersedes
 func skillsStorageCurrent(uploads []skillsUpload) (current map[string]skillsUpload, superseded map[string][]string) {
 	current = map[string]skillsUpload{}
 	superseded = map[string][]string{}
@@ -153,12 +131,8 @@ func skillsStorageCurrent(uploads []skillsUpload) (current map[string]skillsUplo
 	return
 }
 
-// skillsStorageRead returns the contents of one stored skill.
-//
-// A query that asked for contents has already brought them back, for the whole project in
-// one transaction, and that is the path every caller takes.  An upload that arrives
-// without its text - one read from a query that did not ask, or a skill stored empty - is
-// read as a range instead, so that a caller never has to know which kind of query it holds.
+// skillsStorageRead returns a stored skill's contents, reading them as a range when the
+// query didn't include them
 func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
 	if upload.Text != "" {
@@ -186,10 +160,8 @@ func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
 }
 
-// skillsStorageStore stores one skill in the project under its name, replacing whatever
-// the project held under that name before.  superseded names the uploads it replaces,
-// from the caller's own read of the project.  The new upload is added before any of them
-// is removed, so that a failure part-way leaves the project holding what it held before.
+// skillsStorageStore stores a skill under its name, replacing the uploads named in
+// superseded.  It adds before removing, so a failure leaves the old upload in place.
 func skillsStorageStore(name string, contents []byte, kinds string, superseded []string) error {
 	add := map[string]any{
 		"req":     "hub.app.upload.add",
@@ -200,10 +172,8 @@ func skillsStorageStore(name string, contents []byte, kinds string, superseded [
 	}
 	_, err := skillsRequest(add)
 
-	// The service names an upload by its source and the second in which it arrived, so a
-	// skill stored again within a second of its last upload collides with that upload and
-	// is refused.  Only a name the project already holds can collide, and the next second
-	// gives the upload a name of its own.
+	// Upload names include the second they arrived, so storing a skill again within a
+	// second of its last upload collides with it; the next second gives it its own name
 	if err != nil && len(superseded) != 0 {
 		time.Sleep(time.Second)
 		_, err = skillsRequest(add)
@@ -220,8 +190,7 @@ func skillsStorageStore(name string, contents []byte, kinds string, superseded [
 }
 
 // skillsStorageNames returns the names of every upload stored under each skill's name,
-// current and superseded alike, which is everything a replacement or a removal has to
-// account for
+// superseded ones included
 func skillsStorageNames(uploads []skillsUpload) (names map[string][]string) {
 	names = map[string][]string{}
 	for _, upload := range uploads {

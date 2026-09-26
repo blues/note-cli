@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// Configuration-only invocations must save identically for both flag spellings.
-// Operations and positional arguments must not accidentally make an override persist.
+// A command line that only sets configuration saves it, in either spelling; one that
+// also does anything else doesn't
 func TestConfigFlagsOnly(t *testing.T) {
 	tests := []struct {
 		name string
@@ -38,8 +38,8 @@ func TestConfigFlagsOnly(t *testing.T) {
 		{"false operation", []string{"--version=false", "--hub", "example.com"}, false},
 		{"operation only", []string{"--version"}, false},
 		{"request", []string{"--hub", "example.com", `{"req":"hub.app.get"}`}, false},
-		{"command", []string{"--hub=example.com", "pull"}, false},
-		{"flags after positional", []string{"pull", "--hub", "example.com"}, false},
+		{"command", []string{"--hub=example.com", "list"}, false},
+		{"flags after positional", []string{"list", "--hub", "example.com"}, false},
 		{"terminated positional", []string{"--hub=example.com", "--", "--version"}, false},
 		{"terminated config flag", []string{"--", "--hub=example.com"}, false},
 	}

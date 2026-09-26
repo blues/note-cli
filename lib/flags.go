@@ -21,13 +21,8 @@ func GetFlagByName(name string) *flag.Flag {
 	return flag.CommandLine.Lookup(name)
 }
 
-// Helper function to print grouped commands.
-//
-// Options are displayed with two hyphens, which is the spelling we document and the one
-// we would like people to type.  The flag package treats -name and --name as the same
-// option, so every command line that has ever worked still works; that is simply not
-// something help needs to say, and saying it would only invite the reader to wonder
-// which spelling is the real one.
+// Helper function to print grouped commands.  Options are shown with two hyphens, the
+// documented spelling; the flag package accepts one or two.
 func PrintGroupedFlags(groups []FlagGroup, cli string) {
 	fmt.Println(cli + " - Command line tool for interacting with " + cli)
 	fmt.Println("USAGE: " + cli + " [options]")

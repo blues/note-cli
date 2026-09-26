@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// The set used by these tests, written the way a trained project writes one: a front
-// matter block, one title, headings beneath it, and cross-references in prose
+// The set these tests use: front matter, one title, headings beneath it, and
+// cross-references in prose
 var testSkillBodies = map[string]string{
 	"index.md": `---
 kind: index
@@ -20,7 +20,7 @@ kind: index
 
 # Radnote
 
-## Training status
+## Status
 
 Product context: product.md. Field decoder: notefiles.md (partial).
 See product.md, Ukraine use case, for the documented scope, and
@@ -78,8 +78,7 @@ func testSkillSet() (current map[string]skillsUpload, bodies map[string][]byte) 
 	return
 }
 
-// The index is read first and everything else in the order it is first mentioned there,
-// so that following a reference always moves forward through the document
+// The index comes first, and the rest in the order it first mentions them
 func TestSkillsOrder(t *testing.T) {
 	current, bodies := testSkillSet()
 	sources := skillsOrder(current, bodies["index.md"])
@@ -96,7 +95,7 @@ func TestSkillsOrder(t *testing.T) {
 	}
 }
 
-// A skill is named as it was read, with or without its extension and in any case
+// A skill may be named with or without its extension, in any case
 func TestSkillsResolve(t *testing.T) {
 	current, _ := testSkillSet()
 	for _, name := range []string{"product.md", "product", "PRODUCT.MD", " product.md "} {
@@ -112,8 +111,7 @@ func TestSkillsResolve(t *testing.T) {
 	}
 }
 
-// Every cross-reference becomes a link, every link resolves to an anchor that exists, and
-// nothing else about the stored text changes
+// Every cross-reference becomes a link to an anchor that exists, and nothing else changes
 func TestSkillsAssemble(t *testing.T) {
 
 	current, bodies := testSkillSet()
@@ -137,7 +135,7 @@ func TestSkillsAssemble(t *testing.T) {
 		}
 	}
 
-	// A reference to a file, however it is punctuated, and a heading cited after one
+	// A filename, however punctuated, and a heading cited after one
 	for _, expected := range []string{
 		"[product.md](#product-md).",
 		"[notefiles.md](#notefiles-md) (partial)",
@@ -170,7 +168,7 @@ func TestSkillsAssemble(t *testing.T) {
 		}
 	}
 
-	// The stored sentences are the stored sentences
+	// The stored text is unchanged
 	if !strings.Contains(assembled, "for the documented scope, and") {
 		t.Errorf("assembly must not reword what was stored")
 	}
@@ -212,6 +210,30 @@ func TestSkillsLinkLeavesAlone(t *testing.T) {
 	}
 	if !strings.Contains(assembled, "and [product.md](#product-md) links.") {
 		t.Errorf("an ordinary reference must still be linked")
+	}
+
+}
+
+// A skill with no kinds shows none, rather than saying it has none
+func TestSkillsAssembleUntagged(t *testing.T) {
+
+	current, bodies := testSkillSet()
+	untagged := current["notefiles.md"]
+	untagged.Tags = ""
+	current["notefiles.md"] = untagged
+	assembled := skillsAssemble("test:project", current, bodies)
+
+	if strings.Contains(assembled, "no kind") {
+		t.Errorf("an untagged skill must not be labelled as having no kind")
+	}
+	if !strings.Contains(assembled, "- [Notefile roster](#notefiles-md) - `notefiles.md`\n") {
+		t.Errorf("an untagged skill's contents entry must end with its name")
+	}
+	if !strings.Contains(assembled, "*`notefiles.md` | ") || strings.Contains(assembled, "*`notefiles.md` | kinds") {
+		t.Errorf("an untagged skill's line must go straight from its name to the rest")
+	}
+	if !strings.Contains(assembled, "- [Radnote](#index-md) - `index.md`, kind\n") || !strings.Contains(assembled, "| kinds: kind |") {
+		t.Errorf("a tagged skill must still show its kinds")
 	}
 
 }

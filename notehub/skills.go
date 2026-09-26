@@ -2,27 +2,8 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Skills, which is everything done by 'notehub skills': reading and managing the skills a
-// project holds.
-//
-// A Notehub project knows the mechanics of the data flowing through it, but not what the
-// product is, what its fields mean, or what anyone would want to ask about it.  Its skills
-// are that knowledge, written down as a small set of Markdown files stored in the project
-// itself, where any agent with read access can find it.  They are written by training the
-// project, which an AI agent does by following the notehub-project-train skill at
-// https://notehub.md, and this mode is how a person reads them, edits them, and moves them
-// in and out of the project.
-//
-// Every command here talks to the project and keeps nothing between runs: a local file is
-// only a copy that somebody is reading or editing.  'show' and 'list' read the project,
-// 'get' copies skills out of it into files, 'set' stores files into it, and 'delete'
-// removes skills from it.  'set' never removes anything - only 'delete' does - so a file
-// missing from somebody's directory never takes a skill out of a project.
-//
-// 'notehub skills' with no command writes the project's whole skill set to stdout as one
-// assembled document, because its output is meant for whoever or whatever asked to read
-// the skills.  Help meant for a person is displayed by 'notehub skills --help', and never
-// by the bare command.
+// 'notehub skills': read and manage the skills a project holds, which are Markdown files
+// stored in the project.  Every command works on the project directly, with no local state.
 
 package main
 
@@ -37,16 +18,13 @@ import (
 	"github.com/blues/note-cli/lib"
 )
 
-// The variables into which this mode's switches are parsed
+// Switches used only in this mode
 var (
 	flagSkillsDryRun bool
 	flagSkillsForce  bool
 )
 
-// skillsSwitches returns the switches that are specific to this mode.  These are defined
-// here, rather than alongside the switches used to interact with Notehub, so that
-// everything belonging to this mode stays in one place, but they are part of the same
-// table and so they are registered, validated, and documented in exactly the same way.
+// skillsSwitches returns the switches used only in this mode
 func skillsSwitches() []*cliSwitch {
 	return []*cliSwitch{
 		{Name: "dry-run", Target: &flagSkillsDryRun, Group: "skills", Modes: []string{modeSkills},
@@ -75,28 +53,22 @@ func skillsCommands() []cliCommand {
 // runSkills is the handler for 'notehub skills'
 func runSkills(config *lib.ConfigSettings) error {
 
-	// With no command, show what the project holds, assembled into one document.  That
-	// is what somebody asking about a project's skills is asking for, and it is the one
-	// output of this mode worth piping somewhere.
+	// With no command, show the whole set as one document
 	args := flag.Args()
 	if len(args) == 0 {
 		return skillsShowCommand(config, []string{skillsAll})
 	}
 
-	// A skill's name where a command would go means to show it, because that is the only
-	// thing it could mean and it is what everybody types.  A command word always wins:
-	// a project whose skills collide with one is read with an explicit 'show'.
+	// A skill's name where a command would go means show it, but a command word wins
 	if !strings.EqualFold(args[0], modeHelp) && skillsCommandNamed(args[0]) == nil {
 		args = append([]string{"show"}, args...)
 	}
 
-	// Run the specified command
 	return cliDispatch(cliModeNamed(modeSkills), config, args)
 
 }
 
-// skillsCommandNamed returns the named command of this mode, or nil if there is no such
-// command
+// skillsCommandNamed returns the named command, or nil
 func skillsCommandNamed(name string) *cliCommand {
 	commands := skillsCommands()
 	for i := range commands {
@@ -107,9 +79,9 @@ func skillsCommandNamed(name string) *cliCommand {
 	return nil
 }
 
-// skillsGetCommand saves one skill to a file, or every skill into a directory.  A local
-// file that already holds something different is left alone unless --force says
-// otherwise, because it may hold edits that nobody has stored yet.
+// skillsGetCommand saves a skill to a file, or every skill into a directory.  A local file
+// that differs from the project's copy may hold unstored edits, so it is kept unless
+// --force is given.
 func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 
 	project, err := skillsProject()
@@ -129,9 +101,8 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 		return fmt.Errorf("%s holds no skills yet", project)
 	}
 
-	// Which skills, and the file each one goes to: every skill into a directory, which is
-	// the current one unless another is named, or one skill into a file, a directory, or
-	// stdout
+	// Where each skill goes: every skill into a directory, or one into a file, a directory
+	// or stdout
 	targets := map[string]string{}
 	if strings.EqualFold(args[0], skillsAll) {
 		dir := "."
@@ -171,7 +142,7 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 		targets[upload.Source] = filename
 	}
 
-	// Save them, in the order a reader would meet them
+	// Save them in reading order
 	kept := 0
 	for _, source := range skillsOrder(current, nil) {
 		filename, wanted := targets[source]
@@ -202,10 +173,8 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsSetCommand stores a file as a skill, or every skill in a directory.  A skill whose
-// contents and kinds the project already holds is left as it is, so setting a whole
-// directory stores only what changed; and set never removes anything, because a file
-// missing from a directory is not a decision to remove a skill.
+// skillsSetCommand stores a file as a skill, or every skill in a directory.  Skills the
+// project already holds unchanged are skipped, and nothing is ever removed.
 func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 
 	project, err := skillsProject()
@@ -220,8 +189,8 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 		return err
 	}
 
-	// What to store, by the name each is stored under: a directory's skills are named by
-	// their paths within it, and a file by its own name unless another is given
+	// The files to store, by skill name: a directory's by their paths within it, and a
+	// file by its own name unless another is given
 	files := map[string][]byte{}
 	if info.IsDir() {
 		if len(args) == 2 {
@@ -245,7 +214,7 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 		files[name] = contents
 	}
 
-	// Every name and every kind must be acceptable before anything is stored
+	// Check every name and kind before storing anything
 	names := skillsSortedNames(files)
 	kinds := map[string]string{}
 	width := 0
@@ -267,7 +236,7 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 	current, _ := skillsStorageCurrent(uploads)
 	stored := skillsStorageNames(uploads)
 
-	// Store each one that differs from what the project holds
+	// Store each one that differs
 	changed, unchanged := 0, 0
 	for _, name := range names {
 		state := "new"
@@ -281,7 +250,8 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 				state = "unchanged"
 			}
 		}
-		fmt.Printf("  %-9s %-*s  %s\n", state, width, name, skillsKindsLabel(kinds[name]))
+		line := fmt.Sprintf("  %-9s %-*s  %s", state, width, name, skillsKindsLabel(kinds[name]))
+		fmt.Println(strings.TrimRight(line, " "))
 		if state == "unchanged" {
 			unchanged++
 			continue
@@ -295,7 +265,7 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 		}
 	}
 
-	// What happened, and what set does not do
+	// Summarize, naming any skills the directory left untouched
 	if flagSkillsDryRun {
 		fmt.Printf("\n%d skill(s) would be stored in %s, and %d are unchanged.  Nothing was changed (--dry-run).\n",
 			changed, project, unchanged)
@@ -318,8 +288,7 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsDeleteCommand removes a skill from the project - every upload stored under its
-// name - or, with 'all' and --force, every skill the project holds
+// skillsDeleteCommand removes a skill, or with 'all' and --force, every skill
 func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 
 	project, err := skillsProject()
@@ -340,7 +309,7 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 	}
 	stored := skillsStorageNames(uploads)
 
-	// Which skills: every one, which is only done when asked for twice over, or one
+	// Which skills; removing them all requires --force
 	sources := []string{}
 	if strings.EqualFold(args[0], skillsAll) {
 		sources = skillsOrder(current, nil)
@@ -356,7 +325,7 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 		sources = append(sources, upload.Source)
 	}
 
-	// Remove every upload stored under each one's name
+	// Remove every upload stored under each name, superseded ones included
 	for _, source := range sources {
 		for _, name := range stored[source] {
 			if err = skillsStorageRemove(name); err != nil {
@@ -370,7 +339,7 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsProject returns the project whose skills these are, which every command needs
+// skillsProject returns the project named by --project or --product
 func skillsProject() (project string, err error) {
 	if flagApp != "" {
 		return flagApp, nil

@@ -2,12 +2,10 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// The modes understood by this CLI.  A mode is an optional keyword that appears as
-// the first argument on the command line and that determines which switches are
-// available and how the remaining arguments are interpreted.
-//
-// To add a mode, add it to the table below, write its handler, and add its name to
-// the Modes list of each switch that the mode should accept (see switches.go).
+// The modes understood by this CLI.  A mode is an optional first-argument keyword that
+// selects which switches apply and how the remaining arguments are read.  To add one, add
+// it to the table below, write its handler, and list it in the Modes of each switch it
+// accepts (see switches.go).
 
 package main
 
@@ -21,26 +19,20 @@ import (
 
 // The name of each mode, as typed on the command line
 const (
-	// modeDefault is the behavior of this CLI as it was before modes were introduced.
-	// It is what we run when no mode keyword is specified, and specifying it
-	// explicitly is identical to not specifying a mode at all.
+	// modeDefault is the CLI's original behavior, and what runs when no mode is given
 	modeDefault = "default"
 
-	// modeSignIn signs in to Notehub in the browser, exactly as --signin does in the
-	// default mode.  The switch is the documented form; the mode exists because typing
-	// 'notehub signin' without the hyphens is a common mistake, and it should simply work.
+	// modeSignIn is --signin, for those who type it without the hyphens
 	modeSignIn = "signin"
 
 	// modeSkills reads and manages the skills a project holds
 	modeSkills = "skills"
 
-	// modeHelp displays help.  Help is displayed with --help, and this keyword is a
-	// hidden alias of it for those who type it out of habit.
+	// modeHelp is a hidden alias of --help
 	modeHelp = "help"
 )
 
-// cliModes returns every mode understood by this CLI, in the order in which they are
-// displayed in help
+// cliModes returns every mode, in the order help displays them
 func cliModes() []*cliMode {
 	if cliModeTable == nil {
 		cliModeTable = []*cliMode{
@@ -63,14 +55,16 @@ func cliModes() []*cliMode {
 				Summary:  "read and manage the skills a project holds",
 				Args:     "[command]",
 				Commands: skillsCommands(),
-				Detail: "With no command, 'notehub skills' writes everything the project holds to\n" +
-					"stdout as one document, with the index first and every cross-reference\n" +
-					"turned into a link, and a skill's name where a command would go shows\n" +
-					"that one skill.  'get' and 'set' move skills between the project and local\n" +
-					"files - one file, or a whole directory at a time - and 'set' never removes\n" +
-					"anything: only 'delete' does.\n\n" +
-					"A project's skills are written by training it: point any AI agent at\n" +
-					"https://notehub.md and ask it to train the project.",
+				Detail: "With no command, 'notehub skills' writes the whole set to stdout as one\n" +
+					"document, index first, with cross-references turned into links.  A skill's\n" +
+					"name in place of a command shows just that skill.  'get' and 'set' copy\n" +
+					"skills between the project and local files, one file or a directory at a\n" +
+					"time.  'set' never removes a skill; only 'delete' does.\n\n" +
+					"A skill's kinds are stored as its tags, taken from the 'kind:' or 'tags:'\n" +
+					"line of its front matter.  To change them, edit that line and set the file\n" +
+					"again.\n\n" +
+					"To write a project's skills, point any AI agent at https://notehub.md and\n" +
+					"ask it to train the project.",
 				Run: runSkills,
 			},
 			{

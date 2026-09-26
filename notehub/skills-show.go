@@ -2,19 +2,9 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Reading a project's skills, which is what 'notehub skills list' and
-// 'notehub skills show' do.
-//
-// These two read the project and nothing else: the question they answer is "what does
-// this project hold", which is what anyone asking about a project's skills means, and
-// what an agent that has just stored skills reads back to confirm them.
-//
-// 'show all' assembles the whole set into one document rather than concatenating it.  A
-// skill set is written as cross-references - "see product.md, Historical anomaly
-// vocabulary" - and a reader following those references is opening six files by hand.
-// The assembled document keeps every sentence as it was stored, but turns each of those
-// references into a link to the place in the document where that file, and that heading
-// within it, now lives.
+// 'notehub skills list' and 'show': reading what a project holds.  'show all' assembles
+// the set into one document, turning each cross-reference ("see product.md, Vocabulary")
+// into a link to that skill's section and heading.
 
 package main
 
@@ -28,13 +18,10 @@ import (
 	"github.com/blues/note-cli/lib"
 )
 
-// skillsAll is the name that means every skill rather than one: the whole set assembled
-// into one document for show, every file for get, and every skill for delete.  A skill
-// could in principle be called this, so the name with its extension - 'all.md' - still
-// resolves to the skill.
+// skillsAll means every skill rather than one; a skill named all.md is still 'all.md'
 const skillsAll = "all"
 
-// skillsIndex is the skill that a reader starts from, and which is always placed first
+// skillsIndex is the skill a reader starts from, always placed first
 const skillsIndex = "index" + skillsExt
 
 // skillsListCommand displays what the project holds
@@ -58,7 +45,7 @@ func skillsListCommand(config *lib.ConfigSettings, args []string) error {
 		return nil
 	}
 
-	// Align the names against the longest, as the rest of this mode does
+	// Align the names
 	sources := skillsOrder(current, nil)
 	width := 0
 	for _, source := range sources {
@@ -72,18 +59,14 @@ func skillsListCommand(config *lib.ConfigSettings, args []string) error {
 	for _, source := range sources {
 		upload := current[source]
 		total += upload.Length
-		kinds := upload.Tags
-		if kinds == "" {
-			kinds = "(no kind)"
-		}
-		fmt.Printf("  %*s%7d  %-16s %s\n", -(width + 2), source, upload.Length,
-			skillsWhen(upload), kinds)
+		line := fmt.Sprintf("  %*s%7d  %-16s %s", -(width + 2), source, upload.Length,
+			skillsWhen(upload), upload.Tags)
+		fmt.Println(strings.TrimRight(line, " "))
 	}
 	fmt.Printf("\n%d skill(s), %d bytes.  Read one with '%s %s show <name>', or the whole set with '%s %s'.\n",
 		len(sources), total, cliName, modeSkills, cliName, modeSkills)
 
-	// An upload that has been replaced is invisible to a reader but still stored, and
-	// it is the thing that makes a project's listing not match what anyone expects
+	// Superseded uploads are still stored, so say how many
 	count := 0
 	for _, names := range superseded {
 		count += len(names)
@@ -96,8 +79,7 @@ func skillsListCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsShowCommand writes one skill, or the whole set assembled as a single document,
-// to stdout
+// skillsShowCommand writes one skill, or the whole set as one document, to stdout
 func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 
 	project, err := skillsProject()
@@ -113,7 +95,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 		return fmt.Errorf("'%s %s show' takes one skill name, or 'all'", cliName, modeSkills)
 	}
 
-	// The whole set is a single transaction where the deployment supports it
+	// Every skill, with contents, in one request
 	uploads, err := skillsStorageQuery(true)
 	if err != nil {
 		return err
@@ -123,7 +105,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 		return fmt.Errorf("%s holds no skills yet", project)
 	}
 
-	// One skill, exactly as it is stored
+	// One skill, exactly as stored
 	if !strings.EqualFold(name, skillsAll) {
 		upload, resolveErr := skillsResolve(current, name)
 		if resolveErr != nil {
@@ -154,9 +136,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsResolve returns the stored skill that the specified name refers to.  The
-// extension is optional and case does not matter, because a name typed from a listing or
-// remembered from a cross-reference is typed in whatever form it was read.
+// skillsResolve returns the skill a name refers to, ignoring case and an omitted .md
 func skillsResolve(current map[string]skillsUpload, name string) (upload skillsUpload, err error) {
 
 	wanted := strings.ToLower(strings.TrimSpace(name))
@@ -177,11 +157,8 @@ func skillsResolve(current map[string]skillsUpload, name string) (upload skillsU
 
 }
 
-// skillsOrder returns the sources to be presented, in the order a reader should meet
-// them: the index first, because everything else is reached from it; then, when the index
-// has been read, the others in the order it first mentions them, so that a reference
-// always points forward; then whatever the index never mentions, which is exactly the
-// thing worth noticing in a listing.
+// skillsOrder returns the sources in reading order: the index first, then the others in
+// the order the index first mentions them, then any it never mentions
 func skillsOrder(current map[string]skillsUpload, index []byte) (sources []string) {
 
 	rest := []string{}
@@ -197,7 +174,7 @@ func skillsOrder(current map[string]skillsUpload, index []byte) (sources []strin
 		sources = append(sources, skillsIndex)
 	}
 
-	// The order the index mentions them in, for those it mentions
+	// Order by first mention in the index
 	if len(index) != 0 {
 		text := string(index)
 		sort.SliceStable(rest, func(i, j int) bool {
@@ -227,27 +204,24 @@ func skillsWhen(upload skillsUpload) string {
 	return time.Unix(when, 0).Format("2006-01-02 15:04")
 }
 
-// skillsDoc is one skill prepared for assembly: where it will sit in the assembled
-// document, and what can be linked to within it
+// skillsDoc is one skill prepared for assembly
 type skillsDoc struct {
-	source   string            // the skill's filename, which is how everything refers to it
+	source   string            // the skill's filename
 	upload   skillsUpload      // what the project holds
-	title    string            // the document's own title, from its first heading
-	front    string            // its front matter, kept as it was stored
-	body     string            // everything after the front matter and the title
-	anchor   string            // where the section lands in the assembled document
-	headings map[string]string // a heading as it is cited -> where that heading lands
+	title    string            // from its first heading
+	front    string            // its front matter, as stored
+	body     string            // what follows the front matter and title
+	anchor   string            // its section's anchor
+	headings map[string]string // each heading, as cited, to its anchor
 }
 
-// skillsAssemble turns the whole set into one document.  Every sentence is as it was
-// stored; what the assembly adds is a place for each document to sit, an anchor on every
-// heading, and a link on every cross-reference that names one of them.
+// skillsAssemble turns the whole set into one document: a section per skill, an anchor on
+// every heading, and a link on every cross-reference, with the text itself unchanged
 func skillsAssemble(project string, current map[string]skillsUpload, bodies map[string][]byte) string {
 
 	sources := skillsOrder(current, bodies[skillsIndex])
 
-	// Prepare each document before writing any of it, because a link in the first
-	// document points at a heading in the last
+	// Prepare every skill first, since a link may point at a later one
 	docs := map[string]*skillsDoc{}
 	ordered := []*skillsDoc{}
 	for _, source := range sources {
@@ -265,19 +239,26 @@ func skillsAssemble(project string, current map[string]skillsUpload, bodies map[
 
 	fmt.Fprintf(out, "## Contents\n\n")
 	for _, doc := range ordered {
-		kinds := doc.upload.Tags
-		if kinds == "" {
-			kinds = "no kind"
+		entry := fmt.Sprintf("- [%s](#%s) - `%s`", doc.title, doc.anchor, doc.source)
+		if doc.upload.Tags != "" {
+			entry += ", " + doc.upload.Tags
 		}
-		fmt.Fprintf(out, "- [%s](#%s) - `%s`, %s\n", doc.title, doc.anchor, doc.source, kinds)
+		fmt.Fprintf(out, "%s\n", entry)
 	}
 
 	for _, doc := range ordered {
 		fmt.Fprintf(out, "\n---\n\n")
 		fmt.Fprintf(out, "<a id=\"%s\"></a>\n\n", doc.anchor)
 		fmt.Fprintf(out, "## %s\n\n", doc.title)
-		fmt.Fprintf(out, "*`%s` | %s | %s | %d bytes*\n\n", doc.source,
-			skillsKindsLabel(doc.upload.Tags), skillsWhen(doc.upload), doc.upload.Length)
+		about := []string{"`" + doc.source + "`"}
+		if label := skillsKindsLabel(doc.upload.Tags); label != "" {
+			about = append(about, label)
+		}
+		if when := skillsWhen(doc.upload); when != "" {
+			about = append(about, when)
+		}
+		about = append(about, fmt.Sprintf("%d bytes", doc.upload.Length))
+		fmt.Fprintf(out, "*%s*\n\n", strings.Join(about, " | "))
 		if doc.front != "" {
 			fmt.Fprintf(out, "```yaml\n%s\n```\n\n", doc.front)
 		}
@@ -288,16 +269,16 @@ func skillsAssemble(project string, current map[string]skillsUpload, bodies map[
 
 }
 
-// skillsKindsLabel describes an upload's kinds the way a reader reads them
+// skillsKindsLabel describes an upload's kinds, or returns "" if it has none
 func skillsKindsLabel(tags string) string {
 	if tags == "" {
-		return "no kind"
+		return ""
 	}
 	return "kinds: " + strings.ReplaceAll(tags, ",", ", ")
 }
 
-// skillsPrepare takes one stored skill apart into the pieces the assembly needs, and
-// works out where everything within it will land
+// skillsPrepare splits a skill into title, front matter and body, and records where each
+// of its headings will land
 func skillsPrepare(source string, upload skillsUpload, contents string) *skillsDoc {
 
 	doc := &skillsDoc{
@@ -310,8 +291,7 @@ func skillsPrepare(source string, upload skillsUpload, contents string) *skillsD
 	front, rest := skillsFrontMatter(contents)
 	doc.front = front
 
-	// The document's own title heads its section, so it is taken out of the body; every
-	// other heading drops one level to sit under it, and gains an anchor
+	// The first heading becomes the section title; the others drop a level and gain anchors
 	lines := strings.Split(rest, "\n")
 	body := []string{}
 	fenced := false
@@ -348,9 +328,8 @@ func skillsPrepare(source string, upload skillsUpload, contents string) *skillsD
 
 }
 
-// skillsHeadingNames returns the forms in which a heading is cited.  A heading that
-// qualifies itself - "Audiences and presentation - incomplete" - is cited by its name
-// alone, and a heading that names a Notefile is cited with or without its backquotes.
+// skillsHeadingNames returns the forms a heading may be cited by: with or without a
+// trailing qualifier such as " - incomplete", and with or without backquotes
 func skillsHeadingNames(text string) (names []string) {
 
 	seen := map[string]bool{}
@@ -429,15 +408,8 @@ func skillsSlug(text string) string {
 	return strings.Trim(out.String(), "-")
 }
 
-// skillsLink turns this document's cross-references into links.
-//
-// A skill set cites its own parts in prose - "see product.md, Historical anomaly
-// vocabulary" - which is exactly right in the stored file, where the reader has the
-// folder in front of them, and useless in an assembled document unless the citation
-// becomes a link.  So the filename is wrapped as a link to that document's section, and a
-// heading cited after it - or a list of them, as the citations are sometimes written - is
-// wrapped as a link to that heading.  Nothing is reworded: the text is what was stored,
-// with brackets around it.
+// skillsLink turns a skill's cross-references into links: a filename to that skill's
+// section, and any headings cited after it to theirs.  The text itself is unchanged.
 func skillsLink(doc *skillsDoc, docs map[string]*skillsDoc) string {
 
 	lines := strings.Split(doc.body, "\n")
@@ -450,7 +422,7 @@ func skillsLink(doc *skillsDoc, docs map[string]*skillsDoc) string {
 		if fenced {
 			continue
 		}
-		// Only outside code spans, where a filename is a filename and not an example
+		// Only outside code spans
 		parts := strings.Split(line, "`")
 		for p := 0; p < len(parts); p += 2 {
 			parts[p] = skillsLinkText(parts[p], docs)
@@ -468,7 +440,7 @@ func skillsLinkText(text string, docs map[string]*skillsDoc) string {
 	out := &strings.Builder{}
 	for at := 0; at < len(text); {
 
-		// Find the next thing that looks like one of this set's filenames
+		// The next filename that names one of the set's skills
 		start, end, target := skillsNextRef(text, at, docs)
 		if target == nil {
 			out.WriteString(text[at:])
@@ -493,8 +465,8 @@ func skillsLinkText(text string, docs map[string]*skillsDoc) string {
 
 }
 
-// skillsNextRef finds the next filename in the text that names one of the set's
-// documents, and that is not already part of a link
+// skillsNextRef finds the next filename in text that names one of the set's skills and
+// isn't already inside a link
 func skillsNextRef(text string, from int, docs map[string]*skillsDoc) (start int, end int, target *skillsDoc) {
 
 	for at := from; at < len(text); at++ {
@@ -506,7 +478,7 @@ func skillsNextRef(text string, from int, docs map[string]*skillsDoc) (start int
 		end = at + next + len(skillsExt)
 		at = end - 1
 
-		// Back up over the name, which runs to the start of the word
+		// Back up to the start of the name
 		start = end - len(skillsExt)
 		for start > 0 && skillsNameByte(text[start-1]) {
 			start--
@@ -517,8 +489,7 @@ func skillsNextRef(text string, from int, docs map[string]*skillsDoc) (start int
 		if start > 0 && (text[start-1] == '[' || text[start-1] == '(' || text[start-1] == '/') {
 			continue
 		}
-		// A name that runs on into a longer one is not a reference, but a name that ends
-		// a sentence is, and a citation written as prose usually does end one
+		// A name running into a longer word isn't a reference, but one ending a sentence is
 		if end < len(text) {
 			switch next := text[end]; {
 			case next == ']':
@@ -547,8 +518,8 @@ func skillsNameByte(c byte) bool {
 		c == '_' || c == '-' || c == '.'
 }
 
-// skillsNextHeading matches one heading of the cited document where a citation would
-// continue - ", Historical question scope" - and returns where that heading lands
+// skillsNextHeading matches a heading of the cited skill where the citation continues, as
+// in ", Vocabulary", and returns its anchor
 func skillsNextHeading(text string, at int, target *skillsDoc) (separator string, heading string, anchor string, next int) {
 
 	for _, candidate := range []string{", and ", ", ", " and "} {
@@ -557,8 +528,7 @@ func skillsNextHeading(text string, at int, target *skillsDoc) (separator string
 		}
 		rest := text[at+len(candidate):]
 
-		// The longest heading that the text continues with, so that a heading whose
-		// own name contains a separator is matched before it is split on one
+		// Longest match first, so a heading containing a separator isn't split on it
 		longest := ""
 		for cited := range target.headings {
 			if len(cited) > len(longest) && strings.HasPrefix(rest, cited) {

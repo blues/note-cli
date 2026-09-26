@@ -2,16 +2,10 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// The switches understood by this CLI, and the variables into which they are parsed.
-//
-// Every switch declares the modes in which it may be used.  Only the switches
-// available in the mode being run are registered with the flag package, and a switch
-// used in the wrong mode is diagnosed by name rather than simply being rejected as
-// undefined.  Help for a mode is generated from these same definitions, so it always
-// describes exactly what that mode accepts.
-//
-// To add a switch, add its variable and a row to the table below.  To make an
-// existing switch available in another mode, add that mode to the switch's Modes.
+// The switches understood by this CLI.  Each declares the modes it may be used in; only
+// those of the mode being run are registered, a switch used in the wrong mode is named as
+// such, and help is generated from the same table.  To add a switch, add its variable and
+// a row below.
 
 package main
 
@@ -48,9 +42,7 @@ var (
 	flagProjects    bool
 )
 
-// cliSwitchGroups returns the groups in which switches are displayed in help, in the
-// order in which they are displayed.  A group with no switches in the mode being
-// displayed is not shown at all.
+// cliSwitchGroups returns the help groups in display order; empty groups aren't shown
 func cliSwitchGroups() []struct{ Name, Description string } {
 	return []struct{ Name, Description string }{
 		{cliGroupGeneral, "General Options"},
@@ -65,8 +57,7 @@ func cliSwitchGroups() []struct{ Name, Description string } {
 	}
 }
 
-// cliSwitches returns the definition of every switch understood by this CLI,
-// regardless of mode
+// cliSwitches returns every switch, in any mode
 func cliSwitches() []*cliSwitch {
 	if cliSwitchTable == nil {
 		cliSwitchTable = append(notehubSwitches(), skillsSwitches()...)
@@ -76,30 +67,22 @@ func cliSwitches() []*cliSwitch {
 
 var cliSwitchTable []*cliSwitch
 
-// Convenience definitions of the mode lists used by the switches below
+// The mode lists used by the switches below
 var (
-	// inDefault is a switch that is available only in the CLI's historical behavior
-	inDefault = []string{modeDefault}
-
-	// inDefaultAndSkills is a switch that is available in skills mode as well
+	inDefault          = []string{modeDefault}
 	inDefaultAndSkills = []string{modeDefault, modeSkills}
-
-	// inAnyMode is a switch that is available no matter what mode is being run
-	inAnyMode = []string{cliAnyMode}
+	inAnyMode          = []string{cliAnyMode}
 )
 
 // notehubSwitches returns the switches used to interact with Notehub
 func notehubSwitches() []*cliSwitch {
 	return []*cliSwitch{
 
-		// General Options, which are the switches that belong to the CLI itself
-		// rather than to any one mode, and which are the only ones displayed when we
-		// are invoked with nothing to do
+		// General Options, the only ones shown when there is nothing to do
 		{Name: "help", Target: &flagHelp, Group: cliGroupGeneral, Modes: inAnyMode,
 			Usage: "display all of the options available in this mode"},
 
-		// The hub is registered with the flag package by lib, on behalf of every note
-		// CLI, and so it is general to this CLI rather than belonging to any one mode
+		// lib registers --hub for every note CLI
 		{Name: "hub", External: true, ValueType: "string", Group: cliGroupGeneral, Modes: inAnyMode,
 			Usage: "set Notehub domain"},
 

@@ -69,34 +69,26 @@ func authMethodName(method string) string {
 	return "OAuth token"
 }
 
-// authExpiresFormat is how we display an expiration, and is the same format that the
-// config display uses so that the two agree
+// authExpiresFormat is how an expiration is displayed, as in the config display
 const authExpiresFormat = "2006-01-02 15:04:05 MST"
 
-// The remedy that we suggest when a sign-in is required.  Sign-in opens a browser, so
-// an agent that reads this must hand it to the person rather than run it itself.
+// authSignInAction is the remedy suggested when sign-in is needed.  It opens a browser,
+// so an agent should hand it to the person rather than run it.
 const authSignInAction = "notehub --signin"
 
-// authWhoAmI determines whether we are signed in to the configured hub, and as whom.
-// This is intended to be cheap enough that an agent can run it at the start of every
-// session, so it makes no request at all when the answer is already known locally
-// (no credentials, or credentials that have expired), and otherwise makes exactly one
-// small request to the hub.
+// authWhoAmI reports whether we are signed in to the hub, and as whom.  It asks the hub
+// only when the local credentials look usable, and then with one small request.
 func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status authStatus) {
 	status.Hub = hub
 
-	// Without stored credentials there is nothing to ask the hub about, and expired
-	// credentials are no different because the hub would reject them.  In neither case
-	// is there a method or an expiration worth describing: we are simply not signed in.
+	// With no credentials, or expired ones, we are simply not signed in
 	if credentials == nil || credentials.ExpiredAt(now) {
 		status.Reason = "not signed in"
 		status.Action = authSignInAction
 		return
 	}
 
-	// Describe how we are signed in.  A personal access token has an expiration that
-	// the person chose when they created it in Notehub, but it is not told to us, so
-	// only an OAuth token has an expiration that we can report.
+	// How we are signed in.  Only an OAuth token's expiration is known to us.
 	status.Method = authMethodOAuth
 	if !credentials.IsOAuthAccessToken() {
 		status.Method = authMethodPAT
@@ -109,8 +101,7 @@ func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status
 	// The token looks usable, so let the hub be the judge
 	email, err := lib.IntrospectToken(hub, credentials.Token)
 	if err != nil {
-		// A transport failure says nothing about whether we are signed in, and the
-		// remedy is not to sign in again, so say what actually happened
+		// Failing to reach the hub says nothing about the token, so don't suggest signing in
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) {
 			status.Reason = fmt.Sprintf("unable to reach hub: %s", urlErr.Err)
@@ -148,8 +139,7 @@ func authWhoAmIPrint(status authStatus, asJSON bool) {
 	fmt.Printf("%s: %s\n", status.Hub, status.Reason)
 }
 
-// authExpiresDescription describes the method by which we are signed in and when it
-// will expire, in words
+// authExpiresDescription describes how we are signed in and when that expires
 func authExpiresDescription(status authStatus) string {
 	if status.ExpiresAt == nil {
 		return fmt.Sprintf("%s (expiration not recorded)", authMethodName(status.Method))
@@ -201,8 +191,7 @@ func authSignIn() error {
 	return nil
 }
 
-// runSignIn is the handler for 'notehub signin', which is the browser-based sign-in
-// exactly as --signin performs it in the default mode
+// runSignIn is the handler for 'notehub signin', the same as --signin
 func runSignIn(config *lib.ConfigSettings) error {
 	if args := flag.Args(); len(args) != 0 {
 		return fmt.Errorf("'%s %s' takes no arguments, but was given: %s", cliName, modeSignIn, strings.Join(args, " "))

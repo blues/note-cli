@@ -2,23 +2,13 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Command line framework.
-//
-// A command line has the form
+// Command line framework.  A command line has the form
 //
 //	notehub [mode] [switches] [arguments]
 //
-// where 'mode' is an optional leading keyword that determines which switches are
-// available and how the remaining arguments are interpreted.  When no mode keyword
-// is present, or when the keyword is literally "default", the CLI behaves exactly as
-// it did before modes existed.
-//
-// Every switch declares the modes in which it may be used (see switches.go), and only
-// the switches belonging to the selected mode are registered with the flag package.
-// Help is generated from those same definitions, so the help for a mode describes
-// precisely the switches that the mode accepts.
-//
-// This file is the machinery.  To add a switch or a mode, see switches.go and modes.go.
+// where the optional mode keyword selects which switches apply and how the arguments are
+// read.  With no mode, or "default", the CLI behaves as it always has.  Switches and modes
+// are defined in switches.go and modes.go.
 
 package main
 
@@ -34,17 +24,14 @@ import (
 const cliName = "notehub"
 const cliDocsURL = "https://dev.blues.io/tools-and-sdks/" + cliName + "-cli"
 
-// cliAnyMode may be used in a switch's Modes list to indicate that the switch is
-// available in every mode
+// cliAnyMode in a switch's Modes makes it available in every mode
 const cliAnyMode = "*"
 
-// cliGroupGeneral is the group of switches that are general to the CLI rather than
-// belonging to any one mode.  These are the only switches displayed when help is
-// displayed in its short form.
+// cliGroupGeneral is the group of switches that belong to the CLI rather than to a mode,
+// and the only ones short help shows
 const cliGroupGeneral = "general"
 
-// cliMode is a keyword that may optionally appear as the first argument on the
-// command line, selecting a context in which the rest of the command line is parsed
+// cliMode is an optional first-argument keyword that selects how the rest is parsed
 type cliMode struct {
 	// Name is the keyword typed on the command line
 	Name string
@@ -72,25 +59,19 @@ type cliCommand struct {
 
 // cliSwitch is the definition of a single command line switch
 type cliSwitch struct {
-	// Name is the switch without its leading hyphens.  Help spells it --name, which
-	// is also how it should be spelled anywhere we mention it.
+	// Name is the switch without its leading hyphens
 	Name string
-	// Target is where the parsed value is stored, and must be a *bool, *string or
-	// *int.  It is nil for switches that are registered by another package.
+	// Target receives the value: a *bool, *string or *int, or nil if External
 	Target any
-	// Default is the value when the switch is not specified, or nil for the zero
-	// value of the target's type
+	// Default is the value when the switch isn't given, or nil for the zero value
 	Default any
-	// Usage is the help text.  As with the flag package, a `backquoted` word within
-	// it names the switch's value in help output.
+	// Usage is the help text; as in the flag package, a `backquoted` word names the value
 	Usage string
-	// Group is the name of the help group in which this switch is displayed
+	// Group is the help group this switch is displayed in
 	Group string
 	// Modes are the modes in which this switch may be used, or cliAnyMode for all
 	Modes []string
-	// External indicates that this switch is registered with the flag package by
-	// another package.  It is defined here so that it is documented in help and so
-	// that its mode list is enforced, but it is not registered by us.
+	// External means another package registers this switch; it is here for help and modes
 	External bool
 	// ValueType names the switch's value in help output when Target is nil
 	ValueType string
@@ -129,10 +110,8 @@ func (s *cliSwitch) takesValue() bool {
 	return true
 }
 
-// unquoteUsage extracts the name of this switch's value from its usage text, exactly
-// as the flag package does: a `backquoted` word within the usage text names the
-// value, and otherwise the name is derived from the type of the switch.  Switches
-// that take no value, such as booleans, have no value name.
+// unquoteUsage returns the switch's value name and usage as the flag package would: a
+// `backquoted` word in the usage names the value, and otherwise its type does
 func (s *cliSwitch) unquoteUsage() (valueName string, usage string) {
 	usage = s.Usage
 	for i := 0; i < len(usage); i++ {
@@ -169,22 +148,10 @@ func (s *cliSwitch) displayName() string {
 	return fmt.Sprintf("%s (%s)", s.Name, valueName)
 }
 
-// cliExtractMode examines the arguments that follow the program name and, if the
-// first of them is a mode keyword, returns that mode along with the arguments that
-// remain after the keyword has been removed.  If no mode keyword is present the
-// default mode is returned and the arguments are returned unchanged, which is what
-// makes the mode keyword purely additive: every command line that was legal before
-// modes existed still means exactly what it has always meant.
-//
-// A mode keyword is recognized only in the very first position.  A bare word there is
-// unambiguous: the only other argument that has ever been legal in the first position
-// is a device-like request, which is either JSON or an @filename, so no pre-existing
-// command line can be mistaken for a mode keyword.  A mode typed as though it were a
-// switch, as in '--skills', is also accepted there, because a mode keyword looks like
-// one to anyone used to a CLI whose command line is nothing but switches, and it is a
-// natural thing to type.  These hyphenated forms work but are deliberately not
-// mentioned in help, and a name that is a real switch is always left to the flag
-// package, so '--help' remains the help switch rather than the hidden help mode.
+// cliExtractMode returns the mode named by the first argument and the arguments after it,
+// or the default mode and all of them.  A bare word there can't be anything else, since a
+// request is JSON or @filename.  '--skills' is accepted too, though help doesn't say so,
+// unless it names a real switch, so that '--help' is still the switch.
 func cliExtractMode(args []string) (mode *cliMode, remaining []string) {
 	if len(args) == 0 {
 		return cliModeNamed(modeDefault), args
@@ -222,8 +189,7 @@ func cliVisibleModes() (modes []*cliMode) {
 	return
 }
 
-// cliModeNames returns the names of the modes that are listed when modes are
-// displayed
+// cliModeNames returns the names of the visible modes
 func cliModeNames() (names []string) {
 	for _, mode := range cliVisibleModes() {
 		names = append(names, mode.Name)
@@ -231,8 +197,7 @@ func cliModeNames() (names []string) {
 	return
 }
 
-// cliSwitchNamed returns the named switch regardless of mode, or nil if there is no
-// such switch
+// cliSwitchNamed returns the named switch in any mode, or nil
 func cliSwitchNamed(name string) *cliSwitch {
 	for _, s := range cliSwitches() {
 		if s.Name == name {
@@ -242,8 +207,7 @@ func cliSwitchNamed(name string) *cliSwitch {
 	return nil
 }
 
-// cliRegisterSwitches registers the switches available in the specified mode, and
-// only those switches, with the flag package
+// cliRegisterSwitches registers only this mode's switches with the flag package
 func cliRegisterSwitches(mode *cliMode) {
 	for _, s := range cliSwitches() {
 		if s.External || !s.allowedIn(mode.Name) {
@@ -265,10 +229,8 @@ func cliRegisterSwitches(mode *cliMode) {
 	}
 }
 
-// cliValidateSwitches returns an error if the command line uses a switch that this
-// CLI knows about but that is not available in the specified mode.  Without this the
-// flag package would report only that the switch is "not defined", which is unhelpful
-// when the switch does exist but belongs to another mode.
+// cliValidateSwitches refuses a known switch used outside its modes, which the flag
+// package alone would report only as "not defined"
 func cliValidateSwitches(mode *cliMode, args []string) error {
 	for _, name := range cliScanSwitchNames(args) {
 		s := cliSwitchNamed(name)
@@ -280,8 +242,7 @@ func cliValidateSwitches(mode *cliMode, args []string) error {
 	return nil
 }
 
-// cliScanSwitchNames returns the names of the switches that appear on the specified
-// command line, stopping where the flag package itself would stop parsing
+// cliScanSwitchNames returns the switches named in args, up to where the flag package stops
 func cliScanSwitchNames(args []string) (names []string) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -304,13 +265,8 @@ func cliScanSwitchNames(args []string) (names []string) {
 	return
 }
 
-// cliDispatch runs the command named by the first of a mode's non-switch arguments.
-//
-// What a mode does when it is given no command at all is up to the mode, and a mode
-// that wants to do something there does it before calling this.  Note that this is
-// where a mode's human-readable help is displayed but that it is never what a mode
-// does by default, because the output of a bare 'notehub <mode>' belongs to the mode
-// and may well be intended for something other than a person.
+// cliDispatch runs the command named by the first of a mode's arguments.  With none it
+// shows short help, so a mode that does something by default does it before calling this.
 func cliDispatch(mode *cliMode, config *lib.ConfigSettings, args []string) error {
 	if len(args) == 0 {
 		cliPrintHelp(mode, false)
@@ -333,17 +289,12 @@ func cliDispatch(mode *cliMode, config *lib.ConfigSettings, args []string) error
 		args[0], cliName, mode.Name, cliName, mode.Name)
 }
 
-// cliParseCommandSwitches parses the switches that follow a command word, wherever they
-// appear among that command's arguments, and returns the arguments that remain.
-//
-// This is needed because the flag package stops parsing at the first argument that isn't
-// a switch, which would make 'notehub skills pull ./dir --project x' silently ignore the
-// project.  Putting a switch after the thing it applies to is what both people and agents
-// naturally do, so within a mode's commands we accept switches anywhere.
+// cliParseCommandSwitches parses switches wherever they appear among a command's arguments,
+// and returns the rest.  The flag package stops at the first non-switch, which would make
+// 'notehub skills get all ./dir --project x' ignore the project.
 func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string, err error) {
 
-	// Separate the switches from everything else, using the switch definitions to know
-	// which of them consume the argument that follows
+	// Separate the switches, and the values they take, from the arguments
 	switches := []string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -373,8 +324,7 @@ func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string,
 		return nil, err
 	}
 
-	// Parsing again adds these to whatever was already parsed, because the flag package
-	// leaves a switch alone unless it is set again
+	// Parsing again adds to what was already parsed
 	if err = flag.CommandLine.Parse(switches); err != nil {
 		return nil, err
 	}
@@ -383,10 +333,9 @@ func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string,
 
 }
 
-// cliPrintHelp displays help for the specified mode.  The short form is what we
-// display when we are invoked with nothing to do, and it shows only where to go
-// next: the modes, this mode's commands, and the general options.  The full form,
-// which is what --help displays, adds every switch available in the mode.
+// cliPrintHelp displays help for a mode.  The short form, shown when there's nothing to
+// do, lists the modes, the mode's commands and the general options; the full form, for
+// --help, adds every switch the mode accepts.
 func cliPrintHelp(mode *cliMode, full bool) {
 
 	// Header
@@ -405,7 +354,7 @@ func cliPrintHelp(mode *cliMode, full bool) {
 	fmt.Printf("USAGE: %s\n", usage)
 	fmt.Println()
 
-	// The switches to be displayed, which in the short form are only the general ones
+	// The switches to show; the short form shows only the general ones
 	shown := []*cliSwitch{}
 	for _, s := range cliSwitches() {
 		if !s.allowedIn(mode.Name) || (!full && s.Group != cliGroupGeneral) {
@@ -414,13 +363,13 @@ func cliPrintHelp(mode *cliMode, full bool) {
 		shown = append(shown, s)
 	}
 
-	// The modes, which are listed only in the top-level help
+	// Modes are listed only in top-level help
 	modes := []*cliMode{}
 	if mode.Name == modeDefault {
 		modes = cliVisibleModes()
 	}
 
-	// Align everything that follows against the longest label
+	// Align against the longest label
 	maxLen := 0
 	measure := func(label string) {
 		if len(label) > maxLen {
@@ -498,11 +447,9 @@ func cliModeLabel(mode *cliMode) string {
 	return mode.Name
 }
 
-// cliCheckNotAMode returns an error if the specified argument, which is about to be
-// used as something other than a mode keyword, is in fact a bare word of the kind
-// that is used as one.  The arguments that a mode accepts are always specific things
-// such as a request or a command, so a bare word that isn't one of them is nearly
-// always a mode keyword that was misspelled or typed in the wrong place.
+// cliCheckNotAMode refuses a bare word where a mode's argument is expected.  A mode's
+// arguments are requests or commands, so a bare word is nearly always a mode keyword that
+// was misspelled or misplaced.
 func cliCheckNotAMode(arg string) error {
 	if !cliIsBareWord(arg) {
 		return nil
@@ -519,8 +466,8 @@ func cliCheckNotAMode(arg string) error {
 		arg, strings.Join(cliModeNames(), ", "))
 }
 
-// cliIsBareWord returns true if the argument is a single unadorned word, containing
-// none of the punctuation that a request, a filename, or a switch would contain
+// cliIsBareWord returns true if arg is a single word, without the punctuation of a
+// request, a filename or a switch
 func cliIsBareWord(arg string) bool {
 	if arg == "" {
 		return false

@@ -35,27 +35,20 @@ func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
 // Main entry point
 func main() {
 
-	// The first argument on the command line may optionally be a mode keyword, which
-	// determines which switches are available and how the remaining arguments are
-	// interpreted.  When no mode keyword is present we run in default mode, which is
-	// the behavior of this CLI as it was before modes were introduced.
+	// An optional mode keyword comes first; without one, run the default mode
 	mode, args := cliExtractMode(os.Args[1:])
 
-	// Rewrite the command line with the mode keyword removed, so that the flag
-	// package sees exactly the command line that it would have seen had modes never
-	// existed.  This is what makes 'notehub default ...' identical to 'notehub ...',
-	// and it keeps the config processing within lib unchanged.
+	// Remove the mode keyword, so that the flag package and lib's config handling see
+	// the command line they always have
 	os.Args = append([]string{os.Args[0]}, args...)
 
-	// Register the switches available in this mode, and only those switches, and use
-	// a usage message describing this mode
+	// Register only this mode's switches, and describe this mode in usage
 	cliRegisterSwitches(mode)
 	flag.Usage = func() {
 		cliPrintHelp(mode, true)
 	}
 
-	// Diagnose a switch that exists but that is not available in this mode, which the
-	// flag package would otherwise report as simply being undefined
+	// Name a switch used in the wrong mode, rather than calling it undefined
 	if err := cliValidateSwitches(mode, args); err != nil {
 		fmt.Printf("%s\n", err)
 		os.Exit(exitFail)
@@ -90,8 +83,7 @@ func main() {
 
 }
 
-// runDefault is the handler for the default mode, which is what we run when no mode
-// keyword is specified on the command line
+// runDefault is the handler for the default mode, run when no mode is given
 func runDefault(config *lib.ConfigSettings) (err error) {
 
 	// If no commands found, just show where to go next along with the config
@@ -131,9 +123,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		os.Exit(exitOk)
 	}
 
-	// Report whether we are signed in, with an exit code that says so.  This is the
-	// question that an agent asks before doing anything else, so it is answered with a
-	// single line and at most one small request to the hub
+	// Report whether we are signed in, in one line and with an exit code that says so
 	if flagWhoAmI {
 		status := authWhoAmI(config.Hub, credentials, time.Now())
 		authWhoAmIPrint(status, flagJson)
@@ -170,10 +160,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Process the main part of the command line as a --req
 	argsLeft := len(flag.Args())
 	if argsLeft == 1 {
-		// The only non-switch argument accepted in this mode is a device-like request,
-		// which is either JSON or an @filename.  A bare word in that position is far
-		// more likely to be a misplaced or misspelled mode keyword than a request, so
-		// say so rather than sending it to the service as a request that can't succeed.
+		// A bare word here is a misplaced or misspelled mode, not a request
 		if err = cliCheckNotAMode(flag.Args()[0]); err != nil {
 			return err
 		}

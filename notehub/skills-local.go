@@ -2,12 +2,7 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Skills as local files: what 'notehub skills get' writes and 'notehub skills set' reads,
-// and what a skill's own front matter says about the knowledge it holds.
-//
-// Nothing here is kept from one command to the next.  A skill lives in the project, and a
-// local file is only a copy that somebody is reading or editing, so the project is always
-// the one to ask what is current.
+// Skills as local files, and the kinds a skill's front matter declares
 
 package main
 
@@ -28,9 +23,8 @@ import (
 // skillsExt is what a skill is
 const skillsExt = ".md"
 
-// skillsCheckName refuses a name that a skill may not be stored under.  A skill's name is
-// its path - relative, slash-separated, ending in .md, and written the one way a path can
-// be written, so that the same file is never stored under two names.
+// skillsCheckName refuses a name a skill can't be stored under: it must be a clean,
+// relative, slash-separated path ending in .md
 func skillsCheckName(name string) error {
 	clean := path.Clean(name)
 	switch {
@@ -42,9 +36,8 @@ func skillsCheckName(name string) error {
 	return nil
 }
 
-// skillsSaveFile writes a skill to a local file and says what it did.  A file that already
-// holds something else is somebody's copy, perhaps with edits of their own in it, so it is
-// kept unless force says otherwise.
+// skillsSaveFile writes a skill to a local file and says what it did, keeping a file that
+// differs unless force is set
 func skillsSaveFile(filename string, contents []byte, force bool) (state string, err error) {
 	existing, readErr := os.ReadFile(filename)
 	switch {
@@ -65,9 +58,8 @@ func skillsSaveFile(filename string, contents []byte, force bool) (state string,
 	return state, os.WriteFile(filename, contents, 0666)
 }
 
-// skillsReadDir returns the skills within a directory, by their slash-separated path
-// relative to it, ignoring anything that isn't a skill so that the person may keep notes
-// of their own alongside them
+// skillsReadDir returns the skills in a directory by relative slash-separated path,
+// ignoring hidden files and anything that isn't a skill
 func skillsReadDir(dir string) (skills map[string][]byte, err error) {
 
 	skills = map[string][]byte{}
@@ -104,8 +96,7 @@ func skillsReadDir(dir string) (skills map[string][]byte, err error) {
 
 }
 
-// skillsPathWithin resolves a skill's name to a path, and refuses any name that would
-// land outside the directory it belongs in
+// skillsPathWithin resolves a skill's name to a path within dir, refusing any that escape it
 func skillsPathWithin(dir string, name string) (path string, err error) {
 	clean := filepath.Clean(filepath.FromSlash(name))
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
@@ -114,7 +105,7 @@ func skillsPathWithin(dir string, name string) (path string, err error) {
 	return filepath.Join(dir, clean), nil
 }
 
-// skillsSortedNames returns the names within a set of skills, in order
+// skillsSortedNames returns the skills' names, sorted
 func skillsSortedNames(skills map[string][]byte) (names []string) {
 	for name := range skills {
 		names = append(names, name)
@@ -123,17 +114,11 @@ func skillsSortedNames(skills map[string][]byte) (names []string) {
 	return
 }
 
-// skillsKindRE is what a kind must be: a single word, as every kind the protocol defines
-// is, so that anything else is recognized as a mistake rather than stored as a tag
+// skillsKindRE is what a kind must be: a single lowercase word
 var skillsKindRE = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
-// skillsKinds returns the kinds of knowledge a skill holds, taken from the "kind" field
-// of its front matter and stored as the upload's tags.
-//
-// The kind is what lets an agent load only the knowledge a question needs, so a skill
-// without one is still stored, but it is invisible to anything selecting by kind.  The
-// protocol writes the kinds as one comma-separated line, but a list of them is just as
-// naturally written as a YAML list, so each of these means the same:
+// skillsKinds returns a skill's kinds, which are stored as its upload's tags, from the
+// "kind", "kinds" or "tags" field of its front matter.  Each of these means the same:
 //
 //	kind: notefiles,derivation
 //	kind: [notefiles, derivation]
@@ -141,14 +126,13 @@ var skillsKindRE = regexp.MustCompile(`^[a-z0-9_-]+$`)
 //	  - notefiles
 //	  - derivation
 //
-// Anything else is refused rather than stored, because a kind that reaches the service
-// mangled is one that nothing selecting by kind will ever find.
+// Anything else is refused rather than stored mangled.
 func skillsKinds(contents []byte) (kinds string, err error) {
 
-	// Tags are comma-separated without whitespace, and lowercase so that a kind reads
-	// the same way wherever it was written.  "kinds" is read only if "kind" holds none.
+	// Tags are lowercase and comma-separated without spaces.  A later field is read only
+	// if the earlier ones hold none.
 	list := []string{}
-	for _, field := range []string{"kind", "kinds"} {
+	for _, field := range []string{"kind", "kinds", "tags"} {
 		value, fieldErr := skillsFrontMatterValue(contents, field)
 		if fieldErr != nil {
 			return "", fieldErr
@@ -184,14 +168,9 @@ func skillsKinds(contents []byte) (kinds string, err error) {
 
 }
 
-// skillsFrontMatterValue returns one top-level field of a skill's YAML front matter,
-// which is the block between a "---" on the very first line and the next "---", or nil
-// if there is no such field.
-//
-// Only that field is parsed as YAML, from its own line to the next field, so that a slip
-// elsewhere in the front matter - a colon in a description, say - is not a reason to
-// refuse a field that is perfectly clear.  A field's value runs on over the lines beneath
-// it that are indented, blank or comments, and over a list written flush with the field.
+// skillsFrontMatterValue returns one top-level field of a skill's YAML front matter, or
+// nil if there is none.  Only that field is parsed, so a mistake elsewhere in the front
+// matter can't make it unreadable.
 func skillsFrontMatterValue(contents []byte, field string) (value any, err error) {
 
 	// The front matter, if there is any
@@ -212,20 +191,19 @@ func skillsFrontMatterValue(contents []byte, field string) (value any, err error
 
 	for i, line := range front {
 
-		// A top-level field starts at the beginning of its line, and a field nested
-		// within another is indented beneath it
+		// A top-level field starts at the beginning of its line
 		name, rest, isField := strings.Cut(line, ":")
 		if !isField || line[0] == ' ' || line[0] == '\t' || !strings.EqualFold(strings.TrimSpace(name), field) {
 			continue
 		}
 		name = strings.TrimSpace(name)
 
-		// To YAML, a colon with no space after it is part of a word rather than the end
-		// of a field's name, which is not what anybody writing one means
+		// To YAML, "kind:x" is a word rather than a field
 		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
 			return nil, fmt.Errorf("'%s' in the front matter needs a space after its colon, as in '%s: %s'", name, name, rest)
 		}
 
+		// Its value runs on over indented, blank and comment lines, and a list flush with it
 		end := i + 1
 		for end < len(front) {
 			next := front[end]

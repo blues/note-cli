@@ -25,10 +25,8 @@ type Metadata struct {
 	Vars map[string]string `json:"vars,omitempty"`
 }
 
-// appGetRole returns the signed-in account's role in a project, as the API describes it:
-// owner, developer, viewer and so on.  It is for the person to read and nothing is
-// decided by it - the service's answer to a request is what settles whether that request
-// is allowed - so failing to learn it is not an error, and leaves it empty.
+// appGetRole returns the signed-in account's role in a project, such as owner or viewer,
+// or "" if it can't be learned.  It is only displayed; nothing is decided by it.
 func appGetRole(flagVerbose bool, projectUID string) string {
 	rsp := map[string]interface{}{}
 	if err := reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+projectUID, nil, &rsp); err != nil {

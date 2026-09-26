@@ -13,9 +13,8 @@ import (
 	"github.com/blues/note-go/note"
 )
 
-// The whole point of --whoami is that an agent can run it cheaply before every session,
-// so the cases whose answer is known locally must be answered without touching the hub.
-// These tests use a hub that cannot resolve, so any request would fail loudly.
+// Answers known locally must not touch the hub.  The hub here can't resolve, so any
+// request would fail.
 const unreachableHub = "whoami-test.invalid"
 
 func TestWhoAmINotSignedIn(t *testing.T) {
@@ -34,8 +33,7 @@ func TestWhoAmINotSignedIn(t *testing.T) {
 	}
 }
 
-// An expired token is indistinguishable from having none, because that is what it
-// amounts to: no method or expiration is described, just the fact of not being signed in
+// An expired token is the same as none
 func TestWhoAmIExpired(t *testing.T) {
 	now := time.Now()
 	notSignedIn := authWhoAmI(unreachableHub, nil, now)
@@ -69,7 +67,7 @@ func TestWhoAmIUnreachable(t *testing.T) {
 	}
 }
 
-// The JSON form is what an agent is most likely to parse, so its shape is a contract
+// The JSON form is what agents parse, so its shape is a contract
 func TestWhoAmIJSON(t *testing.T) {
 	statusJSON, err := note.JSONMarshal(authWhoAmI(unreachableHub, nil, time.Now()))
 	if err != nil {
