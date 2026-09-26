@@ -399,6 +399,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 			if err != nil {
 				return err
 			}
+			appMetadata.App.Role = appGetRole(flagVerbose, appMetadata.App.UID)
 			var metaJSON []byte
 			if flagPretty {
 				metaJSON, err = note.JSONMarshalIndent(appMetadata, "", "    ")

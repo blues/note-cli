@@ -23,6 +23,20 @@ notehub --hub preprod.blues.tools --whoami
 notehub signin
 notehub signin --hub preprod.blues.tools
 
+// Read and manage the skills a project holds: Markdown that tells any AI agent what the
+// product behind the data is, written by training the project with any AI agent pointed
+// at https://notehub.md.  With no command, every skill assembled into one document.
+notehub skills --product net.ozzie.ray:t
+notehub skills list --product net.ozzie.ray:t
+notehub skills show index.md --product net.ozzie.ray:t
+notehub skills get index.md --product net.ozzie.ray:t
+notehub skills get all ./skills --product net.ozzie.ray:t
+notehub skills set ./skills --dry-run --product net.ozzie.ray:t
+notehub skills set ./skills --product net.ozzie.ray:t
+notehub skills set my-notes.md recipes.md --product net.ozzie.ray:t
+notehub skills delete old.md --product net.ozzie.ray:t
+notehub skills delete all --force --product net.ozzie.ray:t
+
 // General note-related
 notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
 notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'

@@ -31,11 +31,7 @@ const (
 	// 'notehub signin' without the hyphens is a common mistake, and it should simply work.
 	modeSignIn = "signin"
 
-	// modeTrain runs a training session: it emits the protocol that turns an AI harness
-	// into the trainer, and the harness does the rest
-	modeTrain = "train"
-
-	// modeSkills manages what a training run produced
+	// modeSkills reads and manages the skills a project holds
 	modeSkills = "skills"
 
 	// modeHelp displays help.  Help is displayed with --help, and this keyword is a
@@ -63,25 +59,18 @@ func cliModes() []*cliMode {
 				Run: runSignIn,
 			},
 			{
-				Name:    modeTrain,
-				Summary: "train this project to understand its physical product",
-				Detail: "'notehub train' emits the training protocol: the instructions that turn an\n" +
-					"AI harness into the trainer.  Run it inside Claude, Codex or any other\n" +
-					"competent harness and it will interview you about your product and write\n" +
-					"down what it learns.  The output is Markdown for the harness to read, not\n" +
-					"for you - what you will see is the conversation it starts.",
-				Run: runTrain,
-			},
-			{
 				Name:     modeSkills,
-				Summary:  "inspect and manage what training produced",
+				Summary:  "read and manage the skills a project holds",
 				Args:     "[command]",
 				Commands: skillsCommands(),
 				Detail: "With no command, 'notehub skills' writes everything the project holds to\n" +
 					"stdout as one document, with the index first and every cross-reference\n" +
-					"turned into a link.  A skill's name where a command would go means 'show'\n" +
-					"it, so 'notehub skills index.md' reads that one file.  To run a training\n" +
-					"session, use 'notehub train'.",
+					"turned into a link, and a skill's name where a command would go shows\n" +
+					"that one skill.  'get' and 'set' move skills between the project and local\n" +
+					"files - one file, or a whole directory at a time - and 'set' never removes\n" +
+					"anything: only 'delete' does.\n\n" +
+					"A project's skills are written by training it: point any AI agent at\n" +
+					"https://notehub.md and ask it to train the project.",
 				Run: runSkills,
 			},
 			{

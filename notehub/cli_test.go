@@ -7,6 +7,8 @@ package main
 import (
 	"flag"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -40,10 +42,10 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"help", "skills"}, modeHelp, []string{"skills"}},
 
 		// A mode typed as though it were a switch, which is a natural mistake
-		{[]string{"-train"}, modeTrain, []string{}},
-		{[]string{"--train"}, modeTrain, []string{}},
-		{[]string{"--TRAIN"}, modeTrain, []string{}},
-		{[]string{"--skills", "pull", "-project", "app:1"}, modeSkills, []string{"pull", "-project", "app:1"}},
+		{[]string{"-skills"}, modeSkills, []string{}},
+		{[]string{"--skills"}, modeSkills, []string{}},
+		{[]string{"--SKILLS"}, modeSkills, []string{}},
+		{[]string{"--skills", "get", "all", "-project", "app:1"}, modeSkills, []string{"get", "all", "-project", "app:1"}},
 
 		// A switch is always a switch, even when a mode has the same name
 		{[]string{"--help"}, modeDefault, []string{"--help"}},
@@ -54,11 +56,12 @@ func TestExtractMode(t *testing.T) {
 
 		// A hyphenated word that isn't a mode is left for the flag package to diagnose
 		{[]string{"--notamode"}, modeDefault, []string{"--notamode"}},
-		{[]string{"--train=yes"}, modeDefault, []string{"--train=yes"}},
+		{[]string{"--skills=yes"}, modeDefault, []string{"--skills=yes"}},
+		{[]string{"--train"}, modeDefault, []string{"--train"}},
 
 		// A mode keyword is recognized only in the first position
 		{[]string{"-pretty", "skills"}, modeDefault, []string{"-pretty", "skills"}},
-		{[]string{"-pretty", "--train"}, modeDefault, []string{"-pretty", "--train"}},
+		{[]string{"-pretty", "--skills"}, modeDefault, []string{"-pretty", "--skills"}},
 
 		// A word that isn't a mode is left alone for the mode to interpret
 		{[]string{"notamode"}, modeDefault, []string{"notamode"}},
@@ -123,6 +126,12 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSignIn, []string{"--signin"}, false},
 		{modeSignIn, []string{"--signin-token", "pat"}, false},
 		{modeSignIn, []string{"--project", "app:1"}, false},
+
+		// The switches of the skills mode belong to it alone
+		{modeSkills, []string{"--force"}, true},
+		{modeSkills, []string{"--dry-run", "--project", "app:1"}, true},
+		{modeDefault, []string{"--force"}, false},
+		{modeDefault, []string{"--dry-run"}, false},
 
 		// The general options are available no matter what mode is being run
 		{modeSkills, []string{"-help"}, true},
@@ -445,5 +454,98 @@ func TestIsSkill(t *testing.T) {
 		if upload.isSkill() != test.skill {
 			t.Errorf("'%s': expected isSkill to be %v", test.source, test.skill)
 		}
+	}
+}
+
+// A skill is stored under its path, written the one way a path can be written, so that
+// the same file is never stored under two names and no name climbs out of a directory
+func TestSkillsCheckName(t *testing.T) {
+	for name, allowed := range map[string]bool{
+		"index.md":            true,
+		"references/field.md": true,
+		"INDEX.MD":            true,
+		"index":               false,
+		"notes.txt":           false,
+		"":                    false,
+		"/index.md":           false,
+		"../index.md":         false,
+		"a/../index.md":       false,
+		"./index.md":          false,
+		"a//index.md":         false,
+		`a\index.md`:          false,
+	} {
+		if err := skillsCheckName(name); (err == nil) != allowed {
+			t.Errorf("'%s': allowed is %v, expected %v (%v)", name, err == nil, allowed, err)
+		}
+	}
+}
+
+// Getting a skill never overwrites a local file that holds something else unless forced,
+// because that file may hold edits nobody has stored yet
+func TestSkillsSaveFile(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "nested", "index.md")
+	steps := []struct {
+		contents string
+		force    bool
+		state    string
+		after    string
+	}{
+		{"one", false, "new", "one"},
+		{"one", false, "unchanged", "one"},
+		{"two", false, "kept", "one"},
+		{"two", true, "updated", "two"},
+	}
+	for i, step := range steps {
+		state, err := skillsSaveFile(filename, []byte(step.contents), step.force)
+		if err != nil {
+			t.Fatalf("step %d: %s", i, err)
+		}
+		after, _ := os.ReadFile(filename)
+		if state != step.state || string(after) != step.after {
+			t.Errorf("step %d: state %q with %q on disk, expected %q with %q", i, state, after, step.state, step.after)
+		}
+	}
+}
+
+// Setting a directory stores the skills in it by their paths within it, and nothing else:
+// a file that isn't a skill and anything hidden are the person's own business
+func TestSkillsReadDir(t *testing.T) {
+	dir := t.TempDir()
+	for name, contents := range map[string]string{
+		"index.md":           "i",
+		"references/a.md":    "a",
+		"notes.txt":          "not a skill",
+		".hidden.md":         "hidden",
+		".git/HEAD.md":       "hidden",
+		"references/.tmp.md": "hidden",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0666); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skills, err := skillsReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := skillsSortedNames(skills); !slices.Equal(names, []string{"index.md", "references/a.md"}) {
+		t.Errorf("skills are %v, expected [index.md references/a.md]", names)
+	}
+}
+
+// Replacing or removing a skill has to account for every upload stored under its name,
+// the superseded ones as well as the current one
+func TestSkillsStorageNames(t *testing.T) {
+	names := skillsStorageNames([]skillsUpload{
+		{Name: "index$2.md", Source: "index.md"},
+		{Name: "index$1.md", Source: "index.md"},
+		{Name: "product$1.md", Source: "product.md"},
+	})
+	if !slices.Equal(names["index.md"], []string{"index$2.md", "index$1.md"}) || !slices.Equal(names["product.md"], []string{"product$1.md"}) {
+		t.Errorf("names are %v", names)
 	}
 }

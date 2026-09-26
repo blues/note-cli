@@ -180,7 +180,7 @@ func (s *cliSwitch) displayName() string {
 // unambiguous: the only other argument that has ever been legal in the first position
 // is a device-like request, which is either JSON or an @filename, so no pre-existing
 // command line can be mistaken for a mode keyword.  A mode typed as though it were a
-// switch, as in '--train', is also accepted there, because a mode keyword looks like
+// switch, as in '--skills', is also accepted there, because a mode keyword looks like
 // one to anyone used to a CLI whose command line is nothing but switches, and it is a
 // natural thing to type.  These hyphenated forms work but are deliberately not
 // mentioned in help, and a name that is a real switch is always left to the flag

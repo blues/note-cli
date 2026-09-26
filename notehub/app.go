@@ -20,8 +20,22 @@ import (
 type Metadata struct {
 	Name string            `json:"name,omitempty"`
 	UID  string            `json:"uid,omitempty"`
+	Role string            `json:"role,omitempty"`
 	BA   string            `json:"billing_account_uid,omitempty"`
 	Vars map[string]string `json:"vars,omitempty"`
+}
+
+// appGetRole returns the signed-in account's role in a project, as the API describes it:
+// owner, developer, viewer and so on.  It is for the person to read and nothing is
+// decided by it - the service's answer to a request is what settles whether that request
+// is allowed - so failing to learn it is not an error, and leaves it empty.
+func appGetRole(flagVerbose bool, projectUID string) string {
+	rsp := map[string]interface{}{}
+	if err := reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+projectUID, nil, &rsp); err != nil {
+		return ""
+	}
+	role, _ := rsp["role"].(string)
+	return role
 }
 
 type AppMetadata struct {

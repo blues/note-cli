@@ -60,7 +60,7 @@ func cliSwitchGroups() []struct{ Name, Description string } {
 		{"request", "API Request Options"},
 		{"operations", "Notefile Operations"},
 		{"notefile", "Notefile Management"},
-		{"skills", "Skill Builder"},
+		{"skills", "Skills"},
 		{"other", "Other Options"},
 	}
 }
@@ -81,7 +81,7 @@ var (
 	// inDefault is a switch that is available only in the CLI's historical behavior
 	inDefault = []string{modeDefault}
 
-	// inDefaultAndSkills is a switch that is available to the skill builder as well
+	// inDefaultAndSkills is a switch that is available in skills mode as well
 	inDefaultAndSkills = []string{modeDefault, modeSkills}
 
 	// inAnyMode is a switch that is available no matter what mode is being run

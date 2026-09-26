@@ -16,8 +16,8 @@
 //     transaction.
 //
 //   - The name under which an upload is stored is assigned by the service, and is opaque.
-//     What we choose is the source, which the service records alongside it, and which we
-//     use as the skill's path within the working copy.
+//     What we choose is the source, which the service records alongside it, and which is
+//     the skill's name as everyone else knows it: its path, such as index.md.
 //
 //   - Uploading never replaces.  Adding a skill that already exists creates a second
 //     upload with the same source and a newer name, so after adding we delete the ones it
@@ -27,8 +27,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -188,154 +186,48 @@ func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
 }
 
-// skillsStoragePull replaces the working copy and its baseline with what the project
-// holds
-func skillsStoragePull(dir string) error {
+// skillsStorageStore stores one skill in the project under its name, replacing whatever
+// the project held under that name before.  superseded names the uploads it replaces,
+// from the caller's own read of the project.  The new upload is added before any of them
+// is removed, so that a failure part-way leaves the project holding what it held before.
+func skillsStorageStore(name string, contents []byte, kinds string, superseded []string) error {
+	add := map[string]any{
+		"req":     "hub.app.upload.add",
+		"type":    skillsUploadType,
+		"name":    name,
+		"tags":    kinds,
+		"payload": contents,
+	}
+	_, err := skillsRequest(add)
 
-	uploads, err := skillsStorageQuery(true)
+	// The service names an upload by its source and the second in which it arrived, so a
+	// skill stored again within a second of its last upload collides with that upload and
+	// is refused.  Only a name the project already holds can collide, and the next second
+	// gives the upload a name of its own.
+	if err != nil && len(superseded) != 0 {
+		time.Sleep(time.Second)
+		_, err = skillsRequest(add)
+	}
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
-
-	skills := map[string][]byte{}
-	for source, upload := range current {
-		contents, readErr := skillsStorageRead(upload)
-		if readErr != nil {
-			return readErr
-		}
-		if contents == nil {
-			contents = []byte{}
-		}
-		skills[source] = contents
-	}
-
-	changes, err := skillsReplaceDir(dir, skills)
-	if err != nil {
-		return err
-	}
-	if _, err = skillsReplaceDir(skillsBaselinePath(dir), skills); err != nil {
-		return err
-	}
-	skillsRecordPull(dir)
-
-	if len(skills) == 0 {
-		fmt.Printf("This project holds no skills yet.\n")
-	} else {
-		fmt.Printf("%d skill(s) in %s\n", len(skills), dir)
-	}
-	for _, change := range changes {
-		fmt.Printf("  %-9s %s\n", change.State, change.Name)
-	}
-
-	return nil
-
-}
-
-// skillsStoragePush uploads the new and changed skills, and then removes the uploads
-// that they supersede
-func skillsStoragePush(project string, dir string, changes []skillsChange) error {
-
-	working, err := skillsReadDir(dir)
-	if err != nil {
-		return err
-	}
-
-	uploads, err := skillsStorageQuery(false)
-	if err != nil {
-		return err
-	}
-	// Everything the project holds for a skill is superseded by what this push adds for
-	// it: the current upload, and any older one that an interrupted push left behind
-	superseded := map[string][]string{}
-	for _, upload := range uploads {
-		superseded[upload.Source] = append(superseded[upload.Source], upload.Name)
-	}
-
-	pushed := 0
-	for _, change := range changes {
-		if change.State == "deleted" {
-			continue
-		}
-
-		// Add the skill before removing what it replaces, so that a failure here
-		// leaves the project holding what it held before
-		kinds, kindErr := skillsKinds(working[change.Name])
-		if kindErr != nil {
-			return fmt.Errorf("%s: %s", change.Name, kindErr)
-		}
-		_, err = skillsRequest(map[string]any{
-			"req":     "hub.app.upload.add",
-			"type":    skillsUploadType,
-			"name":    change.Name,
-			"tags":    kinds,
-			"payload": working[change.Name],
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %s", change.Name, err)
-		}
-		fmt.Printf("  %-9s %-12s %s\n", change.State, kinds, change.Name)
-		pushed++
-
-		for _, name := range superseded[change.Name] {
-			if err = skillsStorageRemove(name); err != nil {
-				return fmt.Errorf("%s: %s", change.Name, err)
-			}
-		}
-
-		// The baseline now matches the project for this one skill
-		if err = skillsWriteFile(skillsBaselinePath(dir), change.Name, working[change.Name]); err != nil {
+	for _, upload := range superseded {
+		if err = skillsStorageRemove(upload); err != nil {
 			return err
 		}
 	}
-
-	skillsRecordPull(dir)
-	fmt.Printf("\n%d skill(s) uploaded to %s.\n", pushed, project)
-
-	for _, change := range changes {
-		if change.State == "deleted" {
-			fmt.Printf("%s is still in the project - remove it with '%s %s delete %s'.\n",
-				change.Name, cliName, modeSkills, change.Name)
-		}
-	}
-
 	return nil
-
 }
 
-// skillsStorageDelete removes a skill from the project, and from the working copy
-func skillsStorageDelete(project string, dir string, name string) error {
-
-	uploads, err := skillsStorageQuery(false)
-	if err != nil {
-		return err
-	}
-
-	removed := 0
+// skillsStorageNames returns the names of every upload stored under each skill's name,
+// current and superseded alike, which is everything a replacement or a removal has to
+// account for
+func skillsStorageNames(uploads []skillsUpload) (names map[string][]string) {
+	names = map[string][]string{}
 	for _, upload := range uploads {
-		if upload.Source != name {
-			continue
-		}
-		if err = skillsStorageRemove(upload.Name); err != nil {
-			return err
-		}
-		removed++
+		names[upload.Source] = append(names[upload.Source], upload.Name)
 	}
-	if removed == 0 {
-		return fmt.Errorf("this project has no skill named '%s'", name)
-	}
-
-	// Whatever the project no longer holds, the baseline must not claim it holds
-	if path, pathErr := skillsPathWithin(skillsBaselinePath(dir), name); pathErr == nil {
-		os.Remove(path)
-	}
-	if path, pathErr := skillsPathWithin(dir, name); pathErr == nil {
-		os.Remove(path)
-	}
-
-	fmt.Printf("%s removed from %s\n", name, project)
-	return nil
-
+	return
 }
 
 // skillsStorageRemove deletes one upload by the name the service assigned it
@@ -346,10 +238,4 @@ func skillsStorageRemove(name string) error {
 		"name": name,
 	})
 	return err
-}
-
-// skillsRecordPull records that the baseline now matches the project
-func skillsRecordPull(dir string) {
-	os.WriteFile(filepath.Join(skillsBaselinePath(dir), skillsPulledFile),
-		[]byte(time.Now().UTC().Format(time.RFC3339)), 0666)
 }

@@ -5,11 +5,9 @@
 // Reading a project's skills, which is what 'notehub skills list' and
 // 'notehub skills show' do.
 //
-// These two read the project and nothing else.  They never touch the working copy, do
-// not need one to exist, and say nothing about what is pending locally: the question they
-// answer is "what does this project hold", which is what anyone asking about a project's
-// skills means, and what the trainer's own verification step (Step 8 of the protocol)
-// needs after a push.
+// These two read the project and nothing else: the question they answer is "what does
+// this project hold", which is what anyone asking about a project's skills means, and
+// what an agent that has just stored skills reads back to confirm them.
 //
 // 'show all' assembles the whole set into one document rather than concatenating it.  A
 // skill set is written as cross-references - "see product.md, Historical anomaly
@@ -30,10 +28,11 @@ import (
 	"github.com/blues/note-cli/lib"
 )
 
-// skillsShowAll is the name that means the whole set assembled into one document, rather
-// than one skill.  A skill file could in principle be called this, so the name with its
-// extension - 'all.md' - still resolves to the file.
-const skillsShowAll = "all"
+// skillsAll is the name that means every skill rather than one: the whole set assembled
+// into one document for show, every file for get, and every skill for delete.  A skill
+// could in principle be called this, so the name with its extension - 'all.md' - still
+// resolves to the skill.
+const skillsAll = "all"
 
 // skillsIndex is the skill that a reader starts from, and which is always placed first
 const skillsIndex = "index" + skillsExt
@@ -105,7 +104,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := skillsShowAll
+	name := skillsAll
 	switch len(args) {
 	case 0:
 	case 1:
@@ -125,7 +124,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 	}
 
 	// One skill, exactly as it is stored
-	if !strings.EqualFold(name, skillsShowAll) {
+	if !strings.EqualFold(name, skillsAll) {
 		upload, resolveErr := skillsResolve(current, name)
 		if resolveErr != nil {
 			return resolveErr

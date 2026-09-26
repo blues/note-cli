@@ -60,8 +60,7 @@ at all.
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
 | `signin` | Sign in to Notehub in your browser |
-| `train` | Train a project to understand its physical product, run from within an AI harness such as Claude or Codex |
-| `skills` | Inspect and manage the skills that training produced |
+| `skills` | Read and manage the skills a project holds: show, list, get, set, delete |
 
 A mode keyword, when used, must be the first argument on the command line.
 
@@ -79,12 +78,34 @@ Value options accept either `--project app:123` or `--project=app:123`; boolean
 options accept `--pretty` or `--pretty=false`.
 
 In the default mode, place options before the request. Within a mode's command,
-such as `notehub skills pull`, options may appear before or after the command's
+such as `notehub skills get`, options may appear before or after the command's
 arguments. A standalone `--` ends option parsing; following arguments are treated
 as positional values.
 
 Running `notehub --hub example.com` alone saves the hub for future invocations.
 With other options or a request, specifying `--hub` does not by itself save the setting.
+
+### Skills
+
+A project's skills are Markdown files stored in the project itself, which tell any AI
+agent what the product behind the data is and what its data means. They are written by
+training the project: point any AI agent at https://notehub.md and ask it to train your
+project. The `skills` mode is how you read them and manage them yourself:
+
+```bash
+notehub skills --project app:123                      # every skill, assembled into one linked document
+notehub skills list --project app:123                 # what the project holds, by name, size, date and kind
+notehub skills show index.md --project app:123        # one skill, exactly as stored
+notehub skills get all ./skills --project app:123     # copy every skill into ./skills
+notehub skills set ./skills --dry-run --project app:123   # what storing them back would change
+notehub skills set ./skills --project app:123         # store the ones that changed
+notehub skills delete old.md --project app:123        # remove one skill from the project
+```
+
+Every command talks to the project directly and keeps nothing locally between runs.
+`get` never overwrites a local file that differs from the project's copy unless given
+`--force`, `set` stores only the files that differ from what the project holds and
+never removes anything, and `delete all` removes every skill only when given `--force`.
 
 ## Building the CLIs
 
