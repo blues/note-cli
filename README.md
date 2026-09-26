@@ -59,6 +59,7 @@ at all.
 | Mode | Purpose |
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
+| `signin` | Sign in to Notehub in your browser |
 | `skills` | Build and manage Notehub skills |
 
 A mode keyword, when used, must be the first argument on the command line.
