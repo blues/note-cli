@@ -26,6 +26,11 @@ const (
 	// explicitly is identical to not specifying a mode at all.
 	modeDefault = "default"
 
+	// modeSignIn signs in to Notehub in the browser, exactly as --signin does in the
+	// default mode.  The switch is the documented form; the mode exists because typing
+	// 'notehub signin' without the hyphens is a common mistake, and it should simply work.
+	modeSignIn = "signin"
+
 	// modeTrain runs a training session: it emits the protocol that turns an AI harness
 	// into the trainer, and the harness does the rest
 	modeTrain = "train"
@@ -47,6 +52,15 @@ func cliModes() []*cliMode {
 				Name:    modeDefault,
 				Summary: "interact with Notehub (requests, uploads, env vars, provisioning)",
 				Run:     runDefault,
+			},
+			{
+				Name:    modeSignIn,
+				Summary: "sign in to Notehub in your browser",
+				Detail: "'notehub signin' opens your browser to sign in to Notehub, and saves the\n" +
+					"credentials for the requests that follow.  To sign in with a personal\n" +
+					"access token instead, use 'notehub --signin-token', and to see whether you\n" +
+					"are signed in, and as whom, use 'notehub --whoami'.",
+				Run: runSignIn,
 			},
 			{
 				Name:    modeTrain,

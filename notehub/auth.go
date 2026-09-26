@@ -6,8 +6,10 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/blues/note-cli/lib"
@@ -196,6 +198,18 @@ func authSignIn() error {
 	}
 
 	// Done
+	return nil
+}
+
+// runSignIn is the handler for 'notehub signin', which is the browser-based sign-in
+// exactly as --signin performs it in the default mode
+func runSignIn(config *lib.ConfigSettings) error {
+	if args := flag.Args(); len(args) != 0 {
+		return fmt.Errorf("'%s %s' takes no arguments, but was given: %s", cliName, modeSignIn, strings.Join(args, " "))
+	}
+	if err := authSignIn(); err != nil {
+		return fmt.Errorf("sign-in: %w", err)
+	}
 	return nil
 }
 

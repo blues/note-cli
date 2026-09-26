@@ -32,6 +32,8 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"default", "--version"}, modeDefault, []string{"--version"}},
 
 		// Mode keywords
+		{[]string{"signin"}, modeSignIn, []string{}},
+		{[]string{"SignIn", "--hub", "api.notefile.net"}, modeSignIn, []string{"--hub", "api.notefile.net"}},
 		{[]string{"skills"}, modeSkills, []string{}},
 		{[]string{"SKILLS", "-project", "app:1"}, modeSkills, []string{"-project", "app:1"}},
 		{[]string{"skills", "--project=app:1"}, modeSkills, []string{"--project=app:1"}},
@@ -46,6 +48,8 @@ func TestExtractMode(t *testing.T) {
 		// A switch is always a switch, even when a mode has the same name
 		{[]string{"--help"}, modeDefault, []string{"--help"}},
 		{[]string{"-help"}, modeDefault, []string{"-help"}},
+		{[]string{"--signin"}, modeDefault, []string{"--signin"}},
+		{[]string{"-signin"}, modeDefault, []string{"-signin"}},
 		{[]string{"--verbose"}, modeDefault, []string{"--verbose"}},
 
 		// A hyphenated word that isn't a mode is left for the flag package to diagnose
@@ -115,6 +119,10 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSkills, []string{"--hub", "api.notefile.net"}, true},
 		{modeSkills, []string{"--upload=f.bin"}, false},
 		{modeSkills, []string{"--explore"}, false},
+		{modeSignIn, []string{"--hub", "api.notefile.net"}, true},
+		{modeSignIn, []string{"--signin"}, false},
+		{modeSignIn, []string{"--signin-token", "pat"}, false},
+		{modeSignIn, []string{"--project", "app:1"}, false},
 
 		// The general options are available no matter what mode is being run
 		{modeSkills, []string{"-help"}, true},
@@ -291,8 +299,10 @@ func TestGeneralOptions(t *testing.T) {
 	for _, s := range cliSwitches() {
 		if s.Group == cliGroupGeneral {
 			general = append(general, s.Name)
-			if !s.allowedIn(modeDefault) || !s.allowedIn(modeSkills) {
-				t.Errorf("-%s is a general option and so must be available in every mode", s.Name)
+			for _, mode := range cliModes() {
+				if !s.allowedIn(mode.Name) {
+					t.Errorf("-%s is a general option and so must be available in every mode, including '%s'", s.Name, mode.Name)
+				}
 			}
 		}
 	}

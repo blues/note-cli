@@ -18,6 +18,11 @@ notehub --whoami
 notehub --whoami --json
 notehub --hub preprod.blues.tools --whoami
 
+// Sign in to Notehub, which opens your browser and saves the credentials that the
+// requests below will use
+notehub signin
+notehub signin --hub preprod.blues.tools
+
 // General note-related
 notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.update","file":"hub.db","note":"testnote","body":{"testfield":"testvalue"}}'
 notehub --product net.ozzie.ray:t --device dev:94deb82a98d0 '{"req":"note.get","file":"hub.db","note":"testnote"}'
