@@ -4,9 +4,9 @@
 
 // The local working copy of a project's skills.
 //
-// Teaching happens locally.  Every project being taught has a working copy in a known
+// Training happens locally.  Every project being trained has a working copy in a known
 // place, which is where the agent writes and where the person is free to edit, rename,
-// delete, and experiment.  Nothing reaches the project until it is pushed, so a teaching
+// delete, and experiment.  Nothing reaches the project until it is pushed, so a training
 // session can be argued with, undone, and slept on.
 //
 // Alongside the working copy is a baseline, which is what the project held the last time
@@ -24,17 +24,19 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/blues/note-cli/lib"
+	"gopkg.in/yaml.v3"
 )
 
 // The layout of the working copy
 const (
 	// skillsDirName is the directory, within the note tool's config directory, that
-	// holds the working copy of every project being taught
+	// holds the working copy of every project being trained
 	skillsDirName = "skills"
 
 	// skillsBaselineDir holds what the project itself last held, so that the working
@@ -43,10 +45,6 @@ const (
 
 	// skillsPulledFile records when the baseline was last known to match the project
 	skillsPulledFile = ".pulled"
-
-	// skillsProjectFile records the project's human-readable name, when it is known,
-	// so that a backup can be named after it without going to the network
-	skillsProjectFile = ".project"
 
 	// skillsExt is what a skill is
 	skillsExt = ".md"
@@ -227,18 +225,14 @@ func skillsBaselineNote(dir string, name string) string {
 	return strings.TrimSpace(string(contents))
 }
 
-// skillsProjectLabel is the project's human-readable name if we have learned it, and
-// otherwise the identifier that was used to reach it
-func skillsProjectLabel(dir string, project string) string {
-	if label := skillsBaselineNote(dir, skillsProjectFile); label != "" {
-		return label
-	}
-	return project
-}
-
 // skillsBackupPath is where a backup goes when the person doesn't say: onto the desktop,
-// named for the project and the moment, so that a folder of them reads as a history
-func skillsBackupPath(dir string, project string) string {
+// named for the project and the moment, so that a folder of them reads as a history.
+//
+// The project is named by the identifier used to reach it, deliberately, rather than by
+// its human-readable name.  The v0 request that carries the name, hub.app.get, returns
+// the project's entire configuration, which includes route credentials and other
+// secrets, and nothing that merely wants to name a backup file should be handling those.
+func skillsBackupPath(project string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
@@ -248,12 +242,12 @@ func skillsBackupPath(dir string, project string) string {
 		into = home
 	}
 	name := fmt.Sprintf("skills - %s - %s.zip",
-		skillsSafeName(skillsProjectLabel(dir, project)), time.Now().Format("2006-01-02 1504"))
+		skillsSafeName(project), time.Now().Format("2006-01-02 1504"))
 	return filepath.Join(into, name)
 }
 
 // skillsBackup writes the working copy to a zip file, and returns where it went.  The
-// baseline is deliberately left out: a backup is of the teaching, not of the sync state.
+// baseline is deliberately left out: a backup is of the training, not of the sync state.
 func skillsBackup(dir string, filename string) (count int, err error) {
 
 	skills, err := skillsReadDir(dir)
@@ -340,61 +334,127 @@ func skillsSortedNames(skills map[string][]byte) (names []string) {
 	return
 }
 
+// skillsKindRE is what a kind must be: a single word, as every kind the protocol defines
+// is, so that anything else is recognized as a mistake rather than stored as a tag
+var skillsKindRE = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
 // skillsKinds returns the kinds of knowledge a skill holds, taken from the "kind" field
 // of its front matter and stored as the upload's tags.
 //
 // The kind is what lets an agent load only the knowledge a question needs, so a skill
-// without one is still stored, but it is invisible to anything selecting by kind.
+// without one is still stored, but it is invisible to anything selecting by kind.  The
+// protocol writes the kinds as one comma-separated line, but a list of them is just as
+// naturally written as a YAML list, so each of these means the same:
+//
+//	kind: notefiles,derivation
+//	kind: [notefiles, derivation]
+//	kind:
+//	  - notefiles
+//	  - derivation
+//
+// Anything else is refused rather than stored, because a kind that reaches the service
+// mangled is one that nothing selecting by kind will ever find.
 func skillsKinds(contents []byte) (kinds string, err error) {
 
-	field := skillsFrontMatterField(contents, "kind")
-	if field == "" {
-		field = skillsFrontMatterField(contents, "kinds")
-	}
-	if field == "" {
-		return "", nil
-	}
-
 	// Tags are comma-separated without whitespace, and lowercase so that a kind reads
-	// the same way wherever it was written
+	// the same way wherever it was written.  "kinds" is read only if "kind" holds none.
 	list := []string{}
-	for _, kind := range strings.Split(field, ",") {
-		kind = strings.ToLower(strings.TrimSpace(kind))
-		if kind == "" {
-			continue
+	for _, field := range []string{"kind", "kinds"} {
+		value, fieldErr := skillsFrontMatterValue(contents, field)
+		if fieldErr != nil {
+			return "", fieldErr
 		}
-		if kind == skillsReservedTag {
-			return "", fmt.Errorf("'%s' is reserved and can't be used as a kind", skillsReservedTag)
+		items := []any{value}
+		if values, isList := value.([]any); isList {
+			items = values
 		}
-		if strings.ContainsAny(kind, ` ,"'`) {
-			return "", fmt.Errorf("'%s' is not a kind a skill may have", kind)
+		for _, item := range items {
+			words, isString := item.(string)
+			if item != nil && !isString {
+				return "", fmt.Errorf("'%s' must be a word, a comma-separated line of words, or a list of them", field)
+			}
+			for _, kind := range strings.Split(words, ",") {
+				kind = strings.ToLower(strings.TrimSpace(kind))
+				switch {
+				case kind == "":
+					continue
+				case kind == skillsReservedTag:
+					return "", fmt.Errorf("'%s' is reserved and can't be used as a kind", skillsReservedTag)
+				case !skillsKindRE.MatchString(kind):
+					return "", fmt.Errorf("'%s' is not a kind a skill may have, which is one word of letters, digits, hyphens and underscores", kind)
+				}
+				list = append(list, kind)
+			}
 		}
-		list = append(list, kind)
+		if len(list) != 0 {
+			break
+		}
 	}
 
 	return strings.Join(list, ","), nil
 
 }
 
-// skillsFrontMatterField returns one field of a skill's YAML front matter, which is the
-// block between a "---" on the very first line and the next "---"
-func skillsFrontMatterField(contents []byte, field string) string {
+// skillsFrontMatterValue returns one top-level field of a skill's YAML front matter,
+// which is the block between a "---" on the very first line and the next "---", or nil
+// if there is no such field.
+//
+// Only that field is parsed as YAML, from its own line to the next field, so that a slip
+// elsewhere in the front matter - a colon in a description, say - is not a reason to
+// refuse a field that is perfectly clear.  A field's value runs on over the lines beneath
+// it that are indented, blank or comments, and over a list written flush with the field.
+func skillsFrontMatterValue(contents []byte, field string) (value any, err error) {
 
-	lines := strings.Split(string(contents), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return ""
+	// The front matter, if there is any
+	lines := strings.Split(strings.TrimPrefix(string(contents), "\ufeff"), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], "\r")
 	}
-
-	for _, line := range lines[1:] {
-		if strings.TrimSpace(line) == "---" {
+	if strings.TrimSpace(lines[0]) != "---" {
+		return nil, nil
+	}
+	front := []string{}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			front = lines[1:i]
 			break
 		}
-		name, value, found := strings.Cut(line, ":")
-		if found && strings.EqualFold(strings.TrimSpace(name), field) {
-			return strings.Trim(strings.TrimSpace(value), `"'`)
-		}
 	}
 
-	return ""
+	for i, line := range front {
+
+		// A top-level field starts at the beginning of its line, and a field nested
+		// within another is indented beneath it
+		name, rest, isField := strings.Cut(line, ":")
+		if !isField || line[0] == ' ' || line[0] == '\t' || !strings.EqualFold(strings.TrimSpace(name), field) {
+			continue
+		}
+		name = strings.TrimSpace(name)
+
+		// To YAML, a colon with no space after it is part of a word rather than the end
+		// of a field's name, which is not what anybody writing one means
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			return nil, fmt.Errorf("'%s' in the front matter needs a space after its colon, as in '%s: %s'", name, name, rest)
+		}
+
+		end := i + 1
+		for end < len(front) {
+			next := front[end]
+			if next != "" && next[0] != ' ' && next[0] != '\t' && next[0] != '#' &&
+				next != "-" && !strings.HasPrefix(next, "- ") {
+				break
+			}
+			end++
+		}
+
+		entry := map[string]any{}
+		if err = yaml.Unmarshal([]byte(strings.Join(front[i:end], "\n")), &entry); err != nil {
+			return nil, fmt.Errorf("'%s' in the front matter can't be read: %s", name, err)
+		}
+		return entry[name], nil
+
+	}
+
+	return nil, nil
 
 }

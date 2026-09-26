@@ -2,7 +2,7 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Skills Storage, which is where a project's taught skills live.
+// Skills Storage, which is where a project's skills live.
 //
 // Unlike everything else this CLI reaches, skills are stored through the older "v0" API,
 // which is a JSON request posted to /req.  Skills are kept as project uploads, and a few
@@ -190,7 +190,7 @@ func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
 // skillsStoragePull replaces the working copy and its baseline with what the project
 // holds
-func skillsStoragePull(project string, dir string) error {
+func skillsStoragePull(dir string) error {
 
 	uploads, err := skillsStorageQuery(true)
 	if err != nil {
@@ -217,7 +217,7 @@ func skillsStoragePull(project string, dir string) error {
 	if _, err = skillsReplaceDir(skillsBaselinePath(dir), skills); err != nil {
 		return err
 	}
-	skillsRecordPull(dir, project)
+	skillsRecordPull(dir)
 
 	if len(skills) == 0 {
 		fmt.Printf("This project holds no skills yet.\n")
@@ -245,7 +245,9 @@ func skillsStoragePush(project string, dir string, changes []skillsChange) error
 	if err != nil {
 		return err
 	}
-	_, superseded := skillsStorageCurrent(uploads)
+	// Everything the project holds for a skill is superseded by what this push adds for
+	// it: the current upload, and any older one that an interrupted push left behind
+	superseded := map[string][]string{}
 	for _, upload := range uploads {
 		superseded[upload.Source] = append(superseded[upload.Source], upload.Name)
 	}
@@ -287,7 +289,7 @@ func skillsStoragePush(project string, dir string, changes []skillsChange) error
 		}
 	}
 
-	skillsRecordPull(dir, project)
+	skillsRecordPull(dir)
 	fmt.Printf("\n%d skill(s) uploaded to %s.\n", pushed, project)
 
 	for _, change := range changes {
@@ -346,13 +348,8 @@ func skillsStorageRemove(name string) error {
 	return err
 }
 
-// skillsRecordPull records that the baseline now matches the project.
-//
-// It deliberately does not go looking for the project's human-readable name.  The v0
-// request that carries it, hub.app.get, returns the project's entire configuration,
-// which includes route credentials and other secrets, and nothing that merely wants to
-// name a backup file should be handling those.
-func skillsRecordPull(dir string, project string) {
+// skillsRecordPull records that the baseline now matches the project
+func skillsRecordPull(dir string) {
 	os.WriteFile(filepath.Join(skillsBaselinePath(dir), skillsPulledFile),
 		[]byte(time.Now().UTC().Format(time.RFC3339)), 0666)
 }

@@ -374,10 +374,41 @@ func TestSkillsKinds(t *testing.T) {
 		{"---\nkind: \"quoted\"\n---\n\n# Q\n", "quoted", false},
 		{"---\nkind: glossary\n---\nkind: notthisone\n", "glossary", false},
 
+		// A list of kinds is written as YAML writes a list, in either of its forms
+		{"---\nkind: [schema, glossary]\n---\n", "schema,glossary", false},
+		{"---\nkind: [\"schema\", 'glossary']\n---\n", "schema,glossary", false},
+		{"---\nkind:\n  - schema\n  - glossary\ndescription: after the list\n---\n", "schema,glossary", false},
+		{"---\nkind:\n- schema\n- glossary\n---\n", "schema,glossary", false},
+
+		// A line of kinds wrapped onto the next, a comment, and a line ending in CRLF
+		{"---\nkind: product,usage,mission,\n  constraints\n---\n", "product,usage,mission,constraints", false},
+		{"---\nkind: schema # what the fields are\n---\n", "schema", false},
+		{"---\r\nkind: schema\r\n---\r\n", "schema", false},
+
+		// Only the top-level field is the kind, and only the kind is read, so a slip
+		// elsewhere in the front matter - or a blank line in it - changes nothing
+		{"---\nmetadata:\n  kind: nested\ndescription: x\n---\n", "", false},
+		{"---\nmetadata:\n  kind: nested\nkind: schema\n---\n", "schema", false},
+		{"---\ndescription: Use when: writing notes\nkind: schema\n---\n", "schema", false},
+		{"---\n\nkind: schema\n\n---\n", "schema", false},
+
+		// An empty kind is no kind, and front matter that never closes is not front matter
+		{"---\nkind:\ndescription: x\n---\n", "", false},
+		{"---\nkind:\nkinds: glossary\n---\n", "glossary", false},
+		{"---\nkind: glossary\n\n# never closed\n", "", false},
+
 		// The service reserves this one, and a tag may not carry whitespace
 		{"---\nkind: publish\n---\n\n# P\n", "", true},
 		{"---\nkind: schema,publish\n---\n\n# P\n", "", true},
+		{"---\nkind:\n  - schema\n  - publish\n---\n", "", true},
 		{"---\nkind: two words\n---\n\n# W\n", "", true},
+
+		// Anything that is not a word, or a list of them, is refused rather than stored
+		{"---\nkind: [schema, glossary\n---\n", "", true},
+		{"---\nkind: schema:v2\n---\n", "", true},
+		{"---\nkind:schema\n---\n", "", true},
+		{"---\nkind: 42\n---\n", "", true},
+		{"---\nkind:\n  primary: schema\n---\n", "", true},
 	}
 	for _, test := range tests {
 		kinds, err := skillsKinds([]byte(test.contents))

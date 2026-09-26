@@ -2,19 +2,21 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// The teaching tool, which is everything done by 'notehub skills'.
+// Skills, which is everything done by 'notehub skills': inspecting and managing what
+// training produced.
 //
 // A Notehub project knows the mechanics of the data flowing through it, but not what the
-// product is, what its fields mean, or what anyone would want to ask about it.  This mode
-// exists so that a developer, working through an AI harness, can write that knowledge
-// down as a small set of Markdown files stored in the project itself, where any agent
-// with read access can later find it.
+// product is, what its fields mean, or what anyone would want to ask about it.  Training
+// writes that knowledge down as a small set of Markdown files stored in the project
+// itself, where any agent with read access can later find it, and this mode is how those
+// files are reviewed, stored, and read back.
 //
-// The CLI is not the teacher.  The harness is.  'notehub skills' emits the protocol that
-// turns a harness into the teacher, and the remaining commands move Markdown in and out
-// of the project's Skills Storage.  Everything else a harness needs - listing projects,
-// sampling events, reading schemas - it already does through the CLI's default mode or
-// the HTTP API directly, so none of it is duplicated here.
+// The CLI is not the trainer.  The harness is.  'notehub train' emits the protocol that
+// turns a harness into the trainer (see train.go), and the harness writes what it learns
+// into a working copy.  The commands here move that Markdown in and out of the project's
+// Skills Storage, and read back what the project holds.  Everything else a harness needs
+// - listing projects, sampling events, reading schemas - it already does through the
+// CLI's default mode or the HTTP API directly, so none of it is duplicated here.
 //
 // 'notehub skills' with no command writes the project's whole skill set to stdout as one
 // assembled document, because its output is meant for whoever or whatever asked to read
@@ -34,11 +36,10 @@ import (
 // The variables into which this mode's switches are parsed go here, alongside the
 // switch definitions below
 
-// skillsSwitches returns the switches that are specific to the teaching tool.  These are
-// defined here, rather than alongside the switches used to interact with Notehub, so that
-// everything belonging to the teaching tool stays in one place, but they are part of the
-// same table and so they are registered, validated, and documented in exactly the same
-// way.
+// skillsSwitches returns the switches that are specific to this mode.  These are defined
+// here, rather than alongside the switches used to interact with Notehub, so that
+// everything belonging to this mode stays in one place, but they are part of the same
+// table and so they are registered, validated, and documented in exactly the same way.
 func skillsSwitches() []*cliSwitch {
 	return []*cliSwitch{
 		// For example:
@@ -47,9 +48,9 @@ func skillsSwitches() []*cliSwitch {
 	}
 }
 
-// skillsCommands returns the commands accepted by the teaching tool.  They are built
-// around the working copy: teaching happens there, and nothing reaches the project until
-// it is pushed.
+// skillsCommands returns the commands accepted by this mode.  They are built around the
+// working copy: training happens there, and nothing reaches the project until it is
+// pushed.
 func skillsCommands() []cliCommand {
 	return []cliCommand{
 		{Name: "show", Args: "[name|all]", Summary: "write one skill, or the whole set as one document, to stdout",
@@ -189,7 +190,7 @@ func skillsStatusCommand(config *lib.ConfigSettings, args []string) error {
 // skillsPullCommand refreshes the working copy from the project
 func skillsPullCommand(config *lib.ConfigSettings, args []string) error {
 
-	project, dir, err := skillsWorkingCopy()
+	_, dir, err := skillsWorkingCopy()
 	if err != nil {
 		return err
 	}
@@ -204,7 +205,7 @@ func skillsPullCommand(config *lib.ConfigSettings, args []string) error {
 			len(changes), cliName, modeSkills)
 	}
 
-	return skillsStoragePull(project, dir)
+	return skillsStoragePull(dir)
 
 }
 
@@ -257,7 +258,7 @@ func skillsBackupCommand(config *lib.ConfigSettings, args []string) error {
 	filename := ""
 	switch len(args) {
 	case 0:
-		filename = skillsBackupPath(dir, project)
+		filename = skillsBackupPath(project)
 	case 1:
 		filename = args[0]
 	default:
@@ -302,7 +303,7 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 
 }
 
-// skillsWorkingCopy returns the project being taught along with its working copy
+// skillsWorkingCopy returns the project along with its working copy
 func skillsWorkingCopy() (project string, dir string, err error) {
 	project, err = skillsProject()
 	if err != nil {
@@ -312,7 +313,7 @@ func skillsWorkingCopy() (project string, dir string, err error) {
 	return
 }
 
-// skillsProject returns the project being taught, which every command needs
+// skillsProject returns the project whose skills these are, which every command needs
 func skillsProject() (project string, err error) {
 	if flagApp != "" {
 		return flagApp, nil
@@ -320,5 +321,5 @@ func skillsProject() (project string, err error) {
 	if flagProduct != "" {
 		return flagProduct, nil
 	}
-	return "", fmt.Errorf("specify the project being taught with --project or --product")
+	return "", fmt.Errorf("specify the project with --project or --product")
 }

@@ -60,7 +60,8 @@ at all.
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
 | `signin` | Sign in to Notehub in your browser |
-| `skills` | Build and manage Notehub skills |
+| `train` | Train a project to understand its physical product, run from within an AI harness such as Claude or Codex |
+| `skills` | Inspect and manage the skills that training produced |
 
 A mode keyword, when used, must be the first argument on the command line.
 

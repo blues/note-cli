@@ -48,13 +48,33 @@ esac
 
 command -v notehub >/dev/null || { echo "notehub is not on PATH" >&2; exit 1; }
 
-# A project may hold data uploads that are not skills - firmware images, source files,
-# scripts. The CLI decides by Markdown extension (isSkill() in skills-storage.go), and
-# so must this, or the script will offer to delete files it has no business touching.
+# Everything below uses the train and skills modes, which an older notehub doesn't have
+notehub train --help >/dev/null 2>&1 \
+  || { echo "$(command -v notehub) has no 'train' mode - build notehub from this branch first" >&2; exit 1; }
+
+# Skills live in the project's own skill store, the upload type "skill", which must match
+# skillsUploadType in skills-storage.go. The project's data uploads - firmware images,
+# source files, scripts - are stored apart from it, so they are never listed or deleted
+# here. Within the store only Markdown is a skill, as isSkill() decides, and so here too.
+#
+# A query that fails is not an empty project. The CLI prints a service error as a reply
+# and exits 0, so the reply itself is checked, and any failure stops the script: calling
+# a project clean while it still holds skills would make the next run an update run,
+# which is the one thing this script exists to prevent.
 published() {
-  notehub "${SCOPE[@]}" -req '{"req":"hub.app.upload.query","type":"data"}' 2>/dev/null \
-    | grep -o '"source":"[^"]*"' | cut -d'"' -f4 \
-    | grep -i '\.md$' | sort -u
+  local rsp
+  if ! rsp="$(notehub "${SCOPE[@]}" -req '{"req":"hub.app.upload.query","type":"skill"}')"; then
+    echo "can't list the project's skills: $rsp" >&2
+    return 1
+  fi
+  # a reply is a JSON object, and a service error arrives as one
+  if [[ "$rsp" != '{'* || "$rsp" == *'"err":'* ]]; then
+    echo "can't list the project's skills: ${rsp:-no reply}" >&2
+    return 1
+  fi
+  # a store with no skills in it matches nothing, which is not a failure
+  printf '%s\n' "$rsp" | grep -o '"source":"[^"]*"' | cut -d'"' -f4 \
+    | grep -i '\.md$' | sort -u || true
 }
 
 echo "=============================================================="
@@ -64,7 +84,7 @@ echo " run directory   : $RUN"
 echo " archives        : $ARCHIVE/$SAFE-$TS-*.zip"
 echo "=============================================================="
 
-PUB="$(published || true)"
+PUB="$(published)" || exit 1
 if [ -n "$PUB" ]; then
   echo; echo "published skills that will be DELETED from the project:"
   echo "$PUB" | sed 's/^/    /'
@@ -84,11 +104,16 @@ fi
 
 mkdir -p "$ARCHIVE"
 
-# --- 1. archive the working copy exactly as it stands, hand edits included ---
+# --- 1. archive the working copy exactly as it stands, hand edits included. This is
+#        the only copy of those edits and the steps below delete it, so nothing goes
+#        any further unless it succeeds ---
 if [ -d "$LOCAL" ]; then
-  notehub skills backup "$ARCHIVE/$SAFE-$TS-local.zip" "${SCOPE[@]}" >/dev/null 2>&1 \
-    && echo "archived working copy   -> $ARCHIVE/$SAFE-$TS-local.zip" \
-    || echo "note: could not archive the working copy (continuing)"
+  if ERR=$(notehub skills backup "$ARCHIVE/$SAFE-$TS-local.zip" "${SCOPE[@]}" 2>&1); then
+    echo "archived working copy   -> $ARCHIVE/$SAFE-$TS-local.zip"
+  else
+    echo "could not archive the working copy, so nothing was deleted: $ERR" >&2
+    exit 1
+  fi
 fi
 
 # --- 2. archive what the PROJECT holds. This needs a pull, and pull refuses while

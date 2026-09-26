@@ -22,6 +22,9 @@ the script picks the right flag for whichever you give it.
 It cleans and stops. It never launches an agent — start claude or codex yourself in
 the directory it prepares.
 
+It needs the `notehub` on your PATH to be a build with the `train` and `skills` modes,
+and stops before doing anything if it finds an older one.
+
 ## Where things live
 
 | what | where |
@@ -39,24 +42,26 @@ on every invocation, so copy a transcript out of it before running again.
 ## What each invocation does
 
 1. **Archives the working copy** as `<productUID>-<ts>-local.zip`, so hand edits are
-   never lost.
+   never lost. If it can't, the script stops before deleting anything.
 2. **Archives what the project holds** as `<productUID>-<ts>-published.zip`. This needs
    a `pull`, and `pull` refuses while local changes are pending, so the working copy is
    archived first and then cleared to make the pull possible.
 3. **Deletes every skill from the project** and removes the working copy. You must
    retype the productUID to confirm; nothing else in the script is destructive. If a
    deletion fails the script reports it by name and exits non-zero rather than
-   claiming the project is clean.
+   claiming the project is clean, and if the project's skills can't be listed at all
+   it stops before doing anything, because a failed query is not an empty project.
 4. **Clears agent memory** for the run directory (see below).
 5. **Empties the run directory** and writes `protocol-used.md` and `RUN.txt` into it,
    recording the protocol's line count and SHA.
 
 ## Only skills are touched
 
-A project can hold data uploads that are not skills — firmware images, source files,
-scripts. The CLI decides what is a skill by Markdown extension (`isSkill()` in
-`skills-storage.go`), and so does this script. Anything that is not `.md` is neither
-listed nor deleted.
+Skills live in the project's own skill store, the upload type `skill`, which the
+script must query by the same name as `skillsUploadType` in `skills-storage.go`. A
+project's data uploads — firmware images, source files, scripts — are stored apart from
+it, so they are never listed or deleted. Within the store only Markdown is a skill,
+exactly as `isSkill()` in the same file decides.
 
 ## Three things leak between runs, not one
 
