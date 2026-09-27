@@ -59,7 +59,7 @@ its default mode.
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
 | `signin` | Sign in to Notehub in your browser |
-| `skills` | Read and manage the skills a project holds: show, list, get, set, delete |
+| `skills` | Read and manage the skills a project holds: show, list, get, set, rename, delete, backup, restore |
 
 A mode named on its own performs its default action. `--help` describes the options
 of the mode being run:
@@ -89,21 +89,29 @@ https://notehub.md and ask it to train your project. The `skills` mode reads and
 manages them:
 
 ```bash
-notehub skills --project app:123                      # every skill, assembled into one linked document
-notehub skills list --project app:123                 # what the project holds, by name, size, date and kind
-notehub skills show index.md --project app:123        # one skill, exactly as stored
-notehub skills get all ./skills --project app:123     # copy every skill into ./skills
+notehub skills --project app:123                          # every skill, assembled into one linked document
+notehub skills list --project app:123                     # what the project holds, by name, size, date and kind
+notehub skills show index.md --project app:123            # one skill, exactly as stored
+notehub skills get index.md - --project app:123           # the same, as 'get' writes it to stdout
+notehub skills get all ./skills --project app:123         # copy every skill into ./skills
 notehub skills set ./skills --dry-run --project app:123   # what storing them back would change
-notehub skills set ./skills --project app:123         # store the ones that changed
-notehub skills delete old.md --project app:123        # remove one skill from the project
+notehub skills set ./skills --project app:123             # store the ones that changed
+notehub skills rename old.md new.md --project app:123     # store a skill under another name
+notehub skills delete old.md --project app:123            # remove one skill from the project
+notehub skills backup skills.zip --project app:123        # save every skill into a zip file
+notehub skills restore skills.zip --project app:123       # make the project hold exactly the zip's skills
 ```
 
 A skill's kinds, such as `product` or `recipe`, are stored as its tags, taken from the
-`kind:` (or `tags:`) line of its front matter. To change them, edit that line and `set`
-the file again.
+`kind:` (or `kinds:` or `tags:`) line of its front matter. To change them, edit that
+line and `set` the file again. A backup writes the kinds a skill is stored under into
+its front matter when they aren't already there, so a restore keeps them.
 
-`get` won't overwrite a local file that differs unless given `--force`. `set` stores
-only what differs, and never removes anything. `delete all` requires `--force`.
+`get` won't overwrite a local file that differs unless given `--force`, and neither
+will `backup`. `set` stores only what differs, and never removes anything. `rename`
+won't replace another skill without `--force`, and `delete all` requires it. `restore`
+stores what the zip holds and then removes every other skill. `--dry-run` says what
+`set`, `rename`, `delete`, `backup` or `restore` would do, without doing it.
 
 ## Building the CLIs
 

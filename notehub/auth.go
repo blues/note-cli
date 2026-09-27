@@ -53,6 +53,10 @@ type authStatus struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	Reason    string     `json:"reason,omitempty"`
 	Action    string     `json:"action,omitempty"`
+
+	// expired notes that the recorded expiration has passed, for the wording of the
+	// answer; the hub is the judge of whether the token still works
+	expired bool
 }
 
 // The ways in which we can be signed in, as they appear in the JSON form of authStatus
@@ -76,13 +80,15 @@ const authExpiresFormat = "2006-01-02 15:04:05 MST"
 // so an agent should hand it to the person rather than run it.
 const authSignInAction = "notehub --signin"
 
-// authWhoAmI reports whether we are signed in to the hub, and as whom.  It asks the hub
-// only when the local credentials look usable, and then with one small request.
+// authWhoAmI reports whether we are signed in to the hub, and as whom.  Whenever there
+// are saved credentials it asks the hub, with one small request, because the hub is the
+// judge of them: a recorded expiration that has passed is reported, but not trusted, since
+// the hub may well still accept the token.
 func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status authStatus) {
 	status.Hub = hub
 
-	// With no credentials, or expired ones, we are simply not signed in
-	if credentials == nil || credentials.ExpiredAt(now) {
+	// With no credentials, we are simply not signed in
+	if credentials == nil {
 		status.Reason = "not signed in"
 		status.Action = authSignInAction
 		return
@@ -97,17 +103,25 @@ func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status
 		expiresAt := credentials.ExpiresAt.Local()
 		status.ExpiresAt = &expiresAt
 	}
+	status.expired = credentials.ExpiredAt(now)
 
-	// The token looks usable, so let the hub be the judge
+	// Let the hub be the judge
 	email, err := lib.IntrospectToken(hub, credentials.Token)
 	if err != nil {
 		// Failing to reach the hub says nothing about the token, so don't suggest signing in
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) {
 			status.Reason = fmt.Sprintf("unable to reach hub: %s", urlErr.Err)
+			if status.expired {
+				status.Reason += " (the saved token's recorded expiration has passed)"
+			}
 			return
 		}
 		status.Reason = fmt.Sprintf("%s rejected: %s", authMethodName(status.Method), err)
+		if status.expired {
+			status.Reason = fmt.Sprintf("%s expired %s, and the hub rejected it: %s", authMethodName(status.Method),
+				status.ExpiresAt.Format(authExpiresFormat), err)
+		}
 		status.Action = authSignInAction
 		return
 	}
@@ -141,8 +155,12 @@ func authWhoAmIPrint(status authStatus, asJSON bool) {
 
 // authExpiresDescription describes how we are signed in and when that expires
 func authExpiresDescription(status authStatus) string {
-	if status.ExpiresAt == nil {
+	switch {
+	case status.ExpiresAt == nil:
 		return fmt.Sprintf("%s (expiration not recorded)", authMethodName(status.Method))
+	case status.expired:
+		return fmt.Sprintf("%s the hub still accepts, though its recorded expiration of %s has passed",
+			authMethodName(status.Method), status.ExpiresAt.Format(authExpiresFormat))
 	}
 	return fmt.Sprintf("%s expiring %s", authMethodName(status.Method), status.ExpiresAt.Format(authExpiresFormat))
 }

@@ -328,6 +328,7 @@ func cliParseCommandSwitches(mode *cliMode, args []string) (positional []string,
 	if err = flag.CommandLine.Parse(switches); err != nil {
 		return nil, err
 	}
+	cliNormalizeScope()
 
 	return positional, nil
 

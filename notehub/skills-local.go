@@ -168,43 +168,131 @@ func skillsKinds(contents []byte) (kinds string, err error) {
 
 }
 
+// skillsWithKinds returns a skill declaring the given kinds in its front matter, as
+// 'kind: a,b': in place of the kind field it has, or first in the front matter it has, or
+// in front matter added for it.  Everything else in the file is left as it is, so a skill
+// that comes back from a backup reads as it did, with its kinds.
+func skillsWithKinds(contents []byte, kinds string) []byte {
+
+	// The file's own byte order mark and line ending are kept
+	text := string(contents)
+	bom := ""
+	if strings.HasPrefix(text, "\ufeff") {
+		bom, text = "\ufeff", strings.TrimPrefix(text, "\ufeff")
+	}
+	eol := "\n"
+	if strings.Contains(text, "\r\n") {
+		eol = "\r\n"
+	}
+	field := strings.TrimRight("kind: "+kinds, " ")
+
+	// Without front matter, the field is all of it
+	open, close := skillsFrontMatterSpan(text)
+	if open < 0 {
+		return []byte(bom + "---" + eol + field + eol + "---" + eol + eol + text)
+	}
+
+	// Within it, the field replaces the one there, or comes first
+	front := []string{}
+	if inner := strings.TrimSuffix(strings.TrimSuffix(text[open:close], "\n"), "\r"); inner != "" {
+		front = strings.Split(inner, "\n")
+		for i := range front {
+			front[i] = strings.TrimRight(front[i], "\r")
+		}
+	}
+	start, end := skillsFrontMatterField(front, "kind")
+	if start < 0 {
+		front = append([]string{field}, front...)
+	} else {
+		// The blank and comment lines after its value belong to whatever follows
+		for end > start+1 {
+			if last := strings.TrimSpace(front[end-1]); last != "" && !strings.HasPrefix(last, "#") {
+				break
+			}
+			end--
+		}
+		front = append(append(append([]string{}, front[:start]...), field), front[end:]...)
+	}
+
+	return []byte(bom + text[:open] + strings.Join(front, eol) + eol + text[close:])
+
+}
+
+// skillsFrontMatterSpan returns where a skill's front matter lies within it: the offset
+// just past its opening fence line, and the offset of its closing fence line, or -1 and -1
+// if it has none
+func skillsFrontMatterSpan(text string) (open int, close int) {
+	lines := strings.SplitAfter(text, "\n")
+	if strings.TrimSpace(lines[0]) != "---" {
+		return -1, -1
+	}
+	open = len(lines[0])
+	close = open
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "---" {
+			return open, close
+		}
+		close += len(line)
+	}
+	return -1, -1
+}
+
 // skillsFrontMatterValue returns one top-level field of a skill's YAML front matter, or
 // nil if there is none.  Only that field is parsed, so a mistake elsewhere in the front
 // matter can't make it unreadable.
 func skillsFrontMatterValue(contents []byte, field string) (value any, err error) {
 
-	// The front matter, if there is any
+	front := skillsFrontMatterLines(contents)
+	start, end := skillsFrontMatterField(front, field)
+	if start < 0 {
+		return nil, nil
+	}
+
+	// To YAML, "kind:x" is a word rather than a field
+	name, rest, _ := strings.Cut(front[start], ":")
+	name = strings.TrimSpace(name)
+	if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+		return nil, fmt.Errorf("'%s' in the front matter needs a space after its colon, as in '%s: %s'", name, name, rest)
+	}
+
+	entry := map[string]any{}
+	if err = yaml.Unmarshal([]byte(strings.Join(front[start:end], "\n")), &entry); err != nil {
+		return nil, fmt.Errorf("'%s' in the front matter can't be read: %s", name, err)
+	}
+	return entry[name], nil
+
+}
+
+// skillsFrontMatterLines returns the lines of a skill's front matter, without its fences
+// and line endings, or nil if it has none
+func skillsFrontMatterLines(contents []byte) []string {
 	lines := strings.Split(strings.TrimPrefix(string(contents), "\ufeff"), "\n")
 	for i := range lines {
 		lines[i] = strings.TrimRight(lines[i], "\r")
 	}
 	if strings.TrimSpace(lines[0]) != "---" {
-		return nil, nil
+		return nil
 	}
-	front := []string{}
 	for i := 1; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == "---" {
-			front = lines[1:i]
-			break
+			return lines[1:i]
 		}
 	}
+	return nil
+}
 
+// skillsFrontMatterField finds a top-level field among the lines of a skill's front
+// matter, returning the index of its line and of the line after its value, which runs on
+// over indented, blank and comment lines and a list flush with it.  Both are -1 when the
+// field isn't there.
+func skillsFrontMatterField(front []string, field string) (start int, end int) {
 	for i, line := range front {
-
 		// A top-level field starts at the beginning of its line
-		name, rest, isField := strings.Cut(line, ":")
+		name, _, isField := strings.Cut(line, ":")
 		if !isField || line[0] == ' ' || line[0] == '\t' || !strings.EqualFold(strings.TrimSpace(name), field) {
 			continue
 		}
-		name = strings.TrimSpace(name)
-
-		// To YAML, "kind:x" is a word rather than a field
-		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
-			return nil, fmt.Errorf("'%s' in the front matter needs a space after its colon, as in '%s: %s'", name, name, rest)
-		}
-
-		// Its value runs on over indented, blank and comment lines, and a list flush with it
-		end := i + 1
+		end = i + 1
 		for end < len(front) {
 			next := front[end]
 			if next != "" && next[0] != ' ' && next[0] != '\t' && next[0] != '#' &&
@@ -213,15 +301,7 @@ func skillsFrontMatterValue(contents []byte, field string) (value any, err error
 			}
 			end++
 		}
-
-		entry := map[string]any{}
-		if err = yaml.Unmarshal([]byte(strings.Join(front[i:end], "\n")), &entry); err != nil {
-			return nil, fmt.Errorf("'%s' in the front matter can't be read: %s", name, err)
-		}
-		return entry[name], nil
-
+		return i, end
 	}
-
-	return nil, nil
-
+	return -1, -1
 }

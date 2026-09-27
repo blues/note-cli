@@ -187,26 +187,30 @@ func TestParseSwitchSpellings(t *testing.T) {
 	flagPretty = false
 }
 
-// A command's switches are accepted anywhere among its arguments
+// A command's switches are accepted anywhere among its arguments.  A value that isn't a
+// projectUID lands in --product, as cliNormalizeScope arranges.
 func TestParseCommandSwitches(t *testing.T) {
 	tests := []struct {
 		args       []string
 		positional []string
 		project    string
+		product    string
 	}{
-		{[]string{"-project", "app:1"}, nil, "app:1"},
-		{[]string{"notefiles", "-project", "app:1"}, []string{"notefiles"}, "app:1"},
-		{[]string{"-project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1"},
-		{[]string{"./dir", "-project=app:1"}, []string{"./dir"}, "app:1"},
-		{[]string{"a", "-project", "app:1", "b"}, []string{"a", "b"}, "app:1"},
-		{[]string{"--project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1"},
-		{[]string{"./dir", "--project=app:1"}, []string{"./dir"}, "app:1"},
-		{[]string{"a", "--project", "app:1", "b"}, []string{"a", "b"}, "app:1"},
-		{[]string{"-project", "app:1", "./dir", "--project=app:2"}, []string{"./dir"}, "app:2"},
-		{[]string{"--project", "--verbose"}, nil, "--verbose"},
-		{[]string{"--project", "--"}, nil, "--"},
-		{[]string{"--", "-notaswitch"}, []string{"-notaswitch"}, ""},
-		{[]string{"--project=app:1", "--", "--project=app:2"}, []string{"--project=app:2"}, "app:1"},
+		{[]string{"-project", "app:1"}, nil, "app:1", ""},
+		{[]string{"notefiles", "-project", "app:1"}, []string{"notefiles"}, "app:1", ""},
+		{[]string{"-project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1", ""},
+		{[]string{"./dir", "-project=app:1"}, []string{"./dir"}, "app:1", ""},
+		{[]string{"a", "-project", "app:1", "b"}, []string{"a", "b"}, "app:1", ""},
+		{[]string{"--project", "app:1", "notefiles"}, []string{"notefiles"}, "app:1", ""},
+		{[]string{"./dir", "--project=app:1"}, []string{"./dir"}, "app:1", ""},
+		{[]string{"a", "--project", "app:1", "b"}, []string{"a", "b"}, "app:1", ""},
+		{[]string{"-project", "app:1", "./dir", "--project=app:2"}, []string{"./dir"}, "app:2", ""},
+		{[]string{"--project", "--verbose"}, nil, "", "--verbose"},
+		{[]string{"--project", "--"}, nil, "", "--"},
+		{[]string{"--", "-notaswitch"}, []string{"-notaswitch"}, "", ""},
+		{[]string{"--project=app:1", "--", "--project=app:2"}, []string{"--project=app:2"}, "app:1", ""},
+		{[]string{"--project", "net.ozzie.ray:t"}, nil, "", "net.ozzie.ray:t"},
+		{[]string{"--product", "app:1"}, nil, "app:1", ""},
 	}
 	// Use a command line of our own; the test binary owns the real one
 	saved := flag.CommandLine
@@ -216,7 +220,7 @@ func TestParseCommandSwitches(t *testing.T) {
 	t.Cleanup(func() { flag.CommandLine = saved })
 
 	for _, test := range tests {
-		flagApp = ""
+		flagApp, flagProduct = "", ""
 		positional, err := cliParseCommandSwitches(cliModeNamed(modeSkills), test.args)
 		if err != nil {
 			t.Errorf("%v: %s", test.args, err)
@@ -225,11 +229,11 @@ func TestParseCommandSwitches(t *testing.T) {
 		if !slices.Equal(positional, test.positional) {
 			t.Errorf("%v: positional args are %v, expected %v", test.args, positional, test.positional)
 		}
-		if flagApp != test.project {
-			t.Errorf("%v: -project is %q, expected %q", test.args, flagApp, test.project)
+		if flagApp != test.project || flagProduct != test.product {
+			t.Errorf("%v: -project is %q and -product is %q, expected %q and %q", test.args, flagApp, flagProduct, test.project, test.product)
 		}
 	}
-	flagApp = ""
+	flagApp, flagProduct = "", ""
 }
 
 // A bare word is a mistyped or misplaced mode keyword rather than a request
@@ -539,5 +543,32 @@ func TestSkillsStorageNames(t *testing.T) {
 	})
 	if !slices.Equal(names["index.md"], []string{"index$2.md", "index$1.md"}) || !slices.Equal(names["product.md"], []string{"product$1.md"}) {
 		t.Errorf("names are %v", names)
+	}
+}
+
+// A projectUID begins with app: and a productUID never does, so a value given to the
+// wrong one of --project and --product is taken as meant for the other
+func TestNormalizeScope(t *testing.T) {
+	tests := []struct{ app, product, wantApp, wantProduct string }{
+		{"app:123", "", "app:123", ""},
+		{"", "net.ozzie.ray:t", "", "net.ozzie.ray:t"},
+		{"net.ozzie.ray:t", "", "", "net.ozzie.ray:t"},
+		{"", "app:123", "app:123", ""},
+		{"net.ozzie.ray:t", "app:123", "app:123", "net.ozzie.ray:t"},
+		{"app:123", "net.ozzie.ray:t", "app:123", "net.ozzie.ray:t"},
+
+		// One that can't be right is left alone when the other is already in place
+		{"net.ozzie.ray:t", "net.ozzie.ray:u", "net.ozzie.ray:t", "net.ozzie.ray:u"},
+		{"app:123", "app:456", "app:123", "app:456"},
+		{"", "", "", ""},
+	}
+	defer func() { flagApp, flagProduct = "", "" }()
+	for _, test := range tests {
+		flagApp, flagProduct = test.app, test.product
+		cliNormalizeScope()
+		if flagApp != test.wantApp || flagProduct != test.wantProduct {
+			t.Errorf("--project %q --product %q: became %q and %q, expected %q and %q",
+				test.app, test.product, flagApp, flagProduct, test.wantApp, test.wantProduct)
+		}
 	}
 }

@@ -9,6 +9,8 @@
 
 package main
 
+import "strings"
+
 // The variables into which the switches are parsed
 var (
 	flagHelp        bool
@@ -156,4 +158,22 @@ func notehubSwitches() []*cliSwitch {
 		{Name: "version", Target: &flagVersion, Group: "other", Modes: inDefault,
 			Usage: "print the current version of the CLI"},
 	}
+}
+
+// cliNormalizeScope takes a value given to the wrong one of --project and --product as
+// meant for the other: a projectUID begins with "app:", and a productUID never does
+func cliNormalizeScope() {
+	switch {
+	case flagApp != "" && !cliIsProjectUID(flagApp) && flagProduct == "":
+		flagApp, flagProduct = "", flagApp
+	case flagProduct != "" && cliIsProjectUID(flagProduct) && flagApp == "":
+		flagApp, flagProduct = flagProduct, ""
+	case flagApp != "" && !cliIsProjectUID(flagApp) && flagProduct != "" && cliIsProjectUID(flagProduct):
+		flagApp, flagProduct = flagProduct, flagApp
+	}
+}
+
+// cliIsProjectUID reports whether a value is a projectUID rather than a productUID
+func cliIsProjectUID(uid string) bool {
+	return strings.HasPrefix(uid, "app:")
 }

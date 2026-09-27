@@ -28,9 +28,9 @@ var (
 func skillsSwitches() []*cliSwitch {
 	return []*cliSwitch{
 		{Name: "dry-run", Target: &flagSkillsDryRun, Group: "skills", Modes: []string{modeSkills},
-			Usage: "with set, say what would change in the project without changing it"},
+			Usage: "say what set, rename, delete, backup or restore would do, without doing it"},
 		{Name: "force", Target: &flagSkillsForce, Group: "skills", Modes: []string{modeSkills},
-			Usage: "with get, overwrite local files that differ; with delete all, remove them all"},
+			Usage: "let get or backup overwrite a local file, rename replace a skill, and delete all remove every skill"},
 	}
 }
 
@@ -41,12 +41,18 @@ func skillsCommands() []cliCommand {
 			Run: skillsShowCommand},
 		{Name: "list", Summary: "list the skills the project holds",
 			Run: skillsListCommand},
-		{Name: "get", Args: "<name|all> [path]", Summary: "save a skill to a file, or every skill into a directory",
+		{Name: "get", Args: "<name|all> [path|-]", Summary: "save a skill to a file or stdout, or every skill into a directory",
 			Run: skillsGetCommand},
 		{Name: "set", Args: "<path> [name]", Summary: "store a file as a skill, or every skill in a directory",
 			Run: skillsSetCommand},
+		{Name: "rename", Args: "<name> <newname>", Summary: "store a skill under another name, and remove the old one",
+			Run: skillsRenameCommand},
 		{Name: "delete", Args: "<name|all>", Summary: "remove a skill, or every skill, from the project",
 			Run: skillsDeleteCommand},
+		{Name: "backup", Args: "<path.zip>", Summary: "save every skill, with its kinds, into a zip file",
+			Run: skillsBackupCommand},
+		{Name: "restore", Args: "<path.zip>", Summary: "make the project hold exactly the skills in a zip file",
+			Run: skillsRestoreCommand},
 	}
 }
 
@@ -89,7 +95,7 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 		return err
 	}
 	if len(args) < 1 || len(args) > 2 {
-		return fmt.Errorf("usage: %s %s get <name|all> [path]", cliName, modeSkills)
+		return fmt.Errorf("usage: %s %s get <name|all> [path|-]", cliName, modeSkills)
 	}
 
 	uploads, err := skillsStorageQuery(true)
@@ -108,6 +114,9 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 		dir := "."
 		if len(args) == 2 {
 			dir = args[1]
+		}
+		if dir == "-" {
+			return fmt.Errorf("stdout can take one skill, not all of them - name one, or give a directory")
 		}
 		for source := range current {
 			if targets[source], err = skillsPathWithin(dir, source); err != nil {
@@ -214,65 +223,23 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 		files[name] = contents
 	}
 
-	// Check every name and kind before storing anything
-	names := skillsSortedNames(files)
-	kinds := map[string]string{}
-	width := 0
-	for _, name := range names {
-		if err = skillsCheckName(name); err != nil {
-			return err
-		}
-		if kinds[name], err = skillsKinds(files[name]); err != nil {
-			return fmt.Errorf("%s: %s", name, err)
-		}
-		width = max(width, len(name))
-	}
-
 	// What the project holds now
 	uploads, err := skillsStorageQuery(true)
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
-	stored := skillsStorageNames(uploads)
 
 	// Store each one that differs
-	changed, unchanged := 0, 0
-	for _, name := range names {
-		state := "new"
-		if upload, have := current[name]; have {
-			state = "replaced"
-			held, readErr := skillsStorageRead(upload)
-			if readErr != nil {
-				return fmt.Errorf("%s: %s", name, readErr)
-			}
-			if bytes.Equal(held, files[name]) && upload.Tags == kinds[name] && len(stored[name]) == 1 {
-				state = "unchanged"
-			}
-		}
-		line := fmt.Sprintf("  %-9s %-*s  %s", state, width, name, skillsKindsLabel(kinds[name]))
-		fmt.Println(strings.TrimRight(line, " "))
-		if state == "unchanged" {
-			unchanged++
-			continue
-		}
-		changed++
-		if flagSkillsDryRun {
-			continue
-		}
-		if err = skillsStorageStore(name, files[name], kinds[name], stored[name]); err != nil {
-			return fmt.Errorf("%s: %s", name, err)
-		}
+	changed, unchanged, err := skillsStore(files, uploads, skillsWidth(skillsSortedNames(files)))
+	if err != nil {
+		return err
 	}
+	skillsSummary("%d skill(s) %s in %s, and %d are unchanged.",
+		changed, skillsVerb("stored", "would be stored"), project, unchanged)
 
-	// Summarize, naming any skills the directory left untouched
-	if flagSkillsDryRun {
-		fmt.Printf("\n%d skill(s) would be stored in %s, and %d are unchanged.  Nothing was changed (--dry-run).\n",
-			changed, project, unchanged)
-	} else {
-		fmt.Printf("\n%d skill(s) stored in %s, and %d are unchanged.\n", changed, project, unchanged)
-	}
+	// Name any skills the directory left untouched
 	if info.IsDir() {
+		current, _ := skillsStorageCurrent(uploads)
 		others := []string{}
 		for _, source := range skillsOrder(current, nil) {
 			if _, present := files[source]; !present {
@@ -283,6 +250,142 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 			fmt.Printf("%d skill(s) in the project are not in %s, and were left as they are: %s\n",
 				len(others), args[0], strings.Join(others, ", "))
 		}
+	}
+	return nil
+
+}
+
+// skillsStore stores files as skills, each under its name, and reports each as new,
+// replaced or unchanged.  Every name and kind is checked before anything is sent, a skill
+// the project already holds unchanged is skipped, and with --dry-run nothing is sent.
+func skillsStore(files map[string][]byte, uploads []skillsUpload, width int) (changed int, unchanged int, err error) {
+
+	// Check every name and kind before storing anything
+	names := skillsSortedNames(files)
+	kinds := map[string]string{}
+	for _, name := range names {
+		if err = skillsCheckName(name); err != nil {
+			return
+		}
+		if kinds[name], err = skillsKinds(files[name]); err != nil {
+			return 0, 0, fmt.Errorf("%s: %s", name, err)
+		}
+	}
+
+	// Store each one that differs from what the project holds
+	current, _ := skillsStorageCurrent(uploads)
+	stored := skillsStorageNames(uploads)
+	for _, name := range names {
+		state := "new"
+		if upload, have := current[name]; have {
+			state = "replaced"
+			held, readErr := skillsStorageRead(upload)
+			if readErr != nil {
+				return changed, unchanged, fmt.Errorf("%s: %s", name, readErr)
+			}
+			if bytes.Equal(held, files[name]) && upload.Tags == kinds[name] && len(stored[name]) == 1 {
+				state = "unchanged"
+			}
+		}
+		skillsReport(state, width, name, skillsKindsLabel(kinds[name]))
+		if state == "unchanged" {
+			unchanged++
+			continue
+		}
+		changed++
+		if flagSkillsDryRun {
+			continue
+		}
+		if err = skillsStorageStore(name, files[name], kinds[name], stored[name]); err != nil {
+			return changed, unchanged, fmt.Errorf("%s: %s", name, err)
+		}
+	}
+
+	return
+
+}
+
+// skillsRenameCommand stores a skill under another name and then removes it from under
+// the old one, in that order, so a failure leaves it in place under its old name
+func skillsRenameCommand(config *lib.ConfigSettings, args []string) error {
+
+	project, err := skillsProject()
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return fmt.Errorf("usage: %s %s rename <name> <newname>", cliName, modeSkills)
+	}
+
+	uploads, err := skillsStorageQuery(true)
+	if err != nil {
+		return err
+	}
+	current, _ := skillsStorageCurrent(uploads)
+	if len(current) == 0 {
+		return fmt.Errorf("%s holds no skills", project)
+	}
+	stored := skillsStorageNames(uploads)
+
+	// The skill, and the name it is to have, which ends in .md like any other
+	upload, err := skillsResolve(current, args[0])
+	if err != nil {
+		return err
+	}
+	newName := args[1]
+	if !strings.HasSuffix(strings.ToLower(newName), skillsExt) {
+		newName += skillsExt
+	}
+	if err = skillsCheckName(newName); err != nil {
+		return err
+	}
+	if newName == upload.Source {
+		return fmt.Errorf("%s is already named that", upload.Source)
+	}
+
+	// A skill already under the new name, or under one differing from it only in case,
+	// is replaced only with --force
+	replacing := []string{}
+	for source := range current {
+		if source != upload.Source && strings.EqualFold(source, newName) {
+			if !flagSkillsForce {
+				return fmt.Errorf("%s already holds %s - add --force to replace it", project, source)
+			}
+			replacing = append(replacing, stored[source]...)
+		}
+	}
+
+	contents, err := skillsStorageRead(upload)
+	if err != nil {
+		return err
+	}
+	if !flagSkillsDryRun {
+		if err = skillsStorageStore(newName, contents, upload.Tags, replacing); err != nil {
+			return fmt.Errorf("%s: %s", newName, err)
+		}
+		for _, name := range stored[upload.Source] {
+			if err = skillsStorageRemove(name); err != nil {
+				return fmt.Errorf("%s: %s", upload.Source, err)
+			}
+		}
+	}
+	fmt.Printf("  renamed   %s -> %s\n", upload.Source, newName)
+	skillsSummary("%s %s %s in %s.", upload.Source, skillsVerb("is now", "would become"), newName, project)
+
+	// The other skills may still refer to it by its old name
+	mentions := []string{}
+	for _, source := range skillsOrder(current, nil) {
+		if source == upload.Source {
+			continue
+		}
+		other, readErr := skillsStorageRead(current[source])
+		if readErr == nil && bytes.Contains(bytes.ToLower(other), []byte(strings.ToLower(upload.Source))) {
+			mentions = append(mentions, source)
+		}
+	}
+	if len(mentions) != 0 {
+		fmt.Printf("%d skill(s) still refer to %s, and may need editing: %s\n",
+			len(mentions), upload.Source, strings.Join(mentions, ", "))
 	}
 	return nil
 
@@ -309,11 +412,11 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 	}
 	stored := skillsStorageNames(uploads)
 
-	// Which skills; removing them all requires --force
+	// Which skills; removing them all requires --force, unless nothing is to be changed
 	sources := []string{}
 	if strings.EqualFold(args[0], skillsAll) {
 		sources = skillsOrder(current, nil)
-		if !flagSkillsForce {
+		if !flagSkillsForce && !flagSkillsDryRun {
 			return fmt.Errorf("this would remove all %d skills from %s (%s) - add --force to remove them",
 				len(sources), project, strings.Join(sources, ", "))
 		}
@@ -327,14 +430,16 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 
 	// Remove every upload stored under each name, superseded ones included
 	for _, source := range sources {
-		for _, name := range stored[source] {
-			if err = skillsStorageRemove(name); err != nil {
-				return fmt.Errorf("%s: %s", source, err)
+		if !flagSkillsDryRun {
+			for _, name := range stored[source] {
+				if err = skillsStorageRemove(name); err != nil {
+					return fmt.Errorf("%s: %s", source, err)
+				}
 			}
 		}
 		fmt.Printf("  removed   %s\n", source)
 	}
-	fmt.Printf("\n%d skill(s) removed from %s.\n", len(sources), project)
+	skillsSummary("%d skill(s) %s from %s.", len(sources), skillsVerb("removed", "would be removed"), project)
 	return nil
 
 }
@@ -348,4 +453,36 @@ func skillsProject() (project string, err error) {
 		return flagProduct, nil
 	}
 	return "", fmt.Errorf("specify the project with --project or --product")
+}
+
+// skillsReport prints one line of a command's report: what became of one skill
+func skillsReport(state string, width int, name string, note string) {
+	line := fmt.Sprintf("  %-9s %-*s  %s", state, width, name, note)
+	fmt.Println(strings.TrimRight(line, " "))
+}
+
+// skillsWidth is the width of the longest of the names, for aligning a report
+func skillsWidth(names []string) (width int) {
+	for _, name := range names {
+		width = max(width, len(name))
+	}
+	return
+}
+
+// skillsVerb is the wording for what a command did, or in a dry run would have done
+func skillsVerb(did string, would string) string {
+	if flagSkillsDryRun {
+		return would
+	}
+	return did
+}
+
+// skillsSummary prints a command's closing line, adding that nothing was changed when the
+// run was a dry one
+func skillsSummary(format string, args ...any) {
+	fmt.Printf("\n"+format, args...)
+	if flagSkillsDryRun {
+		fmt.Print("  Nothing was changed (--dry-run).")
+	}
+	fmt.Println()
 }

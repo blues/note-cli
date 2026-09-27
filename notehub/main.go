@@ -61,6 +61,9 @@ func main() {
 		os.Exit(exitFail)
 	}
 
+	// A projectUID given as --product, or a productUID as --project, is taken as meant
+	cliNormalizeScope()
+
 	// after flags are parsed, get the resulting configuration
 	config, err := lib.GetConfig()
 	if err != nil {

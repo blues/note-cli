@@ -59,10 +59,15 @@ func cliModes() []*cliMode {
 					"document, index first, with cross-references turned into links.  A skill's\n" +
 					"name in place of a command shows just that skill.  'get' and 'set' copy\n" +
 					"skills between the project and local files, one file or a directory at a\n" +
-					"time.  'set' never removes a skill; only 'delete' does.\n\n" +
-					"A skill's kinds are stored as its tags, taken from the 'kind:' or 'tags:'\n" +
-					"line of its front matter.  To change them, edit that line and set the file\n" +
-					"again.\n\n" +
+					"time, and 'get <name> -' writes one to stdout.  'set' never removes a\n" +
+					"skill; only 'delete' and 'restore' do.\n\n" +
+					"'backup' saves every skill into a zip file, each at its path, and 'restore'\n" +
+					"makes the project hold exactly what a zip file holds.  --dry-run says what\n" +
+					"set, rename, delete, backup or restore would do, without doing it.\n\n" +
+					"A skill's kinds are stored as its tags, taken from the 'kind:', 'kinds:' or\n" +
+					"'tags:' line of its front matter.  To change them, edit that line and set\n" +
+					"the file again.  A backup writes the kinds a skill is stored under into its\n" +
+					"front matter when they aren't already there, so a restore keeps them.\n\n" +
 					"To write a project's skills, point any AI agent at https://notehub.md and\n" +
 					"ask it to train the project.",
 				Run: runSkills,

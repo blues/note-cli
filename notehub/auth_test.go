@@ -33,16 +33,45 @@ func TestWhoAmINotSignedIn(t *testing.T) {
 	}
 }
 
-// An expired token is the same as none
+// A recorded expiration that has passed is reported but not trusted: the hub is still
+// asked, so here the answer is that the hub can't be reached, and not that we are signed
+// out.  A token whose expiration lies ahead is asked about without remark.
 func TestWhoAmIExpired(t *testing.T) {
 	now := time.Now()
-	notSignedIn := authWhoAmI(unreachableHub, nil, now)
 	for _, expiresAt := range []time.Time{now.Add(-time.Hour), now} {
 		creds := &lib.ConfigCreds{User: "someone@example.com", Token: "ory_at_expired", ExpiresAt: &expiresAt}
 		status := authWhoAmI(unreachableHub, creds, now)
-		if status != notSignedIn {
-			t.Errorf("token that expired at %s gave %+v, expected the same as no credentials: %+v", expiresAt, status, notSignedIn)
+		if status.SignedIn || status.Action != "" {
+			t.Errorf("token that expired at %s gave %+v, expected neither signed in nor an action", expiresAt, status)
 		}
+		if !strings.HasPrefix(status.Reason, "unable to reach hub") || !strings.Contains(status.Reason, "recorded expiration has passed") {
+			t.Errorf("token that expired at %s gave reason %q, expected the hub to have been asked, with a note about the expiration", expiresAt, status.Reason)
+		}
+		if !status.expired || status.ExpiresAt == nil || status.Method != authMethodOAuth {
+			t.Errorf("token that expired at %s gave %+v, expected its method and expiration recorded", expiresAt, status)
+		}
+	}
+	later := now.Add(time.Hour)
+	status := authWhoAmI(unreachableHub, &lib.ConfigCreds{User: "someone@example.com", Token: "ory_at_fine", ExpiresAt: &later}, now)
+	if status.expired || strings.Contains(status.Reason, "expiration") {
+		t.Errorf("token expiring at %s gave %+v, expected no remark about its expiration", later, status)
+	}
+}
+
+// When the hub accepts a token whose recorded expiration has passed, the answer says so
+func TestWhoAmIExpiredDescription(t *testing.T) {
+	expiresAt := time.Date(2026, 9, 27, 0, 57, 34, 0, time.Local)
+	status := authStatus{SignedIn: true, Method: authMethodOAuth, ExpiresAt: &expiresAt}
+	if got := authExpiresDescription(status); !strings.HasPrefix(got, "OAuth token expiring 2026-09-27 00:57:34") {
+		t.Errorf("description is %q, expected it to say when the token expires", got)
+	}
+	status.expired = true
+	if got := authExpiresDescription(status); !strings.Contains(got, "still accepts") || !strings.Contains(got, "has passed") {
+		t.Errorf("description is %q, expected it to say the hub still accepts a token whose expiration has passed", got)
+	}
+	status.ExpiresAt = nil
+	if got := authExpiresDescription(status); got != "OAuth token (expiration not recorded)" {
+		t.Errorf("description is %q, expected 'OAuth token (expiration not recorded)'", got)
 	}
 }
 
