@@ -35,6 +35,8 @@ func TestExtractMode(t *testing.T) {
 		// Mode keywords
 		{[]string{"signin"}, modeSignIn, []string{}},
 		{[]string{"SignIn", "--hub", "api.notefile.net"}, modeSignIn, []string{"--hub", "api.notefile.net"}},
+		{[]string{"netcat"}, modeNetcat, []string{}},
+		{[]string{"NetCat", "--hub", "api.notefile.net"}, modeNetcat, []string{"--hub", "api.notefile.net"}},
 		{[]string{"skills"}, modeSkills, []string{}},
 		{[]string{"SKILLS", "-project", "app:1"}, modeSkills, []string{"-project", "app:1"}},
 		{[]string{"skills", "--project=app:1"}, modeSkills, []string{"--project=app:1"}},
@@ -123,6 +125,10 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSignIn, []string{"--signin"}, false},
 		{modeSignIn, []string{"--signin-token", "pat"}, false},
 		{modeSignIn, []string{"--project", "app:1"}, false},
+		{modeNetcat, []string{"--hub", "api.notefile.net"}, true},
+		{modeNetcat, []string{"--signin"}, false},
+		{modeNetcat, []string{"--project", "app:1"}, false},
+		{modeNetcat, []string{"--verbose"}, false},
 
 		// The switches of the skills mode belong to it alone
 		{modeSkills, []string{"--force"}, true},

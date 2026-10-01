@@ -25,6 +25,9 @@ const (
 	// modeSignIn is --signin, for those who type it without the hyphens
 	modeSignIn = "signin"
 
+	// modeNetcat sends an HTTP request from stdin to the hub, like netcat for HTTPS
+	modeNetcat = "netcat"
+
 	// modeSkills reads and manages the skills a project holds
 	modeSkills = "skills"
 
@@ -49,6 +52,21 @@ func cliModes() []*cliMode {
 					"access token instead, use 'notehub --signin-token', and to see whether you\n" +
 					"are signed in, and as whom, use 'notehub --whoami'.",
 				Run: runSignIn,
+			},
+			{
+				Name:    modeNetcat,
+				Summary: "send an HTTPS request from stdin to Notehub and response to stdout",
+				Args:    "< request.http > response.http",
+				Detail: "'notehub netcat' works like netcat for HTTPS: it reads a complete HTTP/1.1\n" +
+					"request from stdin, sends it over TLS to the configured Notehub destination,\n" +
+					"and writes the complete HTTP response, including its status line, headers,\n" +
+					"and body, to stdout.  Diagnostics go to stderr.\n\n" +
+					"TLS is always enabled, and the server's certificate is verified.  Notehub\n" +
+					"credentials from --signin are used, with no Authorization header needed.\n\n" +
+					"The exit code is 0 when the hub answered (whatever its status) and 1 when the\n" +
+					"response is from the Notehub. The response status is 401 when you are not\n" +
+					"signed in, 400 when the request can't be read, and 502 if hub is unreachable.",
+				Run: runNetcat,
 			},
 			{
 				Name:     modeSkills,

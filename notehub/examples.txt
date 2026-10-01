@@ -19,6 +19,10 @@ notehub --hub preprod.blues.tools --whoami
 notehub signin
 notehub signin --hub preprod.blues.tools
 
+// Send an HTTP request from stdin to Notehub, like netcat for HTTPS; the response goes to stdout
+notehub netcat < request.http > response.http
+printf 'GET /v1/projects HTTP/1.1\r\n\r\n' | notehub netcat
+
 // Read and manage the skills a project holds; with no command, the whole set as one document
 notehub skills --product net.ozzie.ray:t
 notehub skills list --product net.ozzie.ray:t
