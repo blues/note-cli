@@ -5,10 +5,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -16,6 +21,10 @@ import (
 	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notehub"
 )
+
+// Set true to test the Notehub polling callback; false uses localhost login.  Note
+// that polling is superior in that agents can use it without opening a local HTTP server.
+const authUsePolling = false
 
 // Sign into the notehub account with a personal access token
 func authSignInToken(personalAccessToken string) error {
@@ -26,7 +35,7 @@ func authSignInToken(personalAccessToken string) error {
 	}
 
 	// Print hub if not the default
-	fmt.Printf("notehub: %s\n", config.Hub)
+	fmt.Fprintf(os.Stderr, "notehub: %s\n", config.Hub)
 
 	email, err := lib.IntrospectToken(config.Hub, personalAccessToken)
 	if err != nil {
@@ -40,7 +49,7 @@ func authSignInToken(personalAccessToken string) error {
 	}
 
 	// Done
-	fmt.Printf("signed in successfully with token\n")
+	fmt.Fprintf(os.Stderr, "signed in successfully with token\n")
 	return nil
 }
 
@@ -166,7 +175,18 @@ func authExpiresDescription(status authStatus) string {
 }
 
 // Sign into the Notehub account with browser-based OAuth2 flow
-func authSignIn() error {
+func authSignIn() error { return authSignInWithAgent(false) }
+
+func authSignInWithAgent(agent bool) (err error) {
+	var reporter *agentSignInReporter
+	if agent && authUsePolling {
+		reporter = newAgentSignInReporter(os.Stdout)
+		defer func() {
+			if outputErr := reporter.finish(err); err == nil {
+				err = outputErr
+			}
+		}()
+	}
 
 	// load config
 	config, err := lib.GetConfig()
@@ -186,7 +206,18 @@ func authSignIn() error {
 	}
 
 	// initiate the browser-based OAuth2 login flow
-	accessToken, err := notehub.InitiateBrowserBasedLogin(config.Hub)
+	var accessToken *notehub.AccessToken
+	if authUsePolling {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		options := notehub.PollingLoginOptions{}
+		if reporter != nil {
+			options.OnURL, options.OnPending = reporter.url, reporter.pending
+		}
+		accessToken, err = notehub.InitiatePollingLoginWithOptions(ctx, config.Hub, options)
+	} else {
+		accessToken, err = notehub.InitiateBrowserBasedLogin(config.Hub)
+	}
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -199,14 +230,58 @@ func authSignIn() error {
 	}
 
 	// print out information about the session
-	if accessToken != nil {
-		fmt.Printf("%s\n", banner())
-		fmt.Printf("signed in as %s\n", accessToken.Email)
-		fmt.Printf("token expires at %s\n", accessToken.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+	if accessToken != nil && reporter == nil {
+		fmt.Fprintf(os.Stderr, "%s\n", banner())
+		fmt.Fprintf(os.Stderr, "signed in as %s\n", accessToken.Email)
+		fmt.Fprintf(os.Stderr, "token expires at %s\n", accessToken.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
 	}
 
 	// Done
 	return nil
+}
+
+// Agent sign-in is a stream of one JSON object per line. Only terminal objects
+// carry success; a false value must still appear in the JSON.
+type agentSignInMessage struct {
+	Status           string `json:"status"`
+	URL              string `json:"url,omitempty"`
+	Success          *bool  `json:"success,omitempty"`
+	RemainingSeconds *int   `json:"remaining_seconds,omitempty"`
+}
+
+type agentSignInReporter struct{ encoder *json.Encoder }
+
+func newAgentSignInReporter(w io.Writer) *agentSignInReporter {
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	return &agentSignInReporter{encoder: encoder}
+}
+
+func (r *agentSignInReporter) url(url string) error {
+	return r.encoder.Encode(agentSignInMessage{Status: "URL to be sent to the user so they can open a browser to sign in", URL: url})
+}
+func (r *agentSignInReporter) pending(remainingSeconds int) error {
+	return r.encoder.Encode(agentSignInMessage{Status: "waiting for authorization", RemainingSeconds: &remainingSeconds})
+}
+func (r *agentSignInReporter) finish(err error) error {
+	success := err == nil
+	status := "signed in successfully"
+	if err != nil {
+		status = strings.ToLower(err.Error())
+		if errors.Is(err, context.Canceled) {
+			status = "sign-in was cancelled"
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = "sign-in expired; please try again"
+		}
+	}
+	return r.encoder.Encode(agentSignInMessage{Status: status, Success: &success})
+}
+
+// Use the same reporting for failures before the login routine can start.
+func authAgentFailure(w io.Writer, err error) {
+	reporter := newAgentSignInReporter(w)
+	_ = reporter.finish(err)
 }
 
 // runSignIn is the handler for 'notehub signin', the same as --signin
@@ -218,6 +293,18 @@ func runSignIn(config *lib.ConfigSettings) error {
 		return fmt.Errorf("sign-in: %w", err)
 	}
 	return nil
+}
+
+// runSignInAgent is the handler for 'notehub signin-agent', the same as --signin-agent.
+func runSignInAgent(config *lib.ConfigSettings) error {
+	if args := flag.Args(); len(args) != 0 {
+		err := fmt.Errorf("'%s %s' takes no arguments, but was given: %s", cliName, modeSignInAgent, strings.Join(args, " "))
+		if authUsePolling {
+			authAgentFailure(os.Stdout, err)
+		}
+		return err
+	}
+	return authSignInWithAgent(true)
 }
 
 // Banner for authentication

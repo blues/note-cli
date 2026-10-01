@@ -59,6 +59,7 @@ its default mode.
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
 | `signin` | Sign in to Notehub in your browser |
+| `netcat` | Send an HTTP request from stdin to Notehub, like netcat for HTTPS |
 | `skills` | Read and manage the skills a project holds: show, list, get, set, rename, delete, backup, restore |
 
 A mode named on its own performs its default action. `--help` describes the options
@@ -80,6 +81,27 @@ as positional values.
 
 Running `notehub --hub example.com` alone saves the hub for future invocations.
 With other options or a request, specifying `--hub` does not by itself save the setting.
+
+### Netcat
+
+`notehub netcat` works like netcat for HTTPS: it reads a complete HTTP/1.1 request from
+stdin, sends it over TLS to the configured Notehub destination, and writes the complete
+HTTP response, including its status line, headers, and body, to stdout. Diagnostics go to
+stderr.
+
+TLS is always enabled, and the server's certificate is verified. Notehub credentials from
+`--signin` are used for the request.
+
+```bash
+notehub netcat < request.http > response.http
+```
+
+The request's `Authorization` header, if any, is replaced by your credentials, and its
+`Host` by the hub's, so both may be omitted. A body without a `Content-Length` runs to the
+end of the input. Stdout is always a complete HTTP response. The exit code is 0 when the
+hub answered, whatever its status, and 1 when the response is `notehub`'s own: 401 when
+you are not signed in, 400 when the request can't be read, and 502 when the hub can't be
+reached.
 
 ### Skills
 

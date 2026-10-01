@@ -44,20 +44,25 @@ func main() {
 
 	// Register only this mode's switches, and describe this mode in usage
 	cliRegisterSwitches(mode)
+	flagSignInAgent = mode.Name == modeSignInAgent
 	flag.Usage = func() {
 		cliPrintHelp(mode, true)
 	}
 
 	// Name a switch used in the wrong mode, rather than calling it undefined
 	if err := cliValidateSwitches(mode, args); err != nil {
-		fmt.Printf("%s\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(exitFail)
 	}
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
 	if err != nil {
-		fmt.Printf("flags: %s\n", err)
+		if flagSignInAgent && authUsePolling {
+			authAgentFailure(os.Stdout, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "flags: %s\n", err)
+		}
 		os.Exit(exitFail)
 	}
 
@@ -67,7 +72,11 @@ func main() {
 	// after flags are parsed, get the resulting configuration
 	config, err := lib.GetConfig()
 	if err != nil {
-		fmt.Printf("config: %s\n", err)
+		if flagSignInAgent && authUsePolling {
+			authAgentFailure(os.Stdout, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "config: %s\n", err)
+		}
 		os.Exit(exitFail)
 	}
 
@@ -79,7 +88,9 @@ func main() {
 
 	// Run the mode
 	if err = mode.Run(config); err != nil {
-		fmt.Printf("%s\n", err)
+		if !(flagSignInAgent && authUsePolling) {
+			fmt.Fprintf(os.Stderr, "%s\n", err)
+		}
 		os.Exit(exitFail)
 	}
 	os.Exit(exitOk)
@@ -97,10 +108,13 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	}
 
 	// Process the interactive sign-in
-	if flagSignIn {
+	if flagSignInAgent && authUsePolling {
+		return authSignInWithAgent(true)
+	}
+	if flagSignIn || flagSignInAgent {
 		err = authSignIn()
 		if err != nil {
-			fmt.Printf("sign-in: %s\n", err)
+			fmt.Fprintf(os.Stderr, "sign-in: %s\n", err)
 			os.Exit(exitFail)
 		}
 	}

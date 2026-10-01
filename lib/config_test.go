@@ -7,6 +7,8 @@ package lib
 import (
 	"flag"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -59,5 +61,41 @@ func TestConfigFlagsOnly(t *testing.T) {
 				t.Errorf("%v: save is %v, expected %v", test.args, got, test.save)
 			}
 		})
+	}
+}
+
+// Signing out of an OAuth sign-in deletes it at Notehub with the token that
+// made it, and reports a refusal rather than hiding it.
+func TestDeleteSignIn(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	status := http.StatusNoContent
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotAuth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+
+	if err := deleteSignIn(server.URL, "ory_at_example"); err != nil {
+		t.Fatalf("deleteSignIn: %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/auth/logout" || gotAuth != "Bearer ory_at_example" {
+		t.Errorf("got %s %s with %q", gotMethod, gotPath, gotAuth)
+	}
+
+	status = http.StatusUnauthorized
+	if err := deleteSignIn(server.URL, "ory_at_example"); err == nil {
+		t.Error("a refused sign-out should be reported")
+	}
+}
+
+// The API lives at the "api." host whichever way the hub was configured
+func TestAPIBaseURL(t *testing.T) {
+	for hub, want := range map[string]string{
+		"notehub.io":     "https://api.notehub.io",
+		"api.notehub.io": "https://api.notehub.io",
+	} {
+		if got := apiBaseURL(hub); got != want {
+			t.Errorf("apiBaseURL(%q) = %q, want %q", hub, got, want)
+		}
 	}
 }

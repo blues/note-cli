@@ -5,6 +5,9 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +108,58 @@ func TestWhoAmIJSON(t *testing.T) {
 	expected := `{"hub":"whoami-test.invalid","signed_in":false,"reason":"not signed in","action":"notehub --signin"}`
 	if string(statusJSON) != expected {
 		t.Errorf("got  %s\nwant %s", statusJSON, expected)
+	}
+}
+
+func TestAgentSignInJSON(t *testing.T) {
+	for _, result := range []struct {
+		name    string
+		err     error
+		success bool
+		status  string
+	}{
+		{"success", nil, true, "signed in successfully"},
+		{"denial", errors.New("Authorization was not granted: The user decided not to sign in."), false, "authorization was not granted: the user decided not to sign in."},
+		{"cancelled", context.Canceled, false, "sign-in was cancelled"},
+		{"expired", context.DeadlineExceeded, false, "sign-in expired; please try again"},
+	} {
+		t.Run(result.name, func(t *testing.T) {
+			var stdout strings.Builder
+			reporter := newAgentSignInReporter(&stdout)
+			const url = "https://notehub.example/oauth2/auth?client_id=notehub_cli&state=test"
+			if err := reporter.url(url); err != nil {
+				t.Fatal(err)
+			}
+			if err := reporter.pending(590); err != nil {
+				t.Fatal(err)
+			}
+			if err := reporter.finish(result.err); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			if len(lines) != 3 {
+				t.Fatalf("expected three JSON lines, got %q", stdout.String())
+			}
+			if !strings.Contains(lines[0], url) {
+				t.Fatalf("URL was escaped in JSON: %s", lines[0])
+			}
+			var messages []map[string]interface{}
+			for _, line := range lines {
+				var m map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &m); err != nil {
+					t.Fatal(err)
+				}
+				messages = append(messages, m)
+			}
+			if len(messages[0]) != 2 || messages[0]["status"] != "URL to be sent to the user so they can open a browser to sign in" || messages[0]["url"] != url {
+				t.Fatalf("unexpected first object: %v", messages[0])
+			}
+			if len(messages[1]) != 2 || messages[1]["status"] != "waiting for authorization" || messages[1]["remaining_seconds"] != float64(590) {
+				t.Fatalf("unexpected pending object: %v", messages[1])
+			}
+			if len(messages[2]) != 2 || messages[2]["success"] != result.success || messages[2]["status"] != result.status {
+				t.Fatalf("unexpected final object: %v", messages[2])
+			}
+		})
 	}
 }

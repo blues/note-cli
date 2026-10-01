@@ -25,6 +25,9 @@ const (
 	// modeSignIn is --signin, for those who type it without the hyphens
 	modeSignIn = "signin"
 
+	// modeSignInAgent is --signin-agent without the hyphens
+	modeSignInAgent = "signin-agent"
+
 	// modeNetcat sends an HTTP request from stdin to the hub, like netcat for HTTPS
 	modeNetcat = "netcat"
 
@@ -52,6 +55,14 @@ func cliModes() []*cliMode {
 					"access token instead, use 'notehub --signin-token', and to see whether you\n" +
 					"are signed in, and as whom, use 'notehub --whoami'.",
 				Run: runSignIn,
+			},
+			{
+				Name:    modeSignInAgent,
+				Summary: "sign in to Notehub from your agent",
+				Detail: "'notehub signin-agent' writes the sign-in URL, progress, and result as\n" +
+					"JSON to stdout when polling is enabled. With localhost authentication,\n" +
+					"it opens your browser, the same as 'notehub signin'.",
+				Run: runSignInAgent,
 			},
 			{
 				Name:    modeNetcat,

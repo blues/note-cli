@@ -28,6 +28,7 @@ var (
 	flagOverwrite   bool
 	flagOut         string
 	flagSignIn      bool
+	flagSignInAgent bool
 	flagSignInToken string
 	flagSignOut     bool
 	flagWhoAmI      bool
@@ -91,6 +92,8 @@ func notehubSwitches() []*cliSwitch {
 		// Authentication & Session
 		{Name: "signin", Target: &flagSignIn, Group: "auth", Modes: inDefault,
 			Usage: "sign-in to the notehub so that API requests may be made"},
+		{Name: "signin-agent", Target: &flagSignInAgent, Group: "auth", Modes: inDefault,
+			Usage: "sign in to Notehub from your agent"},
 		{Name: "signin-token", Target: &flagSignInToken, Group: "auth", Modes: inDefault,
 			Usage: "sign-in to the notehub with an explicit token"},
 		{Name: "signout", Target: &flagSignOut, Group: "auth", Modes: inDefault,

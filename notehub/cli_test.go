@@ -34,6 +34,8 @@ func TestExtractMode(t *testing.T) {
 
 		// Mode keywords
 		{[]string{"signin"}, modeSignIn, []string{}},
+		{[]string{"signin-agent"}, modeSignInAgent, []string{}},
+		{[]string{"signin-agent", "--hub", "api.notefile.net"}, modeSignInAgent, []string{"--hub", "api.notefile.net"}},
 		{[]string{"SignIn", "--hub", "api.notefile.net"}, modeSignIn, []string{"--hub", "api.notefile.net"}},
 		{[]string{"netcat"}, modeNetcat, []string{}},
 		{[]string{"NetCat", "--hub", "api.notefile.net"}, modeNetcat, []string{"--hub", "api.notefile.net"}},
@@ -53,6 +55,7 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"-help"}, modeDefault, []string{"-help"}},
 		{[]string{"--signin"}, modeDefault, []string{"--signin"}},
 		{[]string{"-signin"}, modeDefault, []string{"-signin"}},
+		{[]string{"--signin-agent"}, modeDefault, []string{"--signin-agent"}},
 		{[]string{"--verbose"}, modeDefault, []string{"--verbose"}},
 
 		// A hyphenated word that isn't a mode is left for the flag package to diagnose
@@ -109,6 +112,8 @@ func TestValidateSwitches(t *testing.T) {
 		accepted bool
 	}{
 		{modeDefault, []string{"-upload", "f.bin"}, true},
+		{modeDefault, []string{"--signin-agent"}, true},
+		{modeSkills, []string{"--signin-agent"}, false},
 		{modeDefault, []string{"-project", "app:1", "-pretty"}, true},
 		{modeSkills, []string{"-project", "app:1"}, true},
 		{modeSkills, []string{"-product", "net.ozzie.ray:t"}, true},
@@ -122,6 +127,8 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSkills, []string{"--upload=f.bin"}, false},
 		{modeSkills, []string{"--explore"}, false},
 		{modeSignIn, []string{"--hub", "api.notefile.net"}, true},
+		{modeSignInAgent, []string{"--hub", "api.notefile.net"}, true},
+		{modeSignInAgent, []string{"--signin"}, false},
 		{modeSignIn, []string{"--signin"}, false},
 		{modeSignIn, []string{"--signin-token", "pat"}, false},
 		{modeSignIn, []string{"--project", "app:1"}, false},

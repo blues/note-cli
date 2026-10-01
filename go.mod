@@ -4,6 +4,9 @@ go 1.25.0
 
 replace github.com/blues/note-cli/lib => ./lib
 
+// Use the login helpers in the adjacent note-go checkout while testing polling.
+replace github.com/blues/note-go => ../note-go
+
 require (
 	github.com/blues/note-cli/lib v0.0.0-20251120160051-d509bdf52531
 	github.com/blues/note-go v1.10.0

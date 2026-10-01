@@ -151,14 +151,14 @@ func (config *ConfigSettings) Print() {
 			continue
 		}
 
-		tokenType := "PAT"
+		tokenType := "token"
 		if cred.IsOAuthAccessToken() {
-			tokenType = "OAuth"
+			tokenType = "signin"
 		}
 
 		expires := ""
 		if cred.ExpiresAt != nil {
-			expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+			expires = fmt.Sprintf(" expires at %s", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
 		}
 		if !shownCreds {
 			shownCreds = true
@@ -190,21 +190,63 @@ func (config *ConfigSettings) DefaultCredentials() *ConfigCreds {
 	return nil
 }
 
-// clear credentials for the currently config.Hub value
-// if the credentials are from OAuth, then revoke the access token
+// RemoveDefaultCredentials clears the credentials for config.Hub. An OAuth
+// sign-in is also ended at Notehub and Hydra. A personal access token is left
+// alone: the user set its expiration and manages it under API Access.
 func (config *ConfigSettings) RemoveDefaultCredentials() error {
 	credentials, present := config.HubCreds[config.Hub]
 	if !present {
 		return fmt.Errorf("not signed in to %s", config.Hub)
 	}
 
-	if !credentials.IsOAuthAccessToken() {
-		notehub.RevokeAccessToken(credentials.Hub, credentials.Token)
+	if credentials.IsOAuthAccessToken() {
+		signOutOAuthToken(config.Hub, credentials.Token)
 	}
 
 	// remove the credentials, and write the credentials file
 	delete(config.HubCreds, config.Hub)
 	return config.Write()
+}
+
+// signOutOAuthToken ends an OAuth sign-in. Notehub first: it deletes the
+// sign-in that API Access lists, which refuses the token from then on, and a
+// token Hydra has already revoked could no longer authenticate that. Both calls
+// are best effort; the local credentials go regardless.
+func signOutOAuthToken(hub, token string) {
+	if err := deleteSignIn(apiBaseURL(hub), token); err != nil {
+		fmt.Fprintf(os.Stderr, "sign-out: the sign-in stays listed under API Access at %s until it lapses: %s\n", hub, err)
+	}
+	notehub.RevokeAccessToken(hub, token)
+}
+
+// deleteSignIn deletes the sign-in behind an OAuth token at the Notehub API
+// rooted at apiBaseURL.
+func deleteSignIn(apiBaseURL, token string) error {
+	req, err := http.NewRequest(http.MethodPost, apiBaseURL+"/auth/logout", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// apiBaseURL is the HTTPS root of the Notehub API for a hub, whichever way the
+// hub was configured: with or without its "api." prefix.
+func apiBaseURL(hub string) string {
+	if !strings.HasPrefix(hub, "api.") {
+		hub = "api." + hub
+	}
+	return "https://" + hub
 }
 
 func (config *ConfigSettings) SetDefaultCredentials(token string, email string, expiresAt *time.Time) {
