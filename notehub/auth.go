@@ -24,7 +24,7 @@ import (
 
 // Set true to test the Notehub polling callback; false uses localhost login.  Note
 // that polling is superior in that agents can use it without opening a local HTTP server.
-const authUsePolling = false
+const authUsePolling = true
 
 // Sign into the notehub account with a personal access token
 func authSignInToken(personalAccessToken string) error {
