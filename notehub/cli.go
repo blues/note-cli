@@ -443,7 +443,10 @@ func cliCommandLabel(command cliCommand) string {
 // cliModeLabel is how a mode is identified when modes are listed
 func cliModeLabel(mode *cliMode) string {
 	if mode.Name == modeDefault {
-		return mode.Name + " (or omitted)"
+		return "[" + mode.Name + "]"
+	}
+	if mode.Name == modeSignInAgent {
+		return mode.Name + " \"Agent Name\""
 	}
 	return mode.Name
 }

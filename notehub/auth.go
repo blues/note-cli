@@ -175,11 +175,11 @@ func authExpiresDescription(status authStatus) string {
 }
 
 // Sign into the Notehub account with browser-based OAuth2 flow
-func authSignIn() error { return authSignInWithAgent(false) }
+func authSignIn() error { return authSignInWithAgent("") }
 
-func authSignInWithAgent(agent bool) (err error) {
+func authSignInWithAgent(agentName string) (err error) {
 	var reporter *agentSignInReporter
-	if agent && authUsePolling {
+	if agentName != "" && authUsePolling {
 		reporter = newAgentSignInReporter(os.Stdout)
 		defer func() {
 			if outputErr := reporter.finish(err); err == nil {
@@ -205,18 +205,21 @@ func authSignInWithAgent(agent bool) (err error) {
 		}
 	}
 
+	hostname, _ := os.Hostname()
+	signInName := authSignInName(agentName, hostname)
+
 	// initiate the browser-based OAuth2 login flow
 	var accessToken *notehub.AccessToken
 	if authUsePolling {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		options := notehub.PollingLoginOptions{}
+		options := notehub.PollingLoginOptions{SignInName: signInName}
 		if reporter != nil {
 			options.OnURL, options.OnPending = reporter.url, reporter.pending
 		}
 		accessToken, err = notehub.InitiatePollingLoginWithOptions(ctx, config.Hub, options)
 	} else {
-		accessToken, err = notehub.InitiateBrowserBasedLogin(config.Hub)
+		accessToken, err = notehub.InitiateBrowserBasedLoginWithOptions(config.Hub, notehub.BrowserLoginOptions{SignInName: signInName})
 	}
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
@@ -295,16 +298,36 @@ func runSignIn(config *lib.ConfigSettings) error {
 	return nil
 }
 
+// authAgentName validates the required name before sign-in can replace credentials.
+func authAgentName(mode *cliMode) (string, error) {
+	name := flagSignInAgent
+	if mode.Name == modeSignInAgent {
+		if flag.NArg() != 1 {
+			return "", fmt.Errorf("'%s %s' requires one agent name; quote names containing spaces", cliName, modeSignInAgent)
+		}
+		name = flag.Arg(0)
+	}
+	if strings.TrimSpace(name) == "" {
+		return "", errors.New("sign-in agent name must not be empty")
+	}
+	return name, nil
+}
+
+// authSignInName seeds the editable name with the agent name or short hostname.
+func authSignInName(agentName, hostname string) string {
+	name := agentName
+	if name == "" {
+		name, _, _ = strings.Cut(hostname, ".")
+	}
+	if name == "" {
+		return ""
+	}
+	return "Notehub CLI - " + name
+}
+
 // runSignInAgent is the handler for 'notehub signin-agent', the same as --signin-agent.
 func runSignInAgent(config *lib.ConfigSettings) error {
-	if args := flag.Args(); len(args) != 0 {
-		err := fmt.Errorf("'%s %s' takes no arguments, but was given: %s", cliName, modeSignInAgent, strings.Join(args, " "))
-		if authUsePolling {
-			authAgentFailure(os.Stdout, err)
-		}
-		return err
-	}
-	return authSignInWithAgent(true)
+	return authSignInWithAgent(flagSignInAgent)
 }
 
 // Banner for authentication

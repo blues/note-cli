@@ -9,7 +9,7 @@ import (
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
-	notegoapi "github.com/blues/note-go/notehub/api"
+	notehubsdk "github.com/blues/notehub-sdk-go"
 )
 
 type Vars map[string]string
@@ -20,7 +20,7 @@ func varsGetFromDevices(appMetadata AppMetadata, uids []string, flagVerbose bool
 	vars = map[string]Vars{}
 
 	for _, deviceUID := range uids {
-		varsRsp := notegoapi.GetDeviceEnvironmentVariablesResponse{}
+		varsRsp := notehubsdk.EnvironmentVariables{}
 		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
 		if err != nil {
@@ -39,7 +39,7 @@ func varsGetFromFleets(appMetadata AppMetadata, uids []string, flagVerbose bool)
 	vars = map[string]Vars{}
 
 	for _, fleetUID := range uids {
-		varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
+		varsRsp := notehubsdk.EnvironmentVariables{}
 		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
 		if err != nil {
@@ -58,7 +58,7 @@ func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, f
 
 	for _, deviceUID := range uids {
 
-		req := notegoapi.PutDeviceEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
+		req := notehubsdk.EnvironmentVariables{EnvironmentVariables: Vars{}}
 		for k, v := range template {
 			req.EnvironmentVariables[k] = v
 		}
@@ -69,7 +69,7 @@ func varsSetFromDevices(appMetadata AppMetadata, uids []string, template Vars, f
 			return
 		}
 
-		rspPut := notegoapi.PutDeviceEnvironmentVariablesResponse{}
+		rspPut := notehubsdk.EnvironmentVariables{}
 		url := fmt.Sprintf("/v1/projects/%s/devices/%s/environment_variables", appMetadata.App.UID, deviceUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "PUT", url, reqJSON, &rspPut)
 		if err != nil {
@@ -91,7 +91,7 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 
 	for _, fleetUID := range uids {
 
-		req := notegoapi.PutFleetEnvironmentVariablesRequest{EnvironmentVariables: Vars{}}
+		req := notehubsdk.EnvironmentVariables{EnvironmentVariables: Vars{}}
 		for k, v := range template {
 			req.EnvironmentVariables[k] = v
 		}
@@ -102,7 +102,7 @@ func varsSetFromFleets(appMetadata AppMetadata, uids []string, template Vars, fl
 			return
 		}
 
-		rspPut := notegoapi.PutFleetEnvironmentVariablesResponse{}
+		rspPut := notehubsdk.EnvironmentVariables{}
 		url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, fleetUID)
 		err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "PUT", url, reqJSON, &rspPut)
 		if err != nil {
@@ -121,7 +121,7 @@ func varsProvisionDevices(appMetadata AppMetadata, uids []string, productUID str
 
 	for _, deviceUID := range uids {
 
-		req := notegoapi.ProvisionDeviceRequest{ProductUID: productUID, DeviceSN: deviceSN}
+		req := notehubsdk.ProvisionDeviceRequest{ProductUid: productUID, DeviceSn: &deviceSN}
 
 		var reqJSON []byte
 		reqJSON, err = note.JSONMarshal(req)

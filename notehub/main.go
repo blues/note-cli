@@ -7,7 +7,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +39,8 @@ func main() {
 
 	// An optional mode keyword comes first; without one, run the default mode
 	mode, args := cliExtractMode(os.Args[1:])
+	agentSignIn := mode.Name == modeSignInAgent ||
+		(mode.Name == modeDefault && slices.Contains(cliScanSwitchNames(args), "signin-agent"))
 
 	// Remove the mode keyword, so that the flag package and lib's config handling see
 	// the command line they always have
@@ -44,21 +48,30 @@ func main() {
 
 	// Register only this mode's switches, and describe this mode in usage
 	cliRegisterSwitches(mode)
-	flagSignInAgent = mode.Name == modeSignInAgent
 	flag.Usage = func() {
 		cliPrintHelp(mode, true)
+	}
+	if agentSignIn && authUsePolling {
+		// Return parse errors for JSON reporting, without printing usage to stdout.
+		flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+		flag.CommandLine.SetOutput(io.Discard)
+		flag.CommandLine.Usage = func() {}
 	}
 
 	// Name a switch used in the wrong mode, rather than calling it undefined
 	if err := cliValidateSwitches(mode, args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		if agentSignIn && authUsePolling {
+			authAgentFailure(os.Stdout, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", err)
+		}
 		os.Exit(exitFail)
 	}
 
 	// Parse these flags and also the note tool config flags
 	err := lib.FlagParse(false, true)
 	if err != nil {
-		if flagSignInAgent && authUsePolling {
+		if agentSignIn && authUsePolling {
 			authAgentFailure(os.Stdout, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "flags: %s\n", err)
@@ -72,7 +85,7 @@ func main() {
 	// after flags are parsed, get the resulting configuration
 	config, err := lib.GetConfig()
 	if err != nil {
-		if flagSignInAgent && authUsePolling {
+		if agentSignIn && authUsePolling {
 			authAgentFailure(os.Stdout, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "config: %s\n", err)
@@ -85,10 +98,21 @@ func main() {
 		cliPrintHelp(mode, true)
 		os.Exit(exitOk)
 	}
+	if agentSignIn {
+		flagSignInAgent, err = authAgentName(mode)
+		if err != nil {
+			if authUsePolling {
+				authAgentFailure(os.Stdout, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "sign-in: %s\n", err)
+			}
+			os.Exit(exitFail)
+		}
+	}
 
 	// Run the mode
 	if err = mode.Run(config); err != nil {
-		if !(flagSignInAgent && authUsePolling) {
+		if !(agentSignIn && authUsePolling) {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 		}
 		os.Exit(exitFail)
@@ -108,11 +132,11 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	}
 
 	// Process the interactive sign-in
-	if flagSignInAgent && authUsePolling {
-		return authSignInWithAgent(true)
+	if flagSignInAgent != "" && authUsePolling {
+		return authSignInWithAgent(flagSignInAgent)
 	}
-	if flagSignIn || flagSignInAgent {
-		err = authSignIn()
+	if flagSignIn || flagSignInAgent != "" {
+		err = authSignInWithAgent(flagSignInAgent)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "sign-in: %s\n", err)
 			os.Exit(exitFail)

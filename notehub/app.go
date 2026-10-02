@@ -14,7 +14,7 @@ import (
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
-	notegoapi "github.com/blues/note-go/notehub/api"
+	notehubsdk "github.com/blues/notehub-sdk-go"
 )
 
 type Metadata struct {
@@ -73,7 +73,7 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 				if ok {
 					i := Metadata{Name: vj["label"].(string), UID: k}
 					if flagVars {
-						varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
+						varsRsp := notehubsdk.EnvironmentVariables{}
 						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, k)
 						err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
 						if err != nil {
@@ -226,7 +226,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 		for {
 			pageNum++
 
-			devices := notegoapi.GetDevicesResponse{}
+			devices := notehubsdk.GetDevices200Response{}
 			url := fmt.Sprintf("/v1/projects/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, pageSize, pageNum)
 			err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
 			if err != nil {
@@ -234,7 +234,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 			}
 
 			for _, device := range devices.Devices {
-				err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+				err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 				if err != nil {
 					return err
 				}
@@ -260,7 +260,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 				for {
 					pageNum++
 
-					devices := notegoapi.GetDevicesResponse{}
+					devices := notehubsdk.GetDevices200Response{}
 					url := fmt.Sprintf("/v1/projects/%s/fleets/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, fleet.UID, pageSize, pageNum)
 					err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
 					if err != nil {
@@ -268,7 +268,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 					}
 
 					for _, device := range devices.Devices {
-						err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+						err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 						if err != nil {
 							return err
 						}

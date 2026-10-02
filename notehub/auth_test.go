@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,72 @@ import (
 // Answers known locally must not touch the hub.  The hub here can't resolve, so any
 // request would fail.
 const unreachableHub = "whoami-test.invalid"
+
+func TestSignInName(t *testing.T) {
+	for _, test := range []struct {
+		agentName string
+		hostname  string
+		want      string
+	}{
+		{"", "rays-macbook", "Notehub CLI - rays-macbook"},
+		{"", "rays-macbook.local", "Notehub CLI - rays-macbook"},
+		{"", "rays-macbook.example.com", "Notehub CLI - rays-macbook"},
+		{"", "", ""},
+		{"My Agent", "rays-macbook.local", "Notehub CLI - My Agent"},
+		{"agent.example.com", "rays-macbook.local", "Notehub CLI - agent.example.com"},
+		{"My Agent", "", "Notehub CLI - My Agent"},
+	} {
+		if got := authSignInName(test.agentName, test.hostname); got != test.want {
+			t.Errorf("agent=%q hostname=%q: got %q, want %q", test.agentName, test.hostname, got, test.want)
+		}
+	}
+}
+
+func TestSignInAgentArguments(t *testing.T) {
+	savedFlags, savedName := flag.CommandLine, flagSignInAgent
+	t.Cleanup(func() {
+		flag.CommandLine, flagSignInAgent = savedFlags, savedName
+	})
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"signin-agent", "My Agent"}, "My Agent"},
+		{[]string{"signin-agent", "--hub", "example.com", "My Agent"}, "My Agent"},
+		{[]string{"--signin-agent", "My Agent"}, "My Agent"},
+		{[]string{"--signin-agent=My Agent"}, "My Agent"},
+		{[]string{"-signin-agent", "My Agent"}, "My Agent"},
+		{[]string{"--signin-agent", "agent.example.com"}, "agent.example.com"},
+		{[]string{"--signin-agent", "My Agent", "--hub", "example.com"}, "My Agent"},
+		{[]string{"signin-agent"}, ""},
+		{[]string{"signin-agent", ""}, ""},
+		{[]string{"signin-agent", "  "}, ""},
+		{[]string{"signin-agent", "My", "Agent"}, ""},
+		{[]string{"--signin-agent"}, ""},
+		{[]string{"--signin-agent="}, ""},
+		{[]string{"--signin-agent", "  "}, ""},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			mode, args := cliExtractMode(test.args)
+			flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
+			flag.CommandLine.SetOutput(io.Discard)
+			cliRegisterSwitches(mode)
+			flag.String("hub", "", "")
+			err := flag.CommandLine.Parse(args)
+			var got string
+			if err == nil {
+				got, err = authAgentName(mode)
+			}
+			if test.want == "" {
+				if err == nil {
+					t.Fatal("accepted a missing, blank, or unquoted agent name")
+				}
+			} else if err != nil || got != test.want {
+				t.Fatalf("got name=%q err=%v, want name=%q", got, err, test.want)
+			}
+		})
+	}
+}
 
 func TestWhoAmINotSignedIn(t *testing.T) {
 	status := authWhoAmI(unreachableHub, nil, time.Now())

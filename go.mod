@@ -4,12 +4,15 @@ go 1.25.0
 
 replace github.com/blues/note-cli/lib => ./lib
 
-// Use the login helpers in the adjacent note-go checkout while testing polling.
-replace github.com/blues/note-go => ../note-go
+// Until the ray/api-key-priv-minimization PR is pushed
+replace github.com/blues/note-go => ../hub/note-go
+
+replace github.com/blues/notehub-sdk-go => ../hub/notehub-sdk-go
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-20251120160051-d509bdf52531
 	github.com/blues/note-go v1.10.0
+	github.com/blues/notehub-sdk-go v0.0.0-00010101000000-000000000000
 	github.com/fatih/color v1.18.0
 	github.com/peterh/liner v1.2.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
@@ -23,6 +26,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	gopkg.in/validator.v2 v2.0.1 // indirect
 	periph.io/x/conn/v3 v3.7.3 // indirect
 )
 
@@ -35,7 +39,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.7 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
-	go.bug.st/serial v1.7.1
+	go.bug.st/serial v1.8.0
 	golang.org/x/sys v0.43.0 // indirect
 	periph.io/x/host/v3 v3.8.5 // indirect
 )

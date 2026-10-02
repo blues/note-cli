@@ -59,11 +59,12 @@ its default mode.
 | --- | --- |
 | *(omitted)* or `default` | Interact with Notehub: requests, uploads, environment variables, provisioning |
 | `signin` | Sign in to Notehub in your browser |
+| `signin-agent <agent-name>` | Sign in to Notehub from your agent |
 | `netcat` | Send an HTTP request from stdin to Notehub, like netcat for HTTPS |
 | `skills` | Read and manage the skills a project holds: show, list, get, set, rename, delete, backup, restore |
 
-A mode named on its own performs its default action. `--help` describes the options
-of the mode being run:
+A mode named on its own performs its default action or reports required arguments.
+`--help` describes the options of the mode being run:
 
 ```bash
 notehub                 # the modes, the general options, and the saved settings
@@ -81,6 +82,23 @@ as positional values.
 
 Running `notehub --hub example.com` alone saves the hub for future invocations.
 With other options or a request, specifying `--hub` does not by itself save the setting.
+
+### Sign in
+
+```bash
+notehub signin                         # same as notehub --signin
+notehub signin-agent "My Agent"        # same as notehub --signin-agent "My Agent"
+```
+
+Both agent sign-in forms require a nonempty name. Quote names containing spaces.
+The editable name in Notehub's API Access list starts as `Notehub CLI - My Agent`.
+Normal sign-in uses the computer name up to its first dot: `rays-macbook.local`
+becomes `Notehub CLI - rays-macbook`. Explicit agent names keep any dots.
+
+With polling enabled, agent sign-in writes one JSON object per line to stdout:
+the URL to give the user, progress every 10 seconds with `remaining_seconds`, and
+a final result with `success` and `status`. Normal sign-in opens the browser.
+With localhost authentication, both forms open the browser interactively.
 
 ### Netcat
 

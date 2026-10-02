@@ -59,9 +59,13 @@ func cliModes() []*cliMode {
 			{
 				Name:    modeSignInAgent,
 				Summary: "sign in to Notehub from your agent",
-				Detail: "'notehub signin-agent' writes the sign-in URL, progress, and result as\n" +
-					"JSON to stdout when polling is enabled. With localhost authentication,\n" +
-					"it opens your browser, the same as 'notehub signin'.",
+				Args:    "<agent-name>",
+				Detail: "'notehub signin-agent \"Agent Name\"' requires a nonempty agent name,\n" +
+					"also accepted as 'notehub --signin-agent \"Agent Name\"'. The editable\n" +
+					"sign-in name starts as 'Notehub CLI - Agent Name'. Quote names with spaces.\n\n" +
+					"With polling enabled, it writes the sign-in URL, progress, and result as\n" +
+					"JSON to stdout. With localhost authentication, it opens your browser,\n" +
+					"the same as 'notehub signin'.",
 				Run: runSignInAgent,
 			},
 			{

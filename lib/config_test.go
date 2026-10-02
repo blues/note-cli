@@ -9,8 +9,24 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
+
+func TestFlagParseReturnsArgumentErrors(t *testing.T) {
+	savedFlags, savedArgs := flag.CommandLine, os.Args
+	t.Cleanup(func() {
+		flag.CommandLine, os.Args = savedFlags, savedArgs
+	})
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	flag.String("signin-agent", "", "agent name")
+	os.Args = []string{"test", "--signin-agent"}
+	if err := FlagParse(false, false); err == nil || !strings.Contains(err.Error(), "flag needs an argument") {
+		t.Fatalf("expected a missing argument error, got %v", err)
+	}
+}
 
 // A command line that only sets configuration saves it, in either spelling; one that
 // also does anything else doesn't

@@ -409,7 +409,9 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 	ConfigFlagsRegister(notecardFlags, notehubFlags)
 
 	// Parse them
-	flag.Parse()
+	if err = flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		return
+	}
 
 	// Process our flags
 	err = ConfigFlagsProcess()
