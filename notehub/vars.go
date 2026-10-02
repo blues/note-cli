@@ -9,7 +9,7 @@ import (
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
-	notehubsdk "github.com/blues/notehub-sdk-go"
+	notehubsdk "github.com/blues/notehub-go"
 )
 
 type Vars map[string]string
