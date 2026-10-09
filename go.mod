@@ -4,7 +4,7 @@ go 1.25.0
 
 replace github.com/blues/note-cli/lib => ./lib
 
-// Until the ray/api-key-priv-minimization PR is pushed
+// Until note-go is brought up-to-date
 replace github.com/blues/note-go => ../hub/note-go
 
 require (
