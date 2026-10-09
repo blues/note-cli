@@ -1,3 +1,5 @@
+github.com/blues/notehub-go v0.0.10 h1:1D5DQhV2HHt8tpL/K1MKqKkFQz5cj4i02ciAuCJeGFg=
+github.com/blues/notehub-go v0.0.10/go.mod h1:iKPyFKDcLE1D1j0lYjA215qu1eB/7C+o7BUKWgmTgX4=
 github.com/clipperhouse/stringish v0.1.1 h1:+NSqMOr3GR6k1FdRhhnXrLfztGzuG+VuFDfatpWHKCs=
 github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEXNWYXQgCt4hdOzA=
 github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=

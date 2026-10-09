@@ -7,12 +7,10 @@ replace github.com/blues/note-cli/lib => ./lib
 // Until the ray/api-key-priv-minimization PR is pushed
 replace github.com/blues/note-go => ../hub/note-go
 
-replace github.com/blues/notehub-go => ../hub/notehub-sdk-go
-
 require (
 	github.com/blues/note-cli/lib v0.0.0-20251120160051-d509bdf52531
 	github.com/blues/note-go v1.10.0
-	github.com/blues/notehub-go v0.0.0-00010101000000-000000000000
+	github.com/blues/notehub-go v0.0.10
 	github.com/fatih/color v1.18.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/peterh/liner v1.2.2
