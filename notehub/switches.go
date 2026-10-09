@@ -5,33 +5,30 @@
 // The switches understood by this CLI.  Each declares the modes it may be used in; only
 // those of the mode being run are registered, a switch used in the wrong mode is named as
 // such, and help is generated from the same table.  To add a switch, add its variable and
-// a row below.
+// a row below.  A name may be defined once per set of modes, with its own usage and group
+// in each, so long as no mode gets it twice.
 
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blues/note-cli/lib/cli"
+)
 
 // The variables into which the switches are parsed
 var (
-	flagHelp        bool
 	flagApp         string
 	flagProduct     string
 	flagDevice      string
 	flagReq         string
 	flagPretty      bool
 	flagJson        bool
-	flagUpload      string
-	flagType        string
-	flagTags        string
-	flagNotes       string
 	flagTrace       bool
-	flagOverwrite   bool
-	flagOut         string
 	flagSignIn      bool
 	flagSignInAgent string
 	flagSignInToken string
 	flagSignOut     bool
-	flagWhoAmI      bool
 	flagToken       bool
 	flagExplore     bool
 	flagReserved    bool
@@ -45,138 +42,120 @@ var (
 	flagProjects    bool
 )
 
-// cliSwitchGroups returns the help groups in display order; empty groups aren't shown
-func cliSwitchGroups() []struct{ Name, Description string } {
-	return []struct{ Name, Description string }{
-		{cliGroupGeneral, "General Options"},
-		{"auth", "Authentication & Session"},
-		{"scope", "Project & Device Scope"},
-		{"vars", "Environment Variables"},
-		{"request", "API Request Options"},
-		{"operations", "Notefile Operations"},
-		{"notefile", "Notefile Management"},
-		{"skills", "Skills"},
-		{"other", "Other Options"},
+// notehubGroups returns the help groups in display order; empty groups aren't shown
+func notehubGroups() []cli.Group {
+	return []cli.Group{
+		{Name: cli.GroupGeneral, Description: "General Options"},
+		{Name: "auth", Description: "Authentication & Session"},
+		{Name: "scope", Description: "Project & Device Scope"},
+		{Name: "vars", Description: "Environment Variables"},
+		{Name: "request", Description: "API Request Options"},
+		{Name: "output", Description: "Output Options"},
+		{Name: "notefile", Description: "Notefiles"},
+		{Name: "firmware", Description: "Firmware"},
+		{Name: "files", Description: "Files"},
+		{Name: "skills", Description: "Skills"},
+		{Name: "other", Description: "Other Options"},
 	}
 }
 
-// cliSwitches returns every switch, in any mode
-func cliSwitches() []*cliSwitch {
-	if cliSwitchTable == nil {
-		cliSwitchTable = append(notehubSwitches(), skillsSwitches()...)
+// notehubSwitches returns every switch, in any mode
+func notehubSwitches() (switches []*cli.Switch) {
+	for _, more := range [][]*cli.Switch{defaultSwitches(), authSwitches(), apiSwitches(), firmwareSwitches(), filesSwitches(), skillsSwitches()} {
+		switches = append(switches, more...)
 	}
-	return cliSwitchTable
+	return switches
 }
-
-var cliSwitchTable []*cliSwitch
 
 // The mode lists used by the switches below
 var (
-	inDefault          = []string{modeDefault}
-	inDefaultAndSkills = []string{modeDefault, modeSkills}
-	inAnyMode          = []string{cliAnyMode}
+	inDefault       = []string{modeDefault}
+	inDefaultAndApi = []string{modeDefault, modeApi}
+	inProjectModes  = []string{modeDefault, modeSkills, modeApi, modeFirmware, modeFiles}
+	inAnyMode       = []string{cli.AnyMode}
 )
 
-// notehubSwitches returns the switches used to interact with Notehub
-func notehubSwitches() []*cliSwitch {
-	return []*cliSwitch{
+// defaultSwitches returns the switches of the default mode, and those shared by every mode
+func defaultSwitches() []*cli.Switch {
+	return []*cli.Switch{
 
-		// General Options, the only ones shown when there is nothing to do
-		{Name: "help", Target: &flagHelp, Group: cliGroupGeneral, Modes: inAnyMode,
-			Usage: "display all of the options available in this mode"},
+		// General Options, the only ones shown when there is nothing to do.  --help is the
+		// framework's, and lib registers --hub for every note CLI.
+		{Name: "hub", External: true, ValueType: "hub", Group: cli.GroupGeneral, Modes: inAnyMode,
+			Usage: "set currently active Notehub domain"},
 
-		// lib registers --hub for every note CLI
-		{Name: "hub", External: true, ValueType: "string", Group: cliGroupGeneral, Modes: inAnyMode,
-			Usage: "set Notehub domain"},
-
-		// Authentication & Session
-		{Name: "signin", Target: &flagSignIn, Group: "auth", Modes: inDefault,
-			Usage: "sign-in to the notehub so that API requests may be made"},
-		{Name: "signin-agent", Target: &flagSignInAgent, Group: "auth", Modes: inDefault,
-			Usage: "sign in to Notehub from your agent, requiring an \"Agent Name\""},
-		{Name: "signin-token", Target: &flagSignInToken, Group: "auth", Modes: inDefault,
-			Usage: "sign-in to the notehub with an explicit token"},
-		{Name: "signout", Target: &flagSignOut, Group: "auth", Modes: inDefault,
-			Usage: "sign out of the notehub"},
-		{Name: "whoami", Target: &flagWhoAmI, Group: "auth", Modes: inDefault,
-			Usage: "report whether signed in to the configured hub, and as whom (exit 0 if so)"},
-		{Name: "token", Target: &flagToken, Group: "auth", Modes: inDefault,
-			Usage: "obtain the signed-in account's Authentication Token"},
+		// Authentication & Session.  Logging in and out are modes; these are the spellings
+		// that predate them, which keep working but aren't shown.
+		{Name: "signin", Target: &flagSignIn, Group: "auth", Modes: inDefault, Hidden: true,
+			Usage: "sign into hub in your browser, as 'notehub login' does"},
+		{Name: "signin-token", Target: &flagSignInToken, Group: "auth", Modes: inDefault, Hidden: true,
+			Usage: "sign in with a personal access `token`, as 'notehub login --with-token' does"},
+		{Name: "signout", Target: &flagSignOut, Group: "auth", Modes: inDefault, Hidden: true,
+			Usage: "sign out of hub, as 'notehub logout' does"},
+		{Name: "token", Target: &flagToken, Group: "auth", Modes: inDefault, Hidden: true,
+			Usage: "print the token in use, as 'notehub auth token' does"},
 
 		// Project & Device Scope
 		{Name: "projects", Target: &flagProjects, Group: "scope", Modes: inDefault,
-			Usage: "list all projects"},
-		{Name: "project", Target: &flagApp, Group: "scope", Modes: inDefaultAndSkills,
-			Usage: "projectUID"},
-		{Name: "provision", Target: &flagProvision, Group: "scope", Modes: inDefault,
-			Usage: "provision devices"},
-		{Name: "product", Target: &flagProduct, Group: "scope", Modes: inDefaultAndSkills,
-			Usage: "productUID"},
-		{Name: "device", Target: &flagDevice, Group: "scope", Modes: inDefault,
-			Usage: "deviceUID"},
+			Usage: "list the projects you belong to, each with its products, as JSON"},
+		{Name: "project", Target: &flagApp, Group: "scope", Modes: inProjectModes,
+			Usage: "the project to act on, by its `projectUID`, as in app:…"},
+		{Name: "product", Target: &flagProduct, Group: "scope", Modes: inProjectModes,
+			Usage: "the project to act on, by one of its `productUID`s, as in com.example:sensor"},
+		{Name: "device", Target: &flagDevice, Group: "scope", Modes: inDefaultAndApi,
+			Usage: "the device a request concerns, by its `deviceUID`, as in dev:864475040518622"},
 		{Name: "scope", Target: &flagScope, Group: "scope", Modes: inDefault,
-			Usage: "dev:xx or @fleet:xx or fleet:xx or @filename"},
+			Usage: "the `devices` or fleets an operation concerns: dev:xx, fleet:xx, a fleet's name, @fleet for its devices, @file of them, or devices or fleets for all; comma-separated"},
+		{Name: "provision", Target: &flagProvision, Group: "scope", Modes: inDefault,
+			Usage: "provision the devices in --scope into --product, with --sn as the serial number"},
 		{Name: "sn", Target: &flagSn, Group: "scope", Modes: inDefault,
-			Usage: "serial number"},
+			Usage: "the `serial` number to give the device being provisioned"},
 
 		// Environment Variables
 		{Name: "get-vars", Target: &flagVarsGet, Group: "vars", Modes: inDefault,
-			Usage: "get environment vars"},
+			Usage: "get the environment variables of the devices or fleets in --scope, as JSON"},
 		{Name: "set-vars", Target: &flagVarsSet, Group: "vars", Modes: inDefault,
-			Usage: "set environment vars using a json template"},
+			Usage: "set environment variables on the devices or fleets in --scope from a `json` template, or @file; a value of - removes one"},
 
 		// API Request Options
 		{Name: "req", Target: &flagReq, Group: "request", Modes: inDefault,
-			Usage: "{json for device-like request}"},
+			Usage: "a `request` in the Notecard's JSON form, sent to the hub for --device, or @file; the same as a bare request as the last argument"},
 		{Name: "pretty", Target: &flagPretty, Group: "request", Modes: inDefault,
-			Usage: "pretty print json output"},
+			Usage: "pretty print JSON output"},
 		{Name: "json", Target: &flagJson, Group: "request", Modes: inDefault,
-			Usage: "strip all non json lines from output"},
-		{Name: "verbose", Target: &flagVerbose, Group: "request", Modes: inDefaultAndSkills,
-			Usage: "display requests and responses"},
+			Usage: "keep only the JSON lines of a response"},
+		{Name: "verbose", Target: &flagVerbose, Group: "request", Modes: inProjectModes,
+			Usage: "display requests and responses as they go by"},
 
-		// Notefile Operations
-		{Name: "upload", Target: &flagUpload, Group: "operations", Modes: inDefault,
-			Usage: "filename to upload"},
-		{Name: "type", Target: &flagType, Group: "operations", Modes: inDefault,
-			Usage: "indicate file type of image such as 'firmware'"},
-		{Name: "tags", Target: &flagTags, Group: "operations", Modes: inDefault,
-			Usage: "indicate tags to attach to uploaded image"},
-		{Name: "notes", Target: &flagNotes, Group: "operations", Modes: inDefault,
-			Usage: "indicate notes to attach to uploaded image"},
-		{Name: "overwrite", Target: &flagOverwrite, Group: "operations", Modes: inDefault,
-			Usage: "use exact filename in upload and overwrite it on service"},
-		{Name: "out", Target: &flagOut, Group: "operations", Modes: inDefault,
-			Usage: "output filename"},
-
-		// Notefile Management
+		// Notefiles
 		{Name: "explore", Target: &flagExplore, Group: "notefile", Modes: inDefault,
-			Usage: "explore the contents of the device"},
+			Usage: "list the notefiles the hub holds for --device, and their notes; with --scope, for each device in it"},
 		{Name: "reserved", Target: &flagReserved, Group: "notefile", Modes: inDefault,
-			Usage: "when exploring, include reserved notefiles"},
-		{Name: "trace", Target: &flagTrace, Group: "notefile", Modes: inDefault,
+			Usage: "when exploring, include the reserved notefiles too"},
+		// 'notehub api' is the way to send requests by hand now; this still works
+		{Name: "trace", Target: &flagTrace, Group: "notefile", Modes: inDefault, Hidden: true,
 			Usage: "enter trace mode to interactively send requests to notehub"},
 
 		// Other Options
 		{Name: "version", Target: &flagVersion, Group: "other", Modes: inDefault,
-			Usage: "print the current version of the CLI"},
+			Usage: "print the version of this CLI"},
 	}
 }
 
-// cliNormalizeScope takes a value given to the wrong one of --project and --product as
+// normalizeScope takes a value given to the wrong one of --project and --product as
 // meant for the other: a projectUID begins with "app:", and a productUID never does
-func cliNormalizeScope() {
+func normalizeScope() {
 	switch {
-	case flagApp != "" && !cliIsProjectUID(flagApp) && flagProduct == "":
+	case flagApp != "" && !isProjectUID(flagApp) && flagProduct == "":
 		flagApp, flagProduct = "", flagApp
-	case flagProduct != "" && cliIsProjectUID(flagProduct) && flagApp == "":
+	case flagProduct != "" && isProjectUID(flagProduct) && flagApp == "":
 		flagApp, flagProduct = flagProduct, ""
-	case flagApp != "" && !cliIsProjectUID(flagApp) && flagProduct != "" && cliIsProjectUID(flagProduct):
+	case flagApp != "" && !isProjectUID(flagApp) && flagProduct != "" && isProjectUID(flagProduct):
 		flagApp, flagProduct = flagProduct, flagApp
 	}
 }
 
-// cliIsProjectUID reports whether a value is a projectUID rather than a productUID
-func cliIsProjectUID(uid string) bool {
+// isProjectUID reports whether a value is a projectUID rather than a productUID
+func isProjectUID(uid string) bool {
 	return strings.HasPrefix(uid, "app:")
 }

@@ -14,6 +14,7 @@ require (
 	github.com/blues/note-go v1.10.0
 	github.com/blues/notehub-go v0.0.0-00010101000000-000000000000
 	github.com/fatih/color v1.18.0
+	github.com/mattn/go-isatty v0.0.20
 	github.com/peterh/liner v1.2.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -23,7 +24,6 @@ require (
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	gopkg.in/validator.v2 v2.0.1 // indirect

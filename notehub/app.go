@@ -71,7 +71,8 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 			for k, v := range fleets {
 				vj, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: vj["label"].(string), UID: k}
+					label, _ := vj["label"].(string)
+					i := Metadata{Name: label, UID: k}
 					if flagVars {
 						varsRsp := notehubsdk.EnvironmentVariables{}
 						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, k)
@@ -123,7 +124,9 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 			for _, v := range pi {
 				p, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: p["label"].(string), UID: p["uid"].(string)}
+					label, _ := p["label"].(string)
+					uid, _ := p["uid"].(string)
+					i := Metadata{Name: label, UID: uid}
 					items = append(items, i)
 				}
 				appMetadata.Products = items
@@ -352,10 +355,9 @@ func appListProjects(flagVerbose bool) (projects []ProjectInfo, err error) {
 				for _, pv := range pi {
 					pp, ok := pv.(map[string]interface{})
 					if ok {
-						info.Products = append(info.Products, Metadata{
-							Name: pp["label"].(string),
-							UID:  pp["uid"].(string),
-						})
+						label, _ := pp["label"].(string)
+						uid, _ := pp["uid"].(string)
+						info.Products = append(info.Products, Metadata{Name: label, UID: uid})
 					}
 				}
 			}

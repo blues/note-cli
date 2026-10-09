@@ -1,4 +1,4 @@
-module github.com/note-cli/lib
+module github.com/blues/note-cli/lib
 
 go 1.25.0
 

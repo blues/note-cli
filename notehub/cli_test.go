@@ -10,7 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-cli/lib/cli"
 )
 
 // Every command line that predates modes must parse as the default mode, unchanged
@@ -33,12 +37,12 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"default", "--version"}, modeDefault, []string{"--version"}},
 
 		// Mode keywords
-		{[]string{"signin"}, modeSignIn, []string{}},
-		{[]string{"signin-agent"}, modeSignInAgent, []string{}},
-		{[]string{"signin-agent", "--hub", "api.notefile.net"}, modeSignInAgent, []string{"--hub", "api.notefile.net"}},
-		{[]string{"SignIn", "--hub", "api.notefile.net"}, modeSignIn, []string{"--hub", "api.notefile.net"}},
-		{[]string{"netcat"}, modeNetcat, []string{}},
-		{[]string{"NetCat", "--hub", "api.notefile.net"}, modeNetcat, []string{"--hub", "api.notefile.net"}},
+		{[]string{"login"}, modeLogin, []string{}},
+		{[]string{"login", "--name", "My Agent", "--json"}, modeLogin, []string{"--name", "My Agent", "--json"}},
+		{[]string{"LogIn", "--hub", "api.notefile.net"}, modeLogin, []string{"--hub", "api.notefile.net"}},
+		{[]string{"logout"}, modeLogout, []string{}},
+		{[]string{"auth"}, modeAuth, []string{}},
+		{[]string{"auth", "status", "--json"}, modeAuth, []string{"status", "--json"}},
 		{[]string{"skills"}, modeSkills, []string{}},
 		{[]string{"SKILLS", "-project", "app:1"}, modeSkills, []string{"-project", "app:1"}},
 		{[]string{"skills", "--project=app:1"}, modeSkills, []string{"--project=app:1"}},
@@ -49,13 +53,18 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"--skills"}, modeSkills, []string{}},
 		{[]string{"--SKILLS"}, modeSkills, []string{}},
 		{[]string{"--skills", "get", "all", "-project", "app:1"}, modeSkills, []string{"get", "all", "-project", "app:1"}},
+		{[]string{"--login"}, modeLogin, []string{}},
+		{[]string{"--logout"}, modeLogout, []string{}},
 
-		// A switch is always a switch, even when a mode has the same name
+		// A switch is always a switch, even when a mode has the same name, and the hidden
+		// spellings that predate the login modes are switches still
 		{[]string{"--help"}, modeDefault, []string{"--help"}},
 		{[]string{"-help"}, modeDefault, []string{"-help"}},
 		{[]string{"--signin"}, modeDefault, []string{"--signin"}},
 		{[]string{"-signin"}, modeDefault, []string{"-signin"}},
-		{[]string{"--signin-agent"}, modeDefault, []string{"--signin-agent"}},
+		{[]string{"--signin-token", "pat"}, modeDefault, []string{"--signin-token", "pat"}},
+		{[]string{"--signout"}, modeDefault, []string{"--signout"}},
+		{[]string{"--token"}, modeDefault, []string{"--token"}},
 		{[]string{"--verbose"}, modeDefault, []string{"--verbose"}},
 
 		// A hyphenated word that isn't a mode is left for the flag package to diagnose
@@ -70,7 +79,7 @@ func TestExtractMode(t *testing.T) {
 		{[]string{"notamode"}, modeDefault, []string{"notamode"}},
 	}
 	for _, test := range tests {
-		mode, remaining := cliExtractMode(test.args)
+		mode, remaining := cli.ExtractMode(test.args)
 		if mode.Name != test.mode {
 			t.Errorf("%v: mode is '%s', expected '%s'", test.args, mode.Name, test.mode)
 		}
@@ -97,7 +106,7 @@ func TestScanSwitchNames(t *testing.T) {
 		{[]string{}, nil},
 	}
 	for _, test := range tests {
-		names := cliScanSwitchNames(test.args)
+		names := cli.ScanSwitchNames(test.args)
 		if !slices.Equal(names, test.names) {
 			t.Errorf("%v: switches are %v, expected %v", test.args, names, test.names)
 		}
@@ -111,31 +120,71 @@ func TestValidateSwitches(t *testing.T) {
 		args     []string
 		accepted bool
 	}{
-		{modeDefault, []string{"-upload", "f.bin"}, true},
-		{modeDefault, []string{"--signin-agent"}, true},
-		{modeSkills, []string{"--signin-agent"}, false},
+		{modeDefault, []string{"-explore"}, true},
+
+		// The spellings that predate the login modes work in the default mode alone
+		{modeDefault, []string{"--signin"}, true},
+		{modeDefault, []string{"--signin-token", "pat"}, true},
+		{modeDefault, []string{"--signout"}, true},
+		{modeDefault, []string{"--token"}, true},
+		{modeSkills, []string{"--signin"}, false},
+		{modeLogin, []string{"--signin"}, false},
+		{modeLogin, []string{"--signin-token", "pat"}, false},
+		{modeAuth, []string{"--token"}, false},
 		{modeDefault, []string{"-project", "app:1", "-pretty"}, true},
 		{modeSkills, []string{"-project", "app:1"}, true},
 		{modeSkills, []string{"-product", "net.ozzie.ray:t"}, true},
 		{modeSkills, []string{"-hub", "api.notefile.net"}, true},
-		{modeSkills, []string{"-upload", "f.bin"}, false},
+		{modeSkills, []string{"-req", "x"}, false},
 		{modeSkills, []string{"-project", "app:1", "-verbose"}, true},
 		{modeSkills, []string{"-explore"}, false},
 		{modeSkills, []string{"-scope", "dev:1"}, false},
 		{modeSkills, []string{"--project=app:1", "-verbose"}, true},
 		{modeSkills, []string{"--hub", "api.notefile.net"}, true},
-		{modeSkills, []string{"--upload=f.bin"}, false},
+		{modeSkills, []string{"--req=x"}, false},
 		{modeSkills, []string{"--explore"}, false},
-		{modeSignIn, []string{"--hub", "api.notefile.net"}, true},
-		{modeSignInAgent, []string{"--hub", "api.notefile.net"}, true},
-		{modeSignInAgent, []string{"--signin"}, false},
-		{modeSignIn, []string{"--signin"}, false},
-		{modeSignIn, []string{"--signin-token", "pat"}, false},
-		{modeSignIn, []string{"--project", "app:1"}, false},
-		{modeNetcat, []string{"--hub", "api.notefile.net"}, true},
-		{modeNetcat, []string{"--signin"}, false},
-		{modeNetcat, []string{"--project", "app:1"}, false},
-		{modeNetcat, []string{"--verbose"}, false},
+		{modeLogin, []string{"--hub", "api.notefile.net"}, true},
+		{modeLogin, []string{"--with-token", "pat"}, true},
+		{modeLogin, []string{"--name", "My Agent"}, true},
+		{modeLogin, []string{"--name", "DotBot", "--json"}, true},
+		{modeLogin, []string{"--expires-in", "30"}, true},
+		{modeDefault, []string{"--expires-in", "30"}, false},
+		{modeLogin, []string{"--project", "app:1"}, false},
+		{modeLogout, []string{"--hub", "api.notefile.net"}, true},
+		{modeLogout, []string{"--with-token", "pat"}, false},
+		{modeLogout, []string{"--pretty"}, false},
+		{modeLogout, []string{"--json"}, false},
+		{modeLogout, []string{"--signin"}, false},
+		{modeLogout, []string{"--project", "app:1"}, false},
+		{modeLogout, []string{"--verbose"}, false},
+		{modeAuth, []string{"--name", "My Agent"}, true},
+		{modeDefault, []string{"--with-token", "pat"}, false},
+		{modeDefault, []string{"--name", "My Agent"}, false},
+
+		// The api mode shares the scope switches and has its own request switches
+		{modeApi, []string{"--project", "app:1", "--device", "dev:2", "--field", "a=1", "--input", "-", "--include", "--paginate", "--spec", "--pretty", "--verbose"}, true},
+		{modeApi, []string{"--req", "x"}, false},
+		{modeApi, []string{"--explore"}, false},
+
+		// The firmware and files modes share the scope switches, and each has its own
+		{modeFirmware, []string{"--project", "app:1", "--version", "1.0", "--notes", "n", "--info", "{}", "--scope", "all", "--tag", "t", "--sn", "s", "--sku", "k", "--no-replace", "--dry-run", "--force", "--json", "--pretty", "--verbose"}, true},
+		{modeFiles, []string{"--product", "p", "--tags", "t", "--notes", "n", "--no-replace", "--dry-run", "--force", "--json", "--pretty"}, true},
+		{modeFirmware, []string{"--tags", "t"}, false},
+		{modeFiles, []string{"--version", "1.0"}, false},
+		{modeFiles, []string{"--scope", "all"}, false},
+		{modeDefault, []string{"--version"}, true},
+		{modeDefault, []string{"--no-replace"}, false},
+		{modeSkills, []string{"--version", "1.0"}, false},
+		{modeDefault, []string{"--field", "a=1"}, false},
+		{modeSkills, []string{"--include"}, false},
+
+		// --json means something in three modes, and nothing in the others; --pretty goes
+		// wherever a JSON report is written
+		{modeDefault, []string{"--json"}, true},
+		{modeAuth, []string{"--json"}, true},
+		{modeLogin, []string{"--json"}, true},
+		{modeAuth, []string{"--json", "--pretty"}, true},
+		{modeLogin, []string{"--pretty"}, false},
 
 		// The switches of the skills mode belong to it alone
 		{modeSkills, []string{"--force"}, true},
@@ -151,7 +200,7 @@ func TestValidateSwitches(t *testing.T) {
 		{modeSkills, []string{"-nosuchswitch"}, true},
 	}
 	for _, test := range tests {
-		err := cliValidateSwitches(cliModeNamed(test.mode), test.args)
+		err := cli.ValidateSwitches(cli.ModeNamed(test.mode), test.args)
 		if test.accepted && err != nil {
 			t.Errorf("%s %v: unexpectedly rejected: %s", test.mode, test.args, err)
 		}
@@ -186,7 +235,7 @@ func TestParseSwitchSpellings(t *testing.T) {
 	for _, test := range tests {
 		flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
 		flag.CommandLine.SetOutput(io.Discard)
-		cliRegisterSwitches(cliModeNamed(modeDefault))
+		cli.RegisterSwitches(cli.ModeNamed(modeDefault))
 		if err := flag.CommandLine.Parse(test.args); err != nil {
 			t.Errorf("%v: %s", test.args, err)
 			continue
@@ -201,7 +250,7 @@ func TestParseSwitchSpellings(t *testing.T) {
 }
 
 // A command's switches are accepted anywhere among its arguments.  A value that isn't a
-// projectUID lands in --product, as cliNormalizeScope arranges.
+// projectUID lands in --product, as normalizeScope arranges.
 func TestParseCommandSwitches(t *testing.T) {
 	tests := []struct {
 		args       []string
@@ -229,12 +278,12 @@ func TestParseCommandSwitches(t *testing.T) {
 	saved := flag.CommandLine
 	flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
 	flag.CommandLine.SetOutput(io.Discard)
-	cliRegisterSwitches(cliModeNamed(modeSkills))
+	cli.RegisterSwitches(cli.ModeNamed(modeSkills))
 	t.Cleanup(func() { flag.CommandLine = saved })
 
 	for _, test := range tests {
 		flagApp, flagProduct = "", ""
-		positional, err := cliParseCommandSwitches(cliModeNamed(modeSkills), test.args)
+		positional, err := cli.ParseCommandSwitches(cli.ModeNamed(modeSkills), test.args)
 		if err != nil {
 			t.Errorf("%v: %s", test.args, err)
 			continue
@@ -265,7 +314,7 @@ func TestIsBareWord(t *testing.T) {
 		{"two words", false},
 	}
 	for _, test := range tests {
-		if cliIsBareWord(test.arg) != test.bare {
+		if cli.IsBareWord(test.arg) != test.bare {
 			t.Errorf("'%s': expected bare word to be %v", test.arg, test.bare)
 		}
 	}
@@ -273,31 +322,39 @@ func TestIsBareWord(t *testing.T) {
 
 // Every switch in the table must be one the framework can register, validate and display
 func TestSwitchDefinitions(t *testing.T) {
-	seen := map[string]bool{}
-	for _, s := range cliSwitches() {
+	seen := map[string][]*cli.Switch{}
+	for _, s := range cli.Switches() {
 		if s.Name == "" {
 			t.Errorf("a switch is defined with no name")
 			continue
 		}
-		if seen[s.Name] {
-			t.Errorf("-%s is defined more than once", s.Name)
+		// A name may be defined once per set of modes, and never twice for one mode
+		for _, other := range seen[s.Name] {
+			for _, mode := range cli.Modes() {
+				if s.AllowedIn(mode.Name) && other.AllowedIn(mode.Name) {
+					t.Errorf("-%s is defined twice for the '%s' mode", s.Name, mode.Name)
+				}
+			}
 		}
-		seen[s.Name] = true
+		seen[s.Name] = append(seen[s.Name], s)
+		if s.Hidden && s.Group == cli.GroupGeneral {
+			t.Errorf("-%s is hidden, and so can't be a general option", s.Name)
+		}
 		if len(s.Modes) == 0 {
 			t.Errorf("-%s is not available in any mode", s.Name)
 		}
 		for _, m := range s.Modes {
-			if m != cliAnyMode && cliModeNamed(m) == nil {
+			if m != cli.AnyMode && cli.ModeNamed(m) == nil {
 				t.Errorf("-%s is available in '%s', which is not a mode", s.Name, m)
 			}
 		}
-		if !slices.ContainsFunc(cliSwitchGroups(), func(g struct{ Name, Description string }) bool {
+		if !slices.ContainsFunc(cli.Groups(), func(g cli.Group) bool {
 			return g.Name == s.Group
 		}) {
 			t.Errorf("-%s is in group '%s', which is not a group", s.Name, s.Group)
 		}
 		switch s.Target.(type) {
-		case *bool, *string, *int:
+		case *bool, *string, *int, *cli.OptionalValue, *cli.StringList:
 			if s.External {
 				t.Errorf("-%s is registered elsewhere and so must not have a target", s.Name)
 			}
@@ -314,11 +371,11 @@ func TestSwitchDefinitions(t *testing.T) {
 // The general options, which short help shows, must be available in every mode
 func TestGeneralOptions(t *testing.T) {
 	general := []string{}
-	for _, s := range cliSwitches() {
-		if s.Group == cliGroupGeneral {
+	for _, s := range cli.Switches() {
+		if s.Group == cli.GroupGeneral {
 			general = append(general, s.Name)
-			for _, mode := range cliModes() {
-				if !s.allowedIn(mode.Name) {
+			for _, mode := range cli.Modes() {
+				if !s.AllowedIn(mode.Name) {
 					t.Errorf("-%s is a general option and so must be available in every mode, including '%s'", s.Name, mode.Name)
 				}
 			}
@@ -331,14 +388,14 @@ func TestGeneralOptions(t *testing.T) {
 
 // A hidden mode still runs, but it isn't one of the modes that we describe
 func TestHiddenModes(t *testing.T) {
-	mode, remaining := cliExtractMode([]string{modeHelp, modeSkills})
+	mode, remaining := cli.ExtractMode([]string{modeHelp, modeSkills})
 	if mode.Name != modeHelp || !slices.Equal(remaining, []string{modeSkills}) {
 		t.Errorf("'%s' is hidden and so must still be recognized as a mode", modeHelp)
 	}
-	if slices.Contains(cliModeNames(), modeHelp) {
+	if slices.Contains(cli.ModeNames(), modeHelp) {
 		t.Errorf("'%s' is hidden and so must not be listed as one of the modes", modeHelp)
 	}
-	for _, m := range cliVisibleModes() {
+	for _, m := range cli.VisibleModes() {
 		if m.Hidden {
 			t.Errorf("'%s' is hidden and so must not be listed as one of the modes", m.Name)
 		}
@@ -349,7 +406,7 @@ func TestHiddenModes(t *testing.T) {
 // describes must all exist
 func TestModeDefinitions(t *testing.T) {
 	seen := map[string]bool{}
-	for _, mode := range cliModes() {
+	for _, mode := range cli.Modes() {
 		if mode.Name == "" {
 			t.Errorf("a mode is defined with no name")
 			continue
@@ -367,6 +424,15 @@ func TestModeDefinitions(t *testing.T) {
 		for _, c := range mode.Commands {
 			if c.Name == "" || c.Run == nil {
 				t.Errorf("'%s' has a command with no name or no handler", mode.Name)
+			}
+		}
+		// Every mode that is listed shows how it is used
+		if !mode.Hidden && len(mode.Examples) == 0 {
+			t.Errorf("'%s' has no examples", mode.Name)
+		}
+		for _, example := range mode.Examples {
+			if example.What == "" || !strings.Contains(example.Command, cliName+" ") {
+				t.Errorf("'%s' has an example without a description or a command line: %+v", mode.Name, example)
 			}
 		}
 	}
@@ -578,10 +644,107 @@ func TestNormalizeScope(t *testing.T) {
 	defer func() { flagApp, flagProduct = "", "" }()
 	for _, test := range tests {
 		flagApp, flagProduct = test.app, test.product
-		cliNormalizeScope()
+		normalizeScope()
 		if flagApp != test.wantApp || flagProduct != test.wantProduct {
 			t.Errorf("--project %q --product %q: became %q and %q, expected %q and %q",
 				test.app, test.product, flagApp, flagProduct, test.wantApp, test.wantProduct)
 		}
 	}
+}
+
+// The spellings kept for compatibility work but are not shown, and the current ones are
+func TestHelpShowsCurrentSpellings(t *testing.T) {
+	help := captureStdout(t, func() { cli.PrintHelp(cli.ModeNamed(modeDefault), true) })
+	for _, hidden := range []string{"--signin", "--signout", "--token", "whoami"} {
+		if strings.Contains(help, hidden) {
+			t.Errorf("help shows '%s', which is kept only for compatibility", hidden)
+		}
+	}
+	for _, shown := range []string{"login", "logout", "auth", lib.ConfigTokenEnvVar} {
+		if !strings.Contains(help, shown) {
+			t.Errorf("help doesn't mention '%s'", shown)
+		}
+	}
+	help = captureStdout(t, func() { cli.PrintHelp(cli.ModeNamed(modeLogin), true) })
+	for _, shown := range append([]string{"--with-token", "--name", "--json", "--hub", lib.ConfigTokenEnvVar}, agentLoginForms()...) {
+		if !strings.Contains(help, shown) {
+			t.Errorf("login help doesn't mention '%s'", shown)
+		}
+	}
+	help = captureStdout(t, func() { cli.PrintHelp(cli.ModeNamed(modeAuth), true) })
+	for _, shown := range []string{"login", "logout", "status", "switch [hub]", "token", "--json", lib.ConfigTokenEnvVar, agentLoginForms()[0]} {
+		if !strings.Contains(help, shown) {
+			t.Errorf("auth help doesn't mention '%s'", shown)
+		}
+	}
+	if strings.Contains(help, "\n  --pretty") {
+		t.Errorf("auth help lists --pretty, which the main help describes once for everywhere")
+	}
+	help = captureStdout(t, func() { cli.PrintHelp(cli.ModeNamed(modeDefault), true) })
+	for _, form := range agentLoginForms() {
+		if !strings.Contains(help, form) {
+			t.Errorf("main help doesn't show how an agent signs in: %s", form)
+		}
+	}
+	if !strings.Contains(help, "Examples:\n  # ") || strings.Contains(help, "--trace") {
+		t.Errorf("main help must show examples and not the trace switch")
+	}
+}
+
+// A command word typed where a mode goes is pointed at its mode
+func TestCheckNotAModeNamesCommands(t *testing.T) {
+	for word, expected := range map[string]string{
+		"status": "notehub auth status",
+		"token":  "notehub auth token",
+		"show":   "notehub skills show",
+		"login":  "is a mode",
+	} {
+		err := cli.CheckNotAMode(word)
+		if err == nil || !strings.Contains(err.Error(), expected) {
+			t.Errorf("'%s': got %v, expected it to mention '%s'", word, err, expected)
+		}
+	}
+}
+
+// The command word of an auth command line is found past the switches before it
+func TestFirstPositional(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"login", "--json"}, "login"},
+		{[]string{"--json", "login"}, "login"},
+		{[]string{"--name", "login", "status"}, "status"},
+		{[]string{"--name=login", "status"}, "status"},
+		{[]string{"--hub", "x", "--json", "status", "--pretty"}, "status"},
+		{[]string{"--", "--json"}, "--json"},
+		{[]string{"--json"}, ""},
+		{[]string{}, ""},
+	} {
+		if got := cli.FirstPositional(test.args); got != test.want {
+			t.Errorf("%v: got %q, want %q", test.args, got, test.want)
+		}
+	}
+}
+
+// TestMain defines the tool, as main does
+func TestMain(m *testing.M) {
+	cli.Define(notehubTool())
+	os.Exit(m.Run())
+}
+
+// captureStdout returns what fn writes to stdout
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	saved := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	fn()
+	w.Close()
+	os.Stdout = saved
+	out, _ := io.ReadAll(r)
+	return string(out)
 }

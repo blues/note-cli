@@ -5,15 +5,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-cli/lib/cli"
 	"github.com/blues/note-go/note"
 )
 
@@ -24,12 +24,18 @@ const exitFail = 1
 // CLI Version - Set by ldflags during build/release
 var version = "development"
 
-// withCreds validates credentials and then calls the provided function
+// withCreds validates credentials and then calls the provided function.  The remedy for
+// bad ones depends on where they came from: a token from the environment is the caller's
+// to replace, since signing in wouldn't displace it.
 func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
+	if credentials == nil {
+		return fmt.Errorf("not logged in: set %s, or run '%s login'", lib.ConfigTokenEnvVar, cliName)
+	}
 	if err := credentials.Validate(); err != nil {
-		config, _ := lib.GetConfig()
-		fmt.Printf("invalid credentials for %s: %s\n", config.Hub, err)
-		return fmt.Errorf("please use 'notehub --signin' or 'notehub --signin-token' to sign into Notehub")
+		if credentials.Source != "" {
+			return fmt.Errorf("%s rejected the token in %s: %s", credentials.Hub, credentials.Source, err)
+		}
+		return fmt.Errorf("%s rejected the saved login: %s - run '%s login' to log in again", credentials.Hub, err, cliName)
 	}
 	return fn()
 }
@@ -37,30 +43,21 @@ func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
 // Main entry point
 func main() {
 
-	// An optional mode keyword comes first; without one, run the default mode
-	mode, args := cliExtractMode(os.Args[1:])
-	agentSignIn := mode.Name == modeSignInAgent ||
-		(mode.Name == modeDefault && slices.Contains(cliScanSwitchNames(args), "signin-agent"))
+	// Describe this CLI to the framework, and find the mode keyword, which comes first
+	cli.Define(notehubTool())
+	mode, args := cli.Start(os.Args[1:])
 
-	// Remove the mode keyword, so that the flag package and lib's config handling see
-	// the command line they always have
-	os.Args = append([]string{os.Args[0]}, args...)
-
-	// Register only this mode's switches, and describe this mode in usage
-	cliRegisterSwitches(mode)
-	flag.Usage = func() {
-		cliPrintHelp(mode, true)
-	}
-	if agentSignIn && authUsePolling {
+	// An agent logging in is told what went wrong as JSON, from here on
+	agentSignIn := cli.SwitchAmong(args, "json") &&
+		(mode.Name == modeLogin || (mode.Name == modeAuth && strings.EqualFold(cli.FirstPositional(args), "login")))
+	if agentSignIn {
 		// Return parse errors for JSON reporting, without printing usage to stdout.
 		flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 		flag.CommandLine.SetOutput(io.Discard)
 		flag.CommandLine.Usage = func() {}
 	}
-
-	// Name a switch used in the wrong mode, rather than calling it undefined
-	if err := cliValidateSwitches(mode, args); err != nil {
-		if agentSignIn && authUsePolling {
+	fail := func(err error) {
+		if agentSignIn {
 			authAgentFailure(os.Stdout, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
@@ -68,54 +65,18 @@ func main() {
 		os.Exit(exitFail)
 	}
 
-	// Parse these flags and also the note tool config flags
-	err := lib.FlagParse(false, true)
+	// Parse the switches, and get the resulting configuration
+	config, err := cli.Parse(mode, args)
 	if err != nil {
-		if agentSignIn && authUsePolling {
-			authAgentFailure(os.Stdout, err)
-		} else {
-			fmt.Fprintf(os.Stderr, "flags: %s\n", err)
-		}
-		os.Exit(exitFail)
+		fail(err)
 	}
 
-	// A projectUID given as --product, or a productUID as --project, is taken as meant
-	cliNormalizeScope()
-
-	// after flags are parsed, get the resulting configuration
-	config, err := lib.GetConfig()
-	if err != nil {
-		if agentSignIn && authUsePolling {
-			authAgentFailure(os.Stdout, err)
-		} else {
-			fmt.Fprintf(os.Stderr, "config: %s\n", err)
-		}
-		os.Exit(exitFail)
-	}
-
-	// Display everything available in this mode, if that's all that was asked for
-	if flagHelp {
-		cliPrintHelp(mode, true)
-		os.Exit(exitOk)
-	}
-	if agentSignIn {
-		flagSignInAgent, err = authAgentName(mode)
-		if err != nil {
-			if authUsePolling {
-				authAgentFailure(os.Stdout, err)
-			} else {
-				fmt.Fprintf(os.Stderr, "sign-in: %s\n", err)
-			}
+	// Run the mode, unless the login command has already reported what went wrong
+	if err = mode.Run(config); err != nil {
+		if agentSignIn && errors.Is(err, errAgentReported) {
 			os.Exit(exitFail)
 		}
-	}
-
-	// Run the mode
-	if err = mode.Run(config); err != nil {
-		if !(agentSignIn && authUsePolling) {
-			fmt.Fprintf(os.Stderr, "%s\n", err)
-		}
-		os.Exit(exitFail)
+		fail(err)
 	}
 	os.Exit(exitOk)
 
@@ -126,62 +87,44 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 
 	// If no commands found, just show where to go next along with the config
 	if len(os.Args) == 1 {
-		cliPrintHelp(cliModeNamed(modeDefault), false)
-		config.Print()
+		cli.PrintHelp(cli.ModeNamed(modeDefault), false)
+		cli.PrintSettings(config)
 		os.Exit(exitOk)
 	}
 
-	// Process the interactive sign-in
-	if flagSignInAgent != "" && authUsePolling {
-		return authSignInWithAgent(flagSignInAgent)
+	// Process --signin and --signin-token, the spellings of 'notehub login' that predate
+	// it.  As they always have, they and --signout make the hub given by --hub the active
+	// one, which 'notehub login' and 'notehub logout' don't.
+	if flagSignIn || flagSignInToken != "" || flagSignOut {
+		config.AdoptHub()
 	}
-	if flagSignIn || flagSignInAgent != "" {
-		err = authSignInWithAgent(flagSignInAgent)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "sign-in: %s\n", err)
-			os.Exit(exitFail)
+	if flagSignIn {
+		if err = authSignIn(); err != nil {
+			return fmt.Errorf("login: %w", err)
 		}
 	}
-
-	// Process the sign-in with explicit personal access token
 	if flagSignInToken != "" {
-		err = authSignInToken(flagSignInToken)
-		if err != nil {
-			fmt.Printf("sign-in-token: %s\n", err)
-			os.Exit(exitFail)
+		if err = authSignInToken(flagSignInToken); err != nil {
+			return fmt.Errorf("login: %w", err)
 		}
 	}
 
 	// Get the current API credentials
 	credentials := config.DefaultCredentials()
 
-	// Process the sign-out
+	// Process --signout, the spelling of 'notehub logout' that predates it
 	if flagSignOut {
-		if err := config.RemoveDefaultCredentials(); err != nil {
-			fmt.Printf("sign-out: %s\n", err)
-			os.Exit(exitFail)
+		if err = authLogout(config); err != nil {
+			return fmt.Errorf("logout: %w", err)
 		}
 		os.Exit(exitOk)
 	}
 
-	// Report whether we are signed in, in one line and with an exit code that says so
-	if flagWhoAmI {
-		status := authWhoAmI(config.Hub, credentials, time.Now())
-		authWhoAmIPrint(status, flagJson)
-		if !status.SignedIn {
-			os.Exit(exitFail)
-		}
-		os.Exit(exitOk)
-	}
-
-	// Display the token
+	// Process --token, the spelling of 'notehub auth token' that predates it
 	if flagToken {
-		if credentials == nil {
-			fmt.Printf("please sign in using --signin or --signin-token\n")
-			os.Exit(exitFail)
+		if err = authPrintToken(config); err != nil {
+			return err
 		}
-
-		fmt.Printf("%s\n", credentials.Token)
 		os.Exit(exitOk)
 	}
 
@@ -190,19 +133,11 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// See if we did something
 	didSomething := false
 
-	// Create an output function that will be used during --req processing
-	outq := make(chan string)
-	go func() {
-		for {
-			fmt.Printf("%s", <-outq)
-		}
-	}()
-
 	// Process the main part of the command line as a --req
 	argsLeft := len(flag.Args())
 	if argsLeft == 1 {
 		// A bare word here is a misplaced or misspelled mode, not a request
-		if err = cliCheckNotAMode(flag.Args()[0]); err != nil {
+		if err = cli.CheckNotAMode(flag.Args()[0]); err != nil {
 			return err
 		}
 		flagReq = flag.Args()[0]
@@ -250,35 +185,25 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		})
 	}
 
-	if flagReq != "" || flagUpload != "" {
+	if flagReq != "" {
 		didSomething = true
 		err = withCreds(credentials, func() (err error) {
 			var rsp []byte
-			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
+			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), "", "", "", "", false, flagJson, nil)
 			if err != nil {
 				return err
 			}
-			if flagOut == "" {
-				if flagPretty {
-					var rspo map[string]interface{}
-					err = note.JSONUnmarshal(rsp, &rspo)
-					if err != nil {
-						fmt.Printf("%s", rsp)
-					} else {
-						rsp, _ = note.JSONMarshalIndent(rspo, "", "    ")
-						fmt.Printf("%s", rsp)
-					}
+			if flagPretty {
+				var rspo map[string]interface{}
+				err = note.JSONUnmarshal(rsp, &rspo)
+				if err != nil {
+					fmt.Printf("%s", rsp)
 				} else {
+					rsp, _ = note.JSONMarshalIndent(rspo, "", "    ")
 					fmt.Printf("%s", rsp)
 				}
 			} else {
-				var outfile *os.File
-				outfile, err = os.Create(flagOut)
-				if err != nil {
-					return err
-				}
-				outfile.Write(rsp)
-				outfile.Close()
+				fmt.Printf("%s", rsp)
 			}
 			return nil
 		})

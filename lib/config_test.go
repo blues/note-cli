@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFlagParseReturnsArgumentErrors(t *testing.T) {
@@ -112,6 +113,104 @@ func TestAPIBaseURL(t *testing.T) {
 	} {
 		if got := apiBaseURL(hub); got != want {
 			t.Errorf("apiBaseURL(%q) = %q, want %q", hub, got, want)
+		}
+	}
+}
+
+// A token in the environment is used in place of the saved sign-in, for whatever hub is
+// configured, and says where it came from; a blank one is no token at all
+func TestEnvCredentials(t *testing.T) {
+	settings := &ConfigSettings{Hub: "example.com", HubCreds: map[string]ConfigCreds{
+		"example.com": {User: "someone@example.com", Token: "api_key_saved"},
+	}}
+	t.Setenv(ConfigTokenEnvVar, "")
+	if creds := settings.DefaultCredentials(); creds == nil || creds.Token != "api_key_saved" || creds.Source != "" || creds.Hub != "example.com" {
+		t.Errorf("without %s, credentials are %+v, expected the saved sign-in", ConfigTokenEnvVar, creds)
+	}
+	t.Setenv(ConfigTokenEnvVar, " api_key_env ")
+	if creds := settings.DefaultCredentials(); creds == nil || creds.Token != "api_key_env" || creds.Source != ConfigTokenEnvVar || creds.Hub != "example.com" || creds.User != "" {
+		t.Errorf("with %s, credentials are %+v, expected its token", ConfigTokenEnvVar, creds)
+	}
+	settings.Hub = "other.example.com"
+	if creds := settings.DefaultCredentials(); creds == nil || creds.Token != "api_key_env" || creds.Hub != "other.example.com" {
+		t.Errorf("with %s, credentials for a hub with no sign-in are %+v, expected its token", ConfigTokenEnvVar, creds)
+	}
+	t.Setenv(ConfigTokenEnvVar, "  ")
+	if creds := settings.DefaultCredentials(); creds != nil {
+		t.Errorf("with %s blank, credentials for a hub with no sign-in are %+v, expected none", ConfigTokenEnvVar, creds)
+	}
+}
+
+// Every request carries the environment's token when there is one
+func TestAuthenticationHeaderFromEnv(t *testing.T) {
+	saved := config
+	t.Cleanup(func() { config = saved })
+	config = &ConfigSettings{Hub: "example.com", HubCreds: map[string]ConfigCreds{}}
+	req, _ := http.NewRequest(http.MethodGet, "https://api.example.com/v1/projects", nil)
+	t.Setenv(ConfigTokenEnvVar, "")
+	if err := ConfigAuthenticationHeader(req); err == nil || !strings.Contains(err.Error(), ConfigTokenEnvVar) {
+		t.Errorf("with no sign-in and no %s, got %v, expected an error naming the variable", ConfigTokenEnvVar, err)
+	}
+	t.Setenv(ConfigTokenEnvVar, "api_key_env")
+	if err := ConfigAuthenticationHeader(req); err != nil || req.Header.Get("Authorization") != "Bearer api_key_env" {
+		t.Errorf("with %s, got %v and authorization %q, expected its token", ConfigTokenEnvVar, err, req.Header.Get("Authorization"))
+	}
+}
+
+// What is written names the saved hub, not one given for this command alone, until that
+// one is adopted
+func TestWriteKeepsSavedHub(t *testing.T) {
+	saved := configSavedHub
+	t.Cleanup(func() { configSavedHub = saved })
+	settings := &ConfigSettings{Hub: "session.example.com"}
+	configSavedHub = ""
+	if out, _ := settings.savedJSON(); !strings.Contains(string(out), `"hub": "session.example.com"`) {
+		t.Errorf("with no saved hub known, wrote %s", out)
+	}
+	configSavedHub = "saved.example.com"
+	if out, _ := settings.savedJSON(); !strings.Contains(string(out), `"hub": "saved.example.com"`) || settings.Hub != "session.example.com" {
+		t.Errorf("with a saved hub, wrote %s and left the hub in use as %q", out, settings.Hub)
+	}
+	settings.AdoptHub()
+	if out, _ := settings.savedJSON(); !strings.Contains(string(out), `"hub": "session.example.com"`) {
+		t.Errorf("after adopting the hub in use, wrote %s", out)
+	}
+}
+
+// A login is saved per hub, and one with no token or user is no login at all
+func TestSavedCredentials(t *testing.T) {
+	settings := &ConfigSettings{Hub: "a.example.com", HubCreds: map[string]ConfigCreds{
+		"a.example.com": {User: "a@example.com", Token: "api_key_a"},
+		"b.example.com": {User: "", Token: "api_key_b"},
+	}}
+	if creds := settings.SavedCredentials("a.example.com"); creds == nil || creds.Hub != "a.example.com" || creds.User != "a@example.com" {
+		t.Errorf("a.example.com: %+v", creds)
+	}
+	if creds := settings.SavedCredentials("b.example.com"); creds != nil {
+		t.Errorf("b.example.com has no user, and so no login: %+v", creds)
+	}
+	if creds := settings.SavedCredentials("c.example.com"); creds != nil {
+		t.Errorf("c.example.com was never logged in to: %+v", creds)
+	}
+}
+
+// A browser login says when it expires, or expired; a personal access token records no
+// expiration, since Notehub keeps that
+func TestExpirationDescription(t *testing.T) {
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	past, future := now.Add(-time.Hour), now.Add(time.Hour)
+	for _, test := range []struct {
+		expiresAt *time.Time
+		want      string
+	}{
+		{nil, ""},
+		{&future, "expires at 2026-10-08 13:00:00 UTC"},
+		{&past, "expired at 2026-10-08 11:00:00 UTC"},
+		{&now, "expired at 2026-10-08 12:00:00 UTC"},
+	} {
+		creds := ConfigCreds{Token: "ory_at_x", ExpiresAt: test.expiresAt}
+		if got := creds.ExpirationDescription(now); got != test.want {
+			t.Errorf("expires at %v: got %q, want %q", test.expiresAt, got, test.want)
 		}
 	}
 }

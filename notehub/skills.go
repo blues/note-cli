@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-cli/lib/cli"
 )
 
 // Switches used only in this mode
@@ -25,8 +26,8 @@ var (
 )
 
 // skillsSwitches returns the switches used only in this mode
-func skillsSwitches() []*cliSwitch {
-	return []*cliSwitch{
+func skillsSwitches() []*cli.Switch {
+	return []*cli.Switch{
 		{Name: "dry-run", Target: &flagSkillsDryRun, Group: "skills", Modes: []string{modeSkills},
 			Usage: "say what set, rename, delete, backup or restore would do, without doing it"},
 		{Name: "force", Target: &flagSkillsForce, Group: "skills", Modes: []string{modeSkills},
@@ -35,8 +36,8 @@ func skillsSwitches() []*cliSwitch {
 }
 
 // skillsCommands returns the commands accepted by this mode
-func skillsCommands() []cliCommand {
-	return []cliCommand{
+func skillsCommands() []cli.Command {
+	return []cli.Command{
 		{Name: "show", Args: "[name|all]", Summary: "write one skill, or the whole set as one linked document, to stdout",
 			Run: skillsShowCommand},
 		{Name: "list", Summary: "list the skills the project holds",
@@ -59,9 +60,14 @@ func skillsCommands() []cliCommand {
 // runSkills is the handler for 'notehub skills'
 func runSkills(config *lib.ConfigSettings) error {
 
-	// With no command, show the whole set as one document
+	// With a project and no command, show the whole set as one document; with nothing at
+	// all, the help
 	args := flag.Args()
 	if len(args) == 0 {
+		if flagApp == "" && flagProduct == "" {
+			cli.PrintHelp(cli.ModeNamed(modeSkills), false)
+			return nil
+		}
 		return skillsShowCommand(config, []string{skillsAll})
 	}
 
@@ -70,12 +76,12 @@ func runSkills(config *lib.ConfigSettings) error {
 		args = append([]string{"show"}, args...)
 	}
 
-	return cliDispatch(cliModeNamed(modeSkills), config, args)
+	return cli.Dispatch(cli.ModeNamed(modeSkills), config, args)
 
 }
 
 // skillsCommandNamed returns the named command, or nil
-func skillsCommandNamed(name string) *cliCommand {
+func skillsCommandNamed(name string) *cli.Command {
 	commands := skillsCommands()
 	for i := range commands {
 		if strings.EqualFold(name, commands[i].Name) {
