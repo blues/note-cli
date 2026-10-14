@@ -4,12 +4,9 @@ go 1.25.0
 
 replace github.com/blues/note-cli/lib => ./lib
 
-// Until note-go is brought up-to-date
-replace github.com/blues/note-go => ../hub/note-go
-
 require (
-	github.com/blues/note-cli/lib v0.0.0-20251120160051-d509bdf52531
-	github.com/blues/note-go v1.10.0
+	github.com/blues/note-cli/lib v0.0.0-00010101000000-000000000000
+	github.com/blues/note-go v1.11.1
 	github.com/blues/notehub-go v0.0.10
 	github.com/fatih/color v1.18.0
 	github.com/mattn/go-isatty v0.0.20
