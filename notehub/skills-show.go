@@ -95,8 +95,8 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 		return fmt.Errorf("'%s %s show' takes one skill name, or 'all'", cliName, modeSkills)
 	}
 
-	// Every skill, with contents, in one request
-	uploads, err := skillsStorageQuery(true)
+	// V1 reads either the named document or the whole set in one request.
+	uploads, err := skillsStorageSelection(name)
 	if err != nil {
 		return err
 	}
@@ -139,15 +139,15 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 // skillsResolve returns the skill a name refers to, ignoring case and an omitted .md
 func skillsResolve(current map[string]skillsUpload, name string) (upload skillsUpload, err error) {
 
-	wanted := strings.ToLower(strings.TrimSpace(name))
+	wanted := strings.TrimSpace(name)
 	if wanted == "" {
 		return upload, fmt.Errorf("name a skill, or 'all' for the whole set")
 	}
-	if !strings.HasSuffix(wanted, skillsExt) {
+	if !strings.HasSuffix(strings.ToLower(wanted), skillsExt) {
 		wanted += skillsExt
 	}
 	for source, candidate := range current {
-		if strings.ToLower(source) == wanted {
+		if strings.EqualFold(source, wanted) {
 			return candidate, nil
 		}
 	}
@@ -170,8 +170,11 @@ func skillsOrder(current map[string]skillsUpload, index []byte) (sources []strin
 	}
 	sort.Strings(rest)
 
-	if _, have := current[skillsIndex]; have {
-		sources = append(sources, skillsIndex)
+	for source := range current {
+		if strings.EqualFold(source, skillsIndex) {
+			sources = append(sources, source)
+			break
+		}
 	}
 
 	// Order by first mention in the index
@@ -219,7 +222,14 @@ type skillsDoc struct {
 // every heading, and a link on every cross-reference, with the text itself unchanged
 func skillsAssemble(project string, current map[string]skillsUpload, bodies map[string][]byte) string {
 
-	sources := skillsOrder(current, bodies[skillsIndex])
+	var index []byte
+	for source, body := range bodies {
+		if strings.EqualFold(source, skillsIndex) {
+			index = body
+			break
+		}
+	}
+	sources := skillsOrder(current, index)
 
 	// Prepare every skill first, since a link may point at a later one
 	docs := map[string]*skillsDoc{}

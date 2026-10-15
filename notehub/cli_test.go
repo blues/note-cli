@@ -614,13 +614,13 @@ func TestSkillsReadDir(t *testing.T) {
 }
 
 // Replacing or removing a skill covers every upload under its name, superseded ones too
-func TestSkillsStorageNames(t *testing.T) {
-	names := skillsStorageNames([]skillsUpload{
+func TestSkillsStorageVersions(t *testing.T) {
+	names := skillsStorageVersions([]skillsUpload{
 		{Name: "index$2.md", Source: "index.md"},
 		{Name: "index$1.md", Source: "index.md"},
 		{Name: "product$1.md", Source: "product.md"},
 	})
-	if !slices.Equal(names["index.md"], []string{"index$2.md", "index$1.md"}) || !slices.Equal(names["product.md"], []string{"product$1.md"}) {
+	if len(names["index.md"]) != 2 || names["index.md"][0].Name != "index$2.md" || names["index.md"][1].Name != "index$1.md" || len(names["product.md"]) != 1 || names["product.md"][0].Name != "product$1.md" {
 		t.Errorf("names are %v", names)
 	}
 }

@@ -213,6 +213,22 @@ func skillsWithKinds(contents []byte, kinds string) []byte {
 		}
 		front = append(append(append([]string{}, front[:start]...), field), front[end:]...)
 	}
+	// Empty effective kinds must also clear the fallback fields. Otherwise restore
+	// would read an empty kind, then resurrect the old kinds/tags from the document.
+	if kinds == "" {
+		for _, fallback := range []string{"kinds", "tags"} {
+			for {
+				start, end := skillsFrontMatterField(front, fallback)
+				if start < 0 {
+					break
+				}
+				for end > start+1 && (strings.TrimSpace(front[end-1]) == "" || strings.HasPrefix(strings.TrimSpace(front[end-1]), "#")) {
+					end--
+				}
+				front = append(front[:start], front[end:]...)
+			}
+		}
+	}
 
 	return []byte(bom + text[:open] + strings.Join(front, eol) + eol + text[close:])
 

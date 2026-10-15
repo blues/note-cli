@@ -236,6 +236,18 @@ A skill's kinds, such as `product` or `recipe`, are stored as its tags, taken fr
 and `set` the file again. A backup writes the kinds a skill is stored under into its front
 matter when they aren't already there, so a restore keeps them.
 
+With the V1 Skills API, updates and deletes use the revision that was read. If another
+writer changes a skill, the command stops with a conflict; reread and review the change
+before retrying. Rename and restore are sequences of conditional operations, so a
+failure can leave a partially completed operation. Restore verifies the resulting set
+before reporting success. An unchanged `set` still checks write access and its revision.
+
+Each V1 read takes one request: the entire metadata catalog, one named document, or
+the complete set with content. Writes accept at most 1 MiB of UTF-8 per document and
+2 MiB plus 64 KiB of encoded JSON. Full-set reads are capped at 8 MiB of content and
+17 MiB of encoded JSON. An oversized bulk read stops with an error; `list` and named
+`show`/`get` remain available. Backup stays a single full-set read.
+
 `get` won't overwrite a local file that differs unless given `--force`, and neither will
 `backup`. `set` stores only what differs, and never removes anything. `rename` won't
 replace another skill without `--force`, and `delete all` requires it. `restore` stores
@@ -250,6 +262,17 @@ With Go 1.25 or later installed:
 cd notecard && go build .
 cd notehub && go build .
 ```
+
+For testing the new Skills APIs, `notehub/skills-storage.go` contains:
+
+```go
+const useV0SkillApis = false
+```
+
+`false` sends every built-in `skills` command through V1, including backup, restore,
+rename and dry runs. It requires a hub serving the new Skills endpoints and never
+falls back to V0 on an error. Set it to `true` and rebuild to select the original V0
+upload APIs. This switch does not change generic `files --type skill` or raw requests.
 
 ## Additional resources
 

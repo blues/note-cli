@@ -42,6 +42,7 @@ func TestSkillsWithKinds(t *testing.T) {
 
 		// No kinds at all is an empty field
 		{"---\nkind: old\n---\n", "", "---\nkind:\n---\n"},
+		{"---\nkind: old\nkinds: [older]\ntags: oldest\n# Keep this comment\ndescription: x\n---\n", "", "---\nkind:\n# Keep this comment\ndescription: x\n---\n"},
 
 		// The file's line ending and byte order mark are kept
 		{"---\r\nkind: old\r\ndescription: x\r\n---\r\n# T\r\n", "a", "---\r\nkind: a\r\ndescription: x\r\n---\r\n# T\r\n"},

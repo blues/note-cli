@@ -11,6 +11,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -73,7 +74,7 @@ func skillsBackupCommand(config *lib.ConfigSettings, args []string) error {
 			return fmt.Errorf("%s: %s", source, readErr)
 		}
 		state := "saved"
-		if kinds, kindsErr := skillsKinds(contents); kindsErr != nil || (upload.Tags != "" && kinds != upload.Tags) {
+		if kinds, kindsErr := skillsKinds(contents); kindsErr != nil || kinds != upload.Tags {
 			contents = skillsWithKinds(contents, upload.Tags)
 			state = "tagged"
 			tagged++
@@ -131,7 +132,7 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 		return err
 	}
 	current, _ := skillsStorageCurrent(uploads)
-	stored := skillsStorageNames(uploads)
+	stored := skillsStorageVersions(uploads)
 
 	// Store what the zip holds, then remove what it doesn't
 	width := skillsWidth(append(skillsSortedNames(files), skillsOrder(current, nil)...))
@@ -141,7 +142,7 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 	}
 	removed := 0
 	for _, source := range skillsOrder(current, nil) {
-		if _, present := files[source]; present {
+		if skillsFilesContain(files, source) {
 			continue
 		}
 		if !flagSkillsDryRun {
@@ -154,11 +155,36 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 		skillsReport("removed", width, source, "")
 		removed++
 	}
+	if !useV0SkillApis && !flagSkillsDryRun {
+		if err = skillsVerifyRestore(files); err != nil {
+			return fmt.Errorf("restore writes finished, but final verification failed: %w", err)
+		}
+	}
 	skillsSummary("%d skill(s) %s in %s from %s, %d are unchanged, and %d %s.",
 		changed, skillsVerb("stored", "would be stored"), project, filename, unchanged,
 		removed, skillsVerb("removed", "would be removed"))
 	return nil
 
+}
+
+// Restore is a client composition, not a multi-skill transaction. Verify its final
+// snapshot before reporting success, including concurrent additions or edits.
+func skillsVerifyRestore(files map[string][]byte) error {
+	uploads, err := skillsStorageQuery(true)
+	if err != nil {
+		return err
+	}
+	if len(uploads) != len(files) {
+		return fmt.Errorf("the project holds %d skills, but the archive holds %d; reread and review the result", len(uploads), len(files))
+	}
+	for _, upload := range uploads {
+		wanted, exists := files[upload.Source]
+		kinds, err := skillsKinds(wanted)
+		if !exists || err != nil || !bytes.Equal(wanted, upload.Payload) || kinds != upload.Tags {
+			return fmt.Errorf("%s differs from the archive; reread and review the result", upload.Source)
+		}
+	}
+	return nil
 }
 
 // skillsCheckZipName refuses a backup's name unless it ends in .zip

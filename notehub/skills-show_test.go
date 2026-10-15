@@ -104,6 +104,12 @@ func TestSkillsResolve(t *testing.T) {
 			t.Errorf("'%s' resolved to '%s' (%v), expected product.md", name, upload.Source, err)
 		}
 	}
+	for _, pair := range [][2]string{{"ſkill.md", "skill"}, {"Σ.md", "ς"}, {"İ.md", "İ"}} {
+		set := map[string]skillsUpload{pair[0]: {Source: pair[0]}}
+		if got, err := skillsResolve(set, pair[1]); err != nil || got.Source != pair[0] {
+			t.Errorf("Unicode name %q resolved to %q (%v), expected %q", pair[1], got.Source, err, pair[0])
+		}
+	}
 	if _, err := skillsResolve(current, "nosuch"); err == nil {
 		t.Errorf("a name that is not a skill must be an error naming the ones that are")
 	} else if !strings.Contains(err.Error(), "product.md") {

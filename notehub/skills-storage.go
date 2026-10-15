@@ -2,22 +2,28 @@
 // Use of this source code is governed by licenses granted by the
 // copyright holder including that found in the LICENSE file.
 
-// Skills are stored as project uploads of type "skill", through the v0 /req API.  The
-// service gives each upload an opaque name and records the skill's path as its source.
-// Adding never replaces, so storing a skill adds a new upload and then removes the older
-// ones, in that order so that a failure leaves the old one in place.
+// Skills storage selects the public V1 Skills API or the original V0 upload API.
+// Commands retain the metadata they read so V1 mutations can use its revision.
+// V0 replacements still add a new upload before deleting superseded uploads.
 
 package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
 )
+
+// Set true and rebuild to use the original V0 Skills implementation.
+// False uses V1 exclusively; errors never fall back to V0.
+const useV0SkillApis = true
+
+var skillsClient = &http.Client{Timeout: 2 * time.Minute}
 
 const (
 	// skillsUploadType is the upload type that skills are stored as
@@ -27,16 +33,19 @@ const (
 	skillsReservedTag = "publish"
 )
 
-// skillsUpload is one stored skill, as the upload API describes it
+// skillsUpload is the shared command model. V0 uses an opaque Name and logical Source;
+// V1 uses the logical name for both and carries a revision and resolved project.
 type skillsUpload struct {
-	Name     string `json:"name,omitempty"`   // assigned by the service, and opaque
+	Name     string `json:"name,omitempty"`   // opaque for V0; the logical name for V1
 	Source   string `json:"source,omitempty"` // what we chose: the skill's path
 	Tags     string `json:"tags,omitempty"`
 	Length   int    `json:"length,omitempty"`
 	Created  int64  `json:"created,omitempty"`
 	Modified int64  `json:"modified,omitempty"`
 	Text     string `json:"text,omitempty"`    // the contents, when the query asked for them
-	Payload  []byte `json:"payload,omitempty"` // the contents of a range read
+	Payload  []byte `json:"payload,omitempty"` // non-nil when content is loaded, including empty content
+	Revision string `json:"-"`
+	Project  string `json:"-"`
 }
 
 // skillsUploadResponse is what the upload API replies with
@@ -61,8 +70,21 @@ func skillsRequest(request map[string]any) (rsp skillsUploadResponse, err error)
 		return
 	}
 
-	err = reqHubV0(flagVerbose, lib.ConfigAPIHub(), requestJSON, "", "", "", "", false, false, nil, &rsp)
+	query := url.Values{}
+	if flagApp != "" {
+		query.Set("app", flagApp)
+	} else {
+		query.Set("product", flagProduct)
+	}
+	httpRsp, err := apiSend(skillsClient, &apiRequest{Method: http.MethodPost,
+		URL: &url.URL{Path: "/req", RawQuery: query.Encode()}, Header: http.Header{}, Body: requestJSON})
 	if err != nil {
+		return
+	}
+	if err = apiFailure(httpRsp); err != nil {
+		return
+	}
+	if err = note.JSONUnmarshal(httpRsp.Body, &rsp); err != nil {
 		return
 	}
 	if rsp.Err != "" {
@@ -76,6 +98,9 @@ func skillsRequest(request map[string]any) (rsp skillsUploadResponse, err error)
 // skillsStorageQuery returns the project's stored skills, newest first within each
 // source, with their contents if asked
 func skillsStorageQuery(contents bool) (uploads []skillsUpload, err error) {
+	if !useV0SkillApis {
+		return skillsV1Query(contents)
+	}
 
 	request := map[string]any{
 		"req":  "hub.app.upload.query",
@@ -131,9 +156,15 @@ func skillsStorageCurrent(uploads []skillsUpload) (current map[string]skillsUplo
 	return
 }
 
-// skillsStorageRead returns a stored skill's contents, reading them as a range when the
-// query didn't include them
+// skillsStorageRead uses already-loaded content, otherwise a conditional V1 GET
+// or a V0 range read.
 func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
+	if !useV0SkillApis {
+		if upload.Payload != nil {
+			return upload.Payload, nil
+		}
+		return skillsV1Read(upload)
+	}
 
 	if upload.Text != "" {
 		return []byte(upload.Text), nil
@@ -160,9 +191,12 @@ func skillsStorageRead(upload skillsUpload) (contents []byte, err error) {
 
 }
 
-// skillsStorageStore stores a skill under its name, replacing the uploads named in
-// superseded.  It adds before removing, so a failure leaves the old upload in place.
-func skillsStorageStore(name string, contents []byte, kinds string, superseded []string) error {
+// skillsStorageStore conditionally replaces one V1 skill, or adds a V0 upload
+// before removing the superseded uploads.
+func skillsStorageStore(name string, contents []byte, kinds string, superseded []skillsUpload) error {
+	if !useV0SkillApis {
+		return skillsV1Store(name, contents, kinds, superseded)
+	}
 	add := map[string]any{
 		"req":     "hub.app.upload.add",
 		"type":    skillsUploadType,
@@ -189,22 +223,33 @@ func skillsStorageStore(name string, contents []byte, kinds string, superseded [
 	return nil
 }
 
-// skillsStorageNames returns the names of every upload stored under each skill's name,
-// superseded ones included
-func skillsStorageNames(uploads []skillsUpload) (names map[string][]string) {
-	names = map[string][]string{}
+// skillsStorageVersions retains every backing upload for V0 and the current revision
+// for V1, so a later write never refreshes away a conflict.
+func skillsStorageVersions(uploads []skillsUpload) (names map[string][]skillsUpload) {
+	names = map[string][]skillsUpload{}
 	for _, upload := range uploads {
-		names[upload.Source] = append(names[upload.Source], upload.Name)
+		names[upload.Source] = append(names[upload.Source], upload)
 	}
 	return
 }
 
-// skillsStorageRemove deletes one upload by the name the service assigned it
-func skillsStorageRemove(name string) error {
+// skillsStorageRemove deletes an opaque V0 upload or a logical V1 skill at its revision.
+func skillsStorageRemove(upload skillsUpload) error {
+	if !useV0SkillApis {
+		return skillsV1Remove(upload)
+	}
 	_, err := skillsRequest(map[string]any{
 		"req":  "hub.app.upload.delete",
 		"type": skillsUploadType,
-		"name": name,
+		"name": upload.Name,
 	})
 	return err
+}
+
+// skillsStorageSelection reads either one named skill or the complete set.
+func skillsStorageSelection(name string) ([]skillsUpload, error) {
+	if useV0SkillApis || strings.EqualFold(name, skillsAll) {
+		return skillsStorageQuery(true)
+	}
+	return skillsV1QueryName(name)
 }

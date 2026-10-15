@@ -28,6 +28,7 @@ type fakeRequest struct {
 	Path   string
 	Query  url.Values
 	Body   []byte
+	Header http.Header
 	Req    map[string]any // the JSON of a v0 request
 }
 
@@ -43,7 +44,7 @@ func newFakeHub(t *testing.T) *fakeHub {
 	hub := &fakeHub{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		seen := fakeRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Body: body}
+		seen := fakeRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Body: body, Header: r.Header.Clone()}
 		if r.URL.Path == "/req" {
 			seen.Req = map[string]any{}
 			note.JSONUnmarshal(body, &seen.Req)
