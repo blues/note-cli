@@ -417,9 +417,6 @@ func apiOpen(client *http.Client, request *apiRequest) (*http.Response, error) {
 	if request.Body != nil && httpReq.Header.Get("Content-Type") == "" {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
-	if err := lib.ConfigAuthenticationHeader(httpReq); err != nil {
-		return nil, err
-	}
 
 	if flagVerbose {
 		fmt.Fprintf(os.Stderr, "> %s %s\n", httpReq.Method, httpReq.URL)
@@ -433,7 +430,7 @@ func apiOpen(client *http.Client, request *apiRequest) (*http.Response, error) {
 		}
 	}
 
-	httpRsp, err := client.Do(httpReq)
+	httpRsp, err := authenticatedDo(client, httpReq)
 	if err != nil {
 		return nil, err
 	}

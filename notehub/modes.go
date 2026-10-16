@@ -53,7 +53,7 @@ func notehubModes() []*cli.Mode {
 				{What: "Sign into the hub in your browser", Command: cliName + " login"},
 				{What: "Sign in from an agent, under its own name", Command: agentLoginForms()[0]},
 				{What: "Sign in from an agent with a personal access token", Command: agentLoginForms()[1]},
-				{What: "See every login, and which hub is active", Command: cliName + " auth status"},
+				{What: "Check the active connection's login", Command: cliName + " auth status"},
 				{What: "List the projects you belong to, with their products", Command: cliName + " --projects --pretty"},
 				{What: "Send an API request, authorized as you", Command: cliName + " api /v1/projects"},
 				{What: "Send a request to a device's notefiles, in the Notecard's own JSON form", Command: cliName + ` --product <productUID> --device <deviceUID> '{"req":"note.get","file":"hub.db","note":"config"}'`},
@@ -93,7 +93,7 @@ func notehubModes() []*cli.Mode {
 				"of your shell history.  The login is listed in Notehub's API Access as\n" +
 				"'Notehub CLI - <name>', with the computer's name unless --name gives another.\n" +
 				"Quote names with spaces.\n\n" +
-				"A login that is still good is kept: 'notehub login' says so and exits with\n" +
+				"A login that Notehub still accepts is kept: 'notehub login' checks it and exits with\n" +
 				"success, without opening anything, so it is safe to run just to make sure you\n" +
 				"are signed in.\n\n" +
 				"With --json, nothing opens and nothing is typed: the URL for the user to open,\n" +
@@ -103,7 +103,7 @@ func notehubModes() []*cli.Mode {
 				"shorter window than its usual ten minutes.\n\n" +
 				"A login is to the active hub, or to the one given by --hub, which stays as it\n" +
 				"is otherwise: 'notehub auth switch' makes a hub the active one.  To see every\n" +
-				"login, use 'notehub auth status'.",
+				"login, use 'notehub auth status --all'.",
 			Run: runLogin,
 		},
 		{
@@ -127,17 +127,19 @@ func notehubModes() []*cli.Mode {
 			Args:     "<command>",
 			Commands: authCommands(),
 			Examples: []cli.Example{
-				{What: "See every login, which hub is active, and whether each hub accepts its login", Command: cliName + " auth status"},
+				{What: "Check the active connection's login", Command: cliName + " auth status"},
 				{What: "The same as JSON, nicely formatted", Command: cliName + " auth status --json --pretty"},
+				{What: "Check every saved login and show which hub is active", Command: cliName + " auth status --all"},
 				{What: "Make a hub you have signed into the active one", Command: cliName + " auth switch preprod.blues.tools"},
 				{What: "Print the token in use, for a program that needs it", Command: cliName + " auth token"},
 				{What: "Sign in from an agent, under its own name", Command: cliName + ` auth login --name "DotBot" --json`},
 			},
 			Detail: "'notehub auth' manages logins, of which there is one per hub.  'login' and\n" +
-				"'logout' are the same as 'notehub login' and 'notehub logout'.  'status' shows\n" +
-				"every hub you have signed into, which one is active, and whether each still\n" +
-				"accepts its login; with --json, as one object with the active hub and a 'hubs'\n" +
-				"array.  Its exit code is 0 when the active hub, or the one given by --hub,\n" +
+				"'logout' are the same as 'notehub login' and 'notehub logout'.  'status' checks\n" +
+				"only the active connection, or the one given by --hub.  With --json it writes\n" +
+				"that connection's status as one object, including 'signed_in'.  Add --all to\n" +
+				"check every saved login; its JSON has 'active' and a 'hubs' array.  --all and\n" +
+				"--hub cannot be combined.  Its exit code is 0 when the connection in use\n" +
 				"accepts its login, and 1 otherwise, except with --json, where it is 0.\n\n" +
 				"'switch' makes a hub you have signed into the active one, for every command\n" +
 				"that doesn't name one with --hub, and 'token' prints the token in use, for a\n" +

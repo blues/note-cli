@@ -36,6 +36,9 @@ var flagWithToken cli.OptionalValue
 // flagLoginExpiresIn is how long the hub is asked to keep a sign-in open, in seconds
 var flagLoginExpiresIn int
 
+// flagAuthAll includes every saved login in 'auth status'.
+var flagAuthAll bool
+
 // loginExpiresInDefault is the hub's usual; the hub grants the lesser of what is asked
 // and its own limit, and says which, and that is what the first message reports
 const loginExpiresInDefault = 600
@@ -51,6 +54,8 @@ func authSwitches() []*cli.Switch {
 			Usage: "how many `seconds` to ask the hub to keep the sign-in link good for, up to its own limit"},
 		{Name: "json", Target: &flagJson, Group: "output", Modes: inLoginAndAuth,
 			Usage: "write JSON instead of text: for a login, the URL, progress and result an agent needs; for status, the report"},
+		{Name: "all", Target: &flagAuthAll, Group: "auth", Modes: []string{modeAuth},
+			Usage: "with auth status, check every saved login instead of only the active connection"},
 
 		// --pretty works wherever JSON is written; the main help describes it once
 		{Name: "pretty", Target: &flagPretty, Group: "output", Modes: []string{modeAuth, modeApi, modeFirmware, modeFiles}, Hidden: true,
@@ -65,7 +70,7 @@ func authCommands() []cli.Command {
 			Run: authLoginCommand},
 		{Name: "logout", Summary: "sign out of the active hub, or of the one given by --hub",
 			Run: authLogoutCommand},
-		{Name: "status", Summary: "show every login, which hub is active, and whether each hub accepts its login",
+		{Name: "status", Summary: "check the active connection's login; --all checks every saved login",
 			Run: authStatusCommand},
 		{Name: "switch", Args: "[hub]", Summary: "make a hub you have signed into the active one, or list them",
 			Run: authSwitchCommand},
@@ -240,29 +245,36 @@ func authLogout(config *lib.ConfigSettings) error {
 	return nil
 }
 
-// authStatusReport is the answer to 'notehub auth status': every hub with a login, and
+// authStatusReport is the answer to 'notehub auth status --all': every hub with a login, and
 // which one is active
 type authStatusReport struct {
 	Active string       `json:"active"`
 	Hubs   []authStatus `json:"hubs"`
 }
 
-// authStatusCommand shows every login, or with --hub just that one, each checked against
-// its hub.  The exit code says whether the hub in use accepts its login, except with
-// --json, where the report says so and the exit code is 0.
+// authStatusCommand checks the connection in use, or with --all every saved login.
+// The exit code says whether the hub in use accepts its login, except with --json,
+// where the report says so and the exit code is 0.
 func authStatusCommand(config *lib.ConfigSettings, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("'%s auth status' takes no arguments - to ask about one hub, name it with --hub", cliName)
+		return fmt.Errorf("'%s auth status' takes no arguments - use --all to check every saved login", cliName)
+	}
+	if flagAuthAll && cli.SwitchGiven("hub") {
+		return errors.New("auth status: --all and --hub cannot be combined")
 	}
 	active := lib.ConfigSavedHub()
-	report := authStatusAll(config, active, authStatusHubs(config, active, cli.SwitchGiven("hub")), time.Now())
+	report := authStatusAll(config, active, authStatusHubs(config, active, !flagAuthAll), time.Now())
 	if flagJson {
+		var result interface{} = report
+		if !flagAuthAll {
+			result = report.Hubs[0]
+		}
 		var reportJSON []byte
 		var err error
 		if flagPretty {
-			reportJSON, err = note.JSONMarshalIndent(report, "", "    ")
+			reportJSON, err = note.JSONMarshalIndent(result, "", "    ")
 		} else {
-			reportJSON, err = note.JSONMarshal(report)
+			reportJSON, err = note.JSONMarshal(result)
 		}
 		if err != nil {
 			return err
@@ -284,9 +296,8 @@ func authStatusCommand(config *lib.ConfigSettings, args []string) error {
 	return nil
 }
 
-// authStatusHubs returns the hubs to report on: the hub in use alone when --hub named it,
-// and otherwise the active hub first, even without a login, since requests go to it, and
-// then every other hub with a login
+// authStatusHubs returns either the connection in use alone, or the active hub first
+// (even without a login) followed by every other hub with a login.
 func authStatusHubs(config *lib.ConfigSettings, active string, onlyInUse bool) []string {
 	if onlyInUse {
 		return []string{config.Hub}
@@ -306,7 +317,7 @@ func authStatusAll(config *lib.ConfigSettings, active string, hubs []string, now
 	report.Active = active
 	report.Hubs = []authStatus{}
 	for _, hub := range hubs {
-		status := authWhoAmI(hub, authCredentialsFor(config, hub), now)
+		status := authWhoAmI(config, hub, now)
 		status.Active = hub == active
 		report.Hubs = append(report.Hubs, status)
 	}
@@ -316,10 +327,7 @@ func authStatusAll(config *lib.ConfigSettings, active string, hubs []string, now
 // authCredentialsFor returns the credentials that would be used for a hub: for the hub in
 // use, those in the environment when NOTEHUB_TOKEN is set, and otherwise the saved login
 func authCredentialsFor(config *lib.ConfigSettings, hub string) *lib.ConfigCreds {
-	if hub == config.Hub {
-		return config.DefaultCredentials()
-	}
-	return config.SavedCredentials(hub)
+	return config.CredentialsForHub(hub)
 }
 
 // authStatusPrint prints one hub's status: the hub, then its state beneath it

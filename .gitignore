@@ -2,3 +2,7 @@ notecard-schema/
 dist/
 
 .DS_Store
+
+# Local workspaces can link SDK changes from a sibling hub checkout.
+go.work
+go.work.sum

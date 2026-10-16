@@ -40,6 +40,7 @@ var (
 	flagSn          string
 	flagProvision   bool
 	flagProjects    bool
+	flagAgentChat   bool
 )
 
 // notehubGroups returns the help groups in display order; empty groups aren't shown
@@ -79,8 +80,8 @@ var (
 func defaultSwitches() []*cli.Switch {
 	return []*cli.Switch{
 
-		// General Options, the only ones shown when there is nothing to do.  --help is the
-		// framework's, and lib registers --hub for every note CLI.
+		// General Options, the only ones shown when there is nothing to do.  The framework
+		// provides --help and --help-agent; lib registers --hub for every note CLI.
 		{Name: "hub", External: true, ValueType: "hub", Group: cli.GroupGeneral, Modes: inAnyMode,
 			Usage: "set currently active Notehub domain"},
 
@@ -137,6 +138,8 @@ func defaultSwitches() []*cli.Switch {
 			Usage: "enter trace mode to interactively send requests to notehub"},
 
 		// Other Options
+		{Name: "agent-chat", Target: &flagAgentChat, Group: "other", Modes: inDefault,
+			Usage: "fetch Notehub interaction guidance for agents from https://chat.notehub.io"},
 		{Name: "version", Target: &flagVersion, Group: "other", Modes: inDefault,
 			Usage: "print the version of this CLI"},
 	}

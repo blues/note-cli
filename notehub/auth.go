@@ -21,9 +21,8 @@ import (
 	"github.com/blues/note-go/notehub"
 )
 
-// Set true to test the Notehub polling callback; false uses localhost login.  Note
-// that polling is superior in that agents can use it without opening a local HTTP server.
-const authUsePolling = true
+var authPollingLogin = notehub.InitiatePollingLoginWithOptions
+var authBrowserLogin = notehub.InitiateBrowserBasedLoginWithOptions
 
 // Sign into the notehub account with a personal access token
 func authSignInToken(personalAccessToken string) error {
@@ -98,14 +97,22 @@ const authSignInAction = "notehub login"
 // are saved credentials it asks the hub, with one small request, because the hub is the
 // judge of them: a recorded expiration that has passed is reported, but not trusted, since
 // the hub may well still accept the token.
-func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status authStatus) {
+func authWhoAmI(config *lib.ConfigSettings, hub string, now time.Time) (status authStatus) {
 	status.Hub = hub
+	credentials := config.CredentialsForHub(hub)
 
 	// With no credentials, we are simply not signed in
 	if credentials == nil {
 		status.Reason = "not logged in"
 		status.Action = authSignInAction
 		return
+	}
+
+	// Renew through the common request path, then describe the credentials that
+	// were actually checked rather than the possibly expired local snapshot.
+	email, err := config.IntrospectCredentials(context.Background(), hub)
+	if current := config.CredentialsForHub(hub); current != nil {
+		credentials = current
 	}
 
 	// How we are signed in.  Only an OAuth token's expiration is known to us.
@@ -121,7 +128,6 @@ func authWhoAmI(hub string, credentials *lib.ConfigCreds, now time.Time) (status
 	status.expired = credentials.ExpiredAt(now)
 
 	// Let the hub be the judge
-	email, err := lib.IntrospectToken(hub, credentials.Token)
 	if err != nil {
 		// Failing to reach the hub says nothing about the token, so don't suggest signing in
 		var urlErr *url.Error
@@ -193,6 +199,23 @@ func authCurrentLogin(config *lib.ConfigSettings, now time.Time) *lib.ConfigCred
 	return credentials
 }
 
+// authReusableLogin verifies a locally current login before skipping browser
+// approval. A deleted Notehub sign-in can invalidate an unexpired access token,
+// including one just refreshed. Outages must not be mistaken for revocation.
+func authReusableLogin(config *lib.ConfigSettings, now time.Time) (*lib.ConfigCreds, error) {
+	credentials := authCurrentLogin(config, now)
+	if credentials == nil {
+		return nil, nil
+	}
+	if _, err := config.IntrospectCredentials(context.Background(), config.Hub); err != nil {
+		if (errors.Is(err, lib.ErrCredentialsRejected) || errors.Is(err, notehub.ErrRefreshTokenRejected)) && credentials.Source == "" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("checking current login: %w", err)
+	}
+	return config.DefaultCredentials(), nil
+}
+
 // authAlreadyDescription says that the credentials are already in place, with the verb
 // the reader expects: "logged in" on the command line, "signed in" for an agent
 func authAlreadyDescription(credentials *lib.ConfigCreds, verb string) string {
@@ -225,11 +248,20 @@ func authSignInWithAgent(agentName string, reporter *agentSignInReporter) (err e
 		return err
 	}
 
-	// Someone who is signed in already has nothing to do.  Agents sign in to make sure
-	// that they are, so this is decided from the saved login, without asking the hub: a
-	// login the hub has revoked is found out by the first request, as it would be anyway.
+	// Renew an expiring login and verify it with Notehub before reusing it.
+	_, refreshErr := config.RefreshCredentials(context.Background(), "")
+	if refreshErr != nil && !errors.Is(refreshErr, notehub.ErrRefreshTokenRejected) {
+		return refreshErr
+	}
 	now := time.Now()
-	if credentials := authCurrentLogin(config, now); credentials != nil {
+	var reusable *lib.ConfigCreds
+	if refreshErr == nil {
+		reusable, err = authReusableLogin(config, now)
+		if err != nil {
+			return err
+		}
+	}
+	if credentials := reusable; credentials != nil {
 		if reporter != nil {
 			reporter.alreadySignedIn(authAlreadyDescription(credentials, "signed in"))
 		} else {
@@ -247,19 +279,11 @@ func authSignInWithAgent(agentName string, reporter *agentSignInReporter) (err e
 	hostname, _ := os.Hostname()
 	signInName := authSignInName(agentName, hostname)
 
-	// initiate the browser-based OAuth2 login flow
-	var accessToken *notehub.AccessToken
-	if authUsePolling {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer stop()
-		options := notehub.PollingLoginOptions{SignInName: signInName, ExpiresInSeconds: flagLoginExpiresIn}
-		if reporter != nil {
-			options.OnURL, options.OnPending = reporter.url, reporter.pending
-		}
-		accessToken, err = notehub.InitiatePollingLoginWithOptions(ctx, config.Hub, options)
-	} else {
-		accessToken, err = notehub.InitiateBrowserBasedLoginWithOptions(config.Hub, notehub.BrowserLoginOptions{SignInName: signInName})
-	}
+	// Prefer the outbound-only polling flow, while preserving interactive login
+	// with the localhost callback registered by earlier deployments.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	accessToken, err := authOAuthLogin(ctx, config.Hub, signInName, reporter)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -274,7 +298,7 @@ func authSignInWithAgent(agentName string, reporter *agentSignInReporter) (err e
 		}
 	}
 
-	config.SetDefaultCredentials(accessToken.AccessToken, accessToken.Email, &accessToken.ExpiresAt)
+	config.SetOAuthCredentials(accessToken)
 
 	// save the config with the new credentials
 	if err := config.Write(); err != nil {
@@ -290,6 +314,26 @@ func authSignInWithAgent(agentName string, reporter *agentSignInReporter) (err e
 
 	// Done
 	return nil
+}
+
+func authOAuthLogin(ctx context.Context, hub, signInName string, reporter *agentSignInReporter) (*notehub.AccessToken, error) {
+	options := notehub.PollingLoginOptions{SignInName: signInName, ExpiresInSeconds: flagLoginExpiresIn}
+	if reporter != nil {
+		options.OnURL, options.OnPending = reporter.url, reporter.pending
+	}
+	token, err := authPollingLogin(ctx, hub, options)
+	if !errors.Is(err, notehub.ErrPollingLoginUnavailable) {
+		return token, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if reporter != nil {
+		// A remote user's browser cannot reach an agent's localhost callback.
+		return nil, fmt.Errorf("%w; ask the user to run 'notehub login' on the machine running this CLI, with a browser on that machine, then retry; alternatively supply a Personal Access Token through NOTEHUB_TOKEN", err)
+	}
+	fmt.Fprintln(os.Stderr, "Polling sign-in is unavailable; using the browser callback on this computer.")
+	return authBrowserLogin(hub, notehub.BrowserLoginOptions{SignInName: signInName})
 }
 
 // Agent sign-in is a stream of one JSON object per line: the URL for the user, with how

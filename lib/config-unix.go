@@ -24,6 +24,6 @@ func ConfigDir() string {
 }
 
 // Get the pathname of config settings
-func configSettingsPath() string {
+func defaultConfigSettingsPath() string {
 	return ConfigDir() + "/config.json"
 }

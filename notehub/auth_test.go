@@ -24,6 +24,21 @@ import (
 // request would fail.
 const unreachableHub = "whoami-test.invalid"
 
+// Build an isolated saved login for status tests; no real credentials are read.
+func whoAmIWithCreds(t *testing.T, hub string, credentials *lib.ConfigCreds, now time.Time) authStatus {
+	t.Helper()
+	config := &lib.ConfigSettings{Hub: hub, HubCreds: map[string]lib.ConfigCreds{}}
+	token := ""
+	if credentials != nil {
+		config.HubCreds[hub] = *credentials
+		if credentials.Source != "" {
+			token = credentials.Token
+		}
+	}
+	t.Setenv(lib.ConfigTokenEnvVar, token)
+	return authWhoAmI(config, hub, now)
+}
+
 func TestSignInName(t *testing.T) {
 	for _, test := range []struct {
 		agentName string
@@ -156,7 +171,7 @@ func TestReadToken(t *testing.T) {
 }
 
 func TestWhoAmINotSignedIn(t *testing.T) {
-	status := authWhoAmI(unreachableHub, nil, time.Now())
+	status := whoAmIWithCreds(t, unreachableHub, nil, time.Now())
 	if status.SignedIn {
 		t.Fatalf("reported signed in with no credentials")
 	}
@@ -178,7 +193,7 @@ func TestWhoAmIExpired(t *testing.T) {
 	now := time.Now()
 	for _, expiresAt := range []time.Time{now.Add(-time.Hour), now} {
 		creds := &lib.ConfigCreds{User: "someone@example.com", Token: "ory_at_expired", ExpiresAt: &expiresAt}
-		status := authWhoAmI(unreachableHub, creds, now)
+		status := whoAmIWithCreds(t, unreachableHub, creds, now)
 		if status.SignedIn || status.Action != "" {
 			t.Errorf("token that expired at %s gave %+v, expected neither signed in nor an action", expiresAt, status)
 		}
@@ -190,7 +205,7 @@ func TestWhoAmIExpired(t *testing.T) {
 		}
 	}
 	later := now.Add(time.Hour)
-	status := authWhoAmI(unreachableHub, &lib.ConfigCreds{User: "someone@example.com", Token: "ory_at_fine", ExpiresAt: &later}, now)
+	status := whoAmIWithCreds(t, unreachableHub, &lib.ConfigCreds{User: "someone@example.com", Token: "ory_at_fine", ExpiresAt: &later}, now)
 	if status.expired || strings.Contains(status.Reason, "expiration") {
 		t.Errorf("token expiring at %s gave %+v, expected no remark about its expiration", later, status)
 	}
@@ -216,7 +231,7 @@ func TestWhoAmIExpiredDescription(t *testing.T) {
 // A hub we can't reach is not a reason to sign in again, so no action is suggested
 func TestWhoAmIUnreachable(t *testing.T) {
 	creds := &lib.ConfigCreds{User: "someone@example.com", Token: "api_key_whatever"}
-	status := authWhoAmI(unreachableHub, creds, time.Now())
+	status := whoAmIWithCreds(t, unreachableHub, creds, time.Now())
 	if status.SignedIn {
 		t.Fatalf("reported signed in to a hub that does not exist")
 	}
@@ -236,7 +251,7 @@ func TestWhoAmIUnreachable(t *testing.T) {
 
 // The JSON form is what agents parse, so its shape is a contract
 func TestWhoAmIJSON(t *testing.T) {
-	statusJSON, err := note.JSONMarshal(authWhoAmI(unreachableHub, nil, time.Now()))
+	statusJSON, err := note.JSONMarshal(whoAmIWithCreds(t, unreachableHub, nil, time.Now()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +319,7 @@ func TestAgentSignInJSON(t *testing.T) {
 // caller's to fix: signing in wouldn't displace it, so no sign-in action is suggested
 func TestWhoAmIEnvToken(t *testing.T) {
 	creds := &lib.ConfigCreds{Token: "api_key_env", Hub: unreachableHub, Source: lib.ConfigTokenEnvVar}
-	status := authWhoAmI(unreachableHub, creds, time.Now())
+	status := whoAmIWithCreds(t, unreachableHub, creds, time.Now())
 	if status.SignedIn || status.Source != lib.ConfigTokenEnvVar || status.Method != authMethodPAT || status.Action != "" {
 		t.Errorf("got %+v, expected the source recorded, as a personal access token, with no action", status)
 	}
@@ -381,7 +396,7 @@ func TestEnvTokenRefusesSignIn(t *testing.T) {
 	}
 }
 
-// 'auth status' reports the active hub first, even without a login, then every other hub
+// 'auth status --all' reports the active hub first, even without a login, then every other hub
 // with one, says which is active, and with --hub asks about that hub alone
 func TestAuthStatusReport(t *testing.T) {
 	t.Setenv(lib.ConfigTokenEnvVar, "")

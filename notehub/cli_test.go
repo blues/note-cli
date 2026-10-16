@@ -158,6 +158,8 @@ func TestValidateSwitches(t *testing.T) {
 		{modeLogout, []string{"--project", "app:1"}, false},
 		{modeLogout, []string{"--verbose"}, false},
 		{modeAuth, []string{"--name", "My Agent"}, true},
+		{modeAuth, []string{"--all"}, true},
+		{modeLogin, []string{"--all"}, false},
 		{modeDefault, []string{"--with-token", "pat"}, false},
 		{modeDefault, []string{"--name", "My Agent"}, false},
 
@@ -381,8 +383,8 @@ func TestGeneralOptions(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(general, []string{"help", "hub"}) {
-		t.Errorf("the general options are %v, expected [help hub]", general)
+	if !slices.Equal(general, []string{"help", "help-agent", "hub"}) {
+		t.Errorf("the general options are %v, expected [help help-agent hub]", general)
 	}
 }
 
@@ -672,7 +674,7 @@ func TestHelpShowsCurrentSpellings(t *testing.T) {
 		}
 	}
 	help = captureStdout(t, func() { cli.PrintHelp(cli.ModeNamed(modeAuth), true) })
-	for _, shown := range []string{"login", "logout", "status", "switch [hub]", "token", "--json", lib.ConfigTokenEnvVar, agentLoginForms()[0]} {
+	for _, shown := range []string{"login", "logout", "status", "switch [hub]", "token", "--json", "--all", lib.ConfigTokenEnvVar, agentLoginForms()[0]} {
 		if !strings.Contains(help, shown) {
 			t.Errorf("auth help doesn't mention '%s'", shown)
 		}
@@ -688,6 +690,34 @@ func TestHelpShowsCurrentSpellings(t *testing.T) {
 	}
 	if !strings.Contains(help, "Examples:\n  # ") || strings.Contains(help, "--trace") {
 		t.Errorf("main help must show examples and not the trace switch")
+	}
+}
+
+// Every help form points agents at their help immediately after usage, and only full
+// help includes examples.
+func TestHelpForAgentsAndExamples(t *testing.T) {
+	const notice = "\n\nIF YOU ARE AN AGENT, THIS WILL TELL YOU ALL YOU NEED TO KNOW:\n  notehub --help-agent\n\n"
+	for _, mode := range cli.Modes() {
+		for _, full := range []bool{false, true} {
+			help := captureStdout(t, func() { cli.PrintHelp(mode, full) })
+			before, after, found := strings.Cut(help, notice)
+			if !found || !strings.Contains(before, "USAGE:") || strings.Contains(before, "\n\n") {
+				t.Errorf("%s full=%v: agent notice must immediately follow usage", mode.Name, full)
+			}
+			if mode.Preamble != "" && !strings.HasPrefix(after, mode.Preamble+"\n\n") {
+				t.Errorf("%s full=%v: mode preamble must follow the agent notice", mode.Name, full)
+			}
+			if strings.Contains(help, "Examples:\n") != (full && len(mode.Examples) != 0) {
+				t.Errorf("%s full=%v: examples must appear only in full help", mode.Name, full)
+			}
+			if full {
+				for _, example := range mode.Examples {
+					if !strings.Contains(help, "  # "+example.What+"\n  "+example.Command+"\n") {
+						t.Errorf("%s: full help is missing example %q", mode.Name, example.What)
+					}
+				}
+			}
+		}
 	}
 }
 

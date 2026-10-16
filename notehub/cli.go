@@ -8,6 +8,8 @@
 package main
 
 import (
+	_ "embed"
+
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-cli/lib/cli"
 )
@@ -15,17 +17,24 @@ import (
 // The name of this CLI as typed on the command line
 const cliName = "notehub"
 
+// agentHelp is included in the binary, so --help-agent needs no external file.
+//
+//go:embed help-agent.md
+var agentHelp string
+
 // notehubTool describes this CLI to the framework.  Main defines it before anything else,
 // and so do the tests.
 func notehubTool() *cli.Tool {
 	return &cli.Tool{
-		Name:          cliName,
-		Title:         "the command line for Notehub",
-		Modes:         notehubModes(),
-		Switches:      notehubSwitches(),
-		Groups:        notehubGroups(),
-		NotehubConfig: true,
-		AfterParse:    normalizeScope,
+		Name:                  cliName,
+		Title:                 "the command line for Notehub",
+		AgentHelp:             agentHelp,
+		OmitShortHelpExamples: true,
+		Modes:                 notehubModes(),
+		Switches:              notehubSwitches(),
+		Groups:                notehubGroups(),
+		NotehubConfig:         true,
+		AfterParse:            normalizeScope,
 	}
 }
 

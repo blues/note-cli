@@ -74,9 +74,12 @@ variables, and provisioning.
 | `firmware` | Manage a project's host firmware, and apply it to devices |
 | `skills` | Read and manage the skills a project holds |
 
-`notehub` by itself lists the modes and the saved settings. `notehub --help` adds every
-option of the default mode, and `notehub <mode> --help` describes a mode, with examples.
-A mode given nothing to do shows its help too.
+`notehub` by itself lists the modes and the saved settings, without examples.
+`notehub --help` adds every option of the default mode and its examples, and
+`notehub <mode> --help` describes a mode, with examples. A mode given nothing to do
+shows abbreviated help too. `notehub --help-agent` prints the agent guide embedded
+from [`notehub/help-agent.md`](notehub/help-agent.md).
+`notehub --agent-chat` fetches additional agent guidance from `https://chat.notehub.io`.
 
 Value options take `--project app:123` or `--project=app:123`, boolean options take
 `--pretty` or `--pretty=false`, and a standalone `--` ends option parsing. In the default
@@ -97,18 +100,35 @@ notehub login --name "Ray's laptop"            # under a name of your choosing
 echo "$SECRET" | notehub login --with-token    # with a personal access token, kept out of your shell history
 notehub login --hub preprod.blues.tools        # into another hub, which stays inactive
 notehub logout                                 # out of the active hub
-notehub auth status                            # every login, and which hub is active
+notehub auth status                            # check the active connection's login
+notehub auth status --all                      # check every saved login, and show which hub is active
 notehub auth switch preprod.blues.tools        # make a hub you have signed into the active one
 notehub auth token                             # print the token in use, for a program
 ```
 
 `notehub auth login` and `notehub auth logout` are the same commands as `notehub login`
 and `notehub logout`. A login leaves the active hub as it is; `auth switch` changes it.
-A login that is still good is kept: `notehub login` says so and exits with success,
-without opening anything, so it is safe to run just to make sure you are signed in.
-`auth status` checks every login against its hub, and exits 0 when the active hub, or the
-one given with `--hub`, accepts its login, and 1 otherwise. With `--json` it writes one
-object instead, and exits 0.
+A login that Notehub still accepts is kept: `notehub login` checks it and exits with
+success without opening anything. A revoked session requires new browser approval.
+Interactive login falls back to the localhost callback when polling is unavailable,
+and retries with the original scopes if the service refuses `offline_access`.
+`auth status` checks only the active connection, or the one given with `--hub`, against
+the service. It exits 0 when that connection accepts its login, and 1 otherwise.
+With `--json` it writes that connection's status as one object with `hub`, `active`,
+`signed_in`, and any available identity or error details, and exits 0; inspect
+`signed_in` to determine whether authentication succeeded. Add `--all` to check every
+saved login; `--all --json` returns an object with the active hub and a `hubs` array.
+`--all` and `--hub` cannot be combined.
+
+Browser logins retain an OAuth refresh token when the service issues one. All
+authenticated Notehub operations use shared renewal before sending a request,
+including status checks, files, firmware, skills, and legacy commands. Access tokens
+within a minute of expiration are renewed; a replayable request retries once after
+a 401 when renewal succeeds. Rotated tokens are saved atomically under a process
+lock. PATs, including `NOTEHUB_TOKEN`, are not refreshed. Deleting the OAuth entry
+in Notehub prevents further API access even with refreshed tokens; `notehub login`
+then requires new approval. Sessions without refresh tokens remain usable until
+their access tokens expire.
 
 An agent signs in with `--json`, which opens nothing and types nothing:
 
@@ -122,6 +142,8 @@ The output is one JSON object per line: the URL to hand to the user, with
 with the seconds remaining; and a final line with `success` and `status`. With a login
 already in place, the final line is all there is. `--expires-in` asks the hub for a
 shorter window than its usual ten minutes.
+If polling is unavailable, the JSON flow returns instructions for the user to sign
+in interactively on the CLI's machine, or to supply `NOTEHUB_TOKEN`.
 
 ### Requests, notefiles, environment variables and provisioning
 
@@ -262,6 +284,24 @@ With Go 1.25 or later installed:
 cd notecard && go build .
 cd notehub && go build .
 ```
+
+The OAuth refresh changes currently use the matching SDK in the sibling `hub`
+checkout. From the root of this repository, a local Go workspace connects them:
+
+```bash
+go work init . ./lib ../hub/note-go
+```
+
+Workspace files are ignored by Git. Before releasing standalone CLI builds, publish
+the updated `note-go` SDK and update its required version in both `go.mod` and
+`lib/go.mod`. Existing Notehub deployments support interactive login through the
+compatibility fallback. Refresh requires the `notehub_cli` OAuth registration to
+allow `offline_access` and `refresh_token`; this is a registration change, not a
+new token endpoint. `hydraLauncher` maintains those settings. Polling login also
+needs its callback registered, and its service handler must request `offline_access`
+to obtain refresh tokens. An older polling handler can still issue ordinary access
+tokens. The shared `note-go` token source and request helper are documented in
+`note-go/notehub/README.md` in the SDK checkout.
 
 For testing the new Skills APIs, `notehub/skills-storage.go` contains:
 

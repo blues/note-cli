@@ -5,12 +5,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-cli/lib/cli"
@@ -27,11 +30,12 @@ var version = "development"
 // withCreds validates credentials and then calls the provided function.  The remedy for
 // bad ones depends on where they came from: a token from the environment is the caller's
 // to replace, since signing in wouldn't displace it.
-func withCreds(credentials *lib.ConfigCreds, fn func() error) error {
+func withCreds(config *lib.ConfigSettings, fn func() error) error {
+	credentials := config.DefaultCredentials()
 	if credentials == nil {
 		return fmt.Errorf("not logged in: set %s, or run '%s login'", lib.ConfigTokenEnvVar, cliName)
 	}
-	if err := credentials.Validate(); err != nil {
+	if _, err := config.IntrospectCredentials(context.Background(), config.Hub); err != nil {
 		if credentials.Source != "" {
 			return fmt.Errorf("%s rejected the token in %s: %s", credentials.Hub, credentials.Source, err)
 		}
@@ -92,6 +96,11 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		os.Exit(exitOk)
 	}
 
+	// Agent guidance is public and needs no Notehub credentials.
+	if flagAgentChat {
+		return agentChat(os.Stdout, &http.Client{Timeout: 30 * time.Second})
+	}
+
 	// Process --signin and --signin-token, the spellings of 'notehub login' that predate
 	// it.  As they always have, they and --signout make the hub given by --hub the active
 	// one, which 'notehub login' and 'notehub logout' don't.
@@ -108,9 +117,6 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 			return fmt.Errorf("login: %w", err)
 		}
 	}
-
-	// Get the current API credentials
-	credentials := config.DefaultCredentials()
 
 	// Process --signout, the spelling of 'notehub logout' that predates it
 	if flagSignOut {
@@ -166,7 +172,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 
 	if err == nil && flagProjects {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			projects, err := appListProjects(flagVerbose)
 			if err != nil {
 				return err
@@ -187,7 +193,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 
 	if flagReq != "" {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			var rsp []byte
 			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), "", "", "", "", false, flagJson, nil)
 			if err != nil {
@@ -212,7 +218,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Explore the contents of the device
 	if err == nil && flagExplore && flagScope == "" {
 		didSomething = true
-		err = withCreds(credentials, func() error {
+		err = withCreds(config, func() error {
 			return explore(flagReserved, flagVerbose, flagPretty)
 		})
 	}
@@ -220,7 +226,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Enter trace mode
 	if err == nil && flagTrace {
 		didSomething = true
-		err = withCreds(credentials, func() error {
+		err = withCreds(config, func() error {
 			return trace()
 		})
 	}
@@ -230,7 +236,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	var appMetadata AppMetadata
 	if err == nil && flagScope != "" {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			appMetadata, scopeDevices, scopeFleets, err = appGetScope(flagScope, flagVerbose)
 			if err == nil {
 				if len(scopeDevices) != 0 && len(scopeFleets) != 0 {
@@ -248,7 +254,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Provision devices before doing get or set
 	if err == nil && flagProvision {
 		didSomething = true
-		err = withCreds(credentials, func() error {
+		err = withCreds(config, func() error {
 			if flagScope == "" {
 				return fmt.Errorf("use --scope to specify device(s) to be provisioned")
 			}
@@ -265,7 +271,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Perform VarsGet actions based on scope
 	if err == nil && flagScope != "" && flagVarsGet {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			var vars map[string]Vars
 			var varsJSON []byte
 			if len(scopeDevices) != 0 {
@@ -292,7 +298,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Perform VarsSet actions based on scope
 	if err == nil && flagScope != "" && flagVarsSet != "" {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			template := Vars{}
 			if strings.HasPrefix(flagVarsSet, "@") {
 				var templateJSON []byte
@@ -332,7 +338,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// Explore the contents of the device
 	if err == nil && len(scopeDevices) != 0 && flagExplore {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			for _, deviceUID := range scopeDevices {
 				flagDevice = deviceUID
 				err = explore(flagReserved, flagVerbose, flagPretty)
@@ -347,7 +353,7 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 	// If we didn't do anything and we're just asking about an app, do it
 	if err == nil && !didSomething && (flagApp != "" || flagProduct != "") {
 		didSomething = true
-		err = withCreds(credentials, func() (err error) {
+		err = withCreds(config, func() (err error) {
 			appMetadata, err = appGetMetadata(flagVerbose, flagVarsGet)
 			if err != nil {
 				return err

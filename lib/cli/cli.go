@@ -46,9 +46,13 @@ type Tool struct {
 	Title string
 	// DocsURL is where the tool's documentation lives, or "" for the usual place
 	DocsURL string
+	// AgentHelp, if present, is printed by --help-agent and advertised in every help
+	AgentHelp string
+	// OmitShortHelpExamples keeps examples in full help only
+	OmitShortHelpExamples bool
 	// Modes are the tool's modes, in the order help lists them; one is named ModeDefault
 	Modes []*Mode
-	// Switches are the switches of every mode; the framework adds --help
+	// Switches are the switches of every mode; the framework adds its help switches
 	Switches []*Switch
 	// Groups are the help groups, in display order
 	Groups []Group
@@ -74,7 +78,7 @@ type Mode struct {
 	Commands []Command
 	// Examples, if present, are displayed after this mode's switches
 	Examples []Example
-	// Preamble, if present, is displayed under the USAGE line, before anything else
+	// Preamble, if present, follows USAGE and the tool's agent-help notice
 	Preamble string
 	// Detail, if present, is displayed at the end of this mode's help
 	Detail string
@@ -175,8 +179,8 @@ var (
 	modes    []*Mode
 )
 
-// helpGiven is set by --help
-var helpGiven bool
+// The switches that ask for help
+var helpGiven, agentHelpGiven bool
 
 // Define makes tool the one that is running.  Main calls it before anything else, and so
 // does a test.  A mistake in the tables is a programming error, and is reported as one.
@@ -186,8 +190,14 @@ func Define(t *Tool) {
 		tool.DocsURL = "https://dev.blues.io/tools-and-sdks/" + tool.Name + "-cli"
 	}
 	helpGiven = false
-	switches = append([]*Switch{{Name: Help, Target: &helpGiven, Group: GroupGeneral, Modes: []string{AnyMode},
-		Usage: "display every option available in this mode"}}, tool.Switches...)
+	agentHelpGiven = false
+	switches = []*Switch{{Name: Help, Target: &helpGiven, Group: GroupGeneral, Modes: []string{AnyMode},
+		Usage: "display every option available in this mode"}}
+	if tool.AgentHelp != "" {
+		switches = append(switches, &Switch{Name: "help-agent", Target: &agentHelpGiven, Group: GroupGeneral, Modes: []string{AnyMode},
+			Usage: "display help for agents"})
+	}
+	switches = append(switches, tool.Switches...)
 	modes = append(append([]*Mode{}, tool.Modes...), &Mode{
 		Name:    Help,
 		Summary: "display help for this tool or for one of its modes",
@@ -477,7 +487,7 @@ func Start(args []string) (mode *Mode, rest []string) {
 	os.Args = append([]string{os.Args[0]}, rest...)
 	RegisterSwitches(mode)
 	flag.Usage = func() {
-		PrintHelp(mode, true)
+		PrintHelp(mode, !tool.OmitShortHelpExamples || SwitchAmong(rest, Help) || SwitchAmong(rest, "h"))
 	}
 	return mode, rest
 }
@@ -507,11 +517,7 @@ func Parse(mode *Mode, args []string) (*lib.ConfigSettings, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 
-	// Display everything available in this mode, if that's all that was asked for
-	if helpGiven {
-		PrintHelp(mode, true)
-		os.Exit(0)
-	}
+	printRequestedHelp(mode)
 	return config, nil
 
 }
@@ -727,6 +733,7 @@ func ParseCommandSwitches(mode *Mode, args []string) (positional []string, err e
 	if err = flag.CommandLine.Parse(found); err != nil {
 		return nil, err
 	}
+	printRequestedHelp(mode)
 	if err = lib.ConfigFlagsProcess(); err != nil {
 		return nil, err
 	}
@@ -736,6 +743,18 @@ func ParseCommandSwitches(mode *Mode, args []string) (positional []string, err e
 
 	return positional, nil
 
+}
+
+// printRequestedHelp handles help before a mode or command can perform any work
+func printRequestedHelp(mode *Mode) {
+	if agentHelpGiven {
+		fmt.Print(tool.AgentHelp)
+		os.Exit(0)
+	}
+	if helpGiven {
+		PrintHelp(mode, true)
+		os.Exit(0)
+	}
 }
 
 // usage is a mode's USAGE line
@@ -753,7 +772,7 @@ func usage(mode *Mode) string {
 
 // PrintHelp displays help for a mode.  The short form, shown when there's nothing to do,
 // lists the modes, the mode's commands and the general options; the full form, for --help,
-// adds every switch the mode accepts.
+// adds every switch the mode accepts.  A tool can keep examples in full help only.
 func PrintHelp(mode *Mode, full bool) {
 
 	// Modes are listed only in top-level help, and the default mode isn't one of them
@@ -779,6 +798,10 @@ func PrintHelp(mode *Mode, full bool) {
 		fmt.Printf("USAGE: %s\n", usage(mode))
 	}
 	fmt.Println()
+
+	if tool.AgentHelp != "" {
+		fmt.Printf("IF YOU ARE AN AGENT, THIS WILL TELL YOU ALL YOU NEED TO KNOW:\n  %s --help-agent\n\n", tool.Name)
+	}
 
 	// What the mode wishes to say before anything else
 	if mode.Preamble != "" {
@@ -850,7 +873,7 @@ func PrintHelp(mode *Mode, full bool) {
 	}
 
 	// How the mode is used, in gh's form: what each example does, then the command line
-	if len(mode.Examples) != 0 {
+	if len(mode.Examples) != 0 && (full || !tool.OmitShortHelpExamples) {
 		fmt.Printf("Examples:\n")
 		for i, example := range mode.Examples {
 			if i != 0 {
