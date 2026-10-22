@@ -24,12 +24,13 @@ import (
 
 // fakeRequest is one request a fake hub saw
 type fakeRequest struct {
-	Method string
-	Path   string
-	Query  url.Values
-	Body   []byte
-	Header http.Header
-	Req    map[string]any // the JSON of a v0 request
+	Method      string
+	Path        string
+	EscapedPath string
+	Query       url.Values
+	Body        []byte
+	Header      http.Header
+	Req         map[string]any // the JSON of a v0 request
 }
 
 // fakeHub is a hub that records what it is sent and answers as its handler says
@@ -44,7 +45,7 @@ func newFakeHub(t *testing.T) *fakeHub {
 	hub := &fakeHub{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		seen := fakeRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Body: body, Header: r.Header.Clone()}
+		seen := fakeRequest{Method: r.Method, Path: r.URL.Path, EscapedPath: r.URL.EscapedPath(), Query: r.URL.Query(), Body: body, Header: r.Header.Clone()}
 		if r.URL.Path == "/req" {
 			seen.Req = map[string]any{}
 			note.JSONUnmarshal(body, &seen.Req)

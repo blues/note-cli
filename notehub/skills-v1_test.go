@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,10 +75,10 @@ func (s *fakeSkills) handle(r fakeRequest, w http.ResponseWriter) {
 	fail := func(status int, message string) {
 		answer(status, map[string]any{"err": message, "code": status, "status": http.StatusText(status), "request": r.Path, "details": map[string]any{"reason": "test_error"}})
 	}
-	if r.Method == http.MethodGet && (strings.HasSuffix(r.Path, "/skills") || strings.HasSuffix(r.Path, "/skills/list")) {
-		full := strings.HasSuffix(r.Path, "/skills")
+	if r.Method == http.MethodGet && strings.HasSuffix(r.Path, "/skills") {
+		full := r.Query.Get("includeContent") == "true"
 		if full && s.oversized {
-			fail(http.StatusRequestEntityTooLarge, "use ListSkills and GetSkill")
+			fail(http.StatusRequestEntityTooLarge, "list metadata and read individual skills")
 			return
 		}
 		names := make([]string, 0, len(s.docs))
@@ -86,7 +87,7 @@ func (s *fakeSkills) handle(r fakeRequest, w http.ResponseWriter) {
 		}
 		sort.Strings(names)
 		page := skillsV1Collection{Project: "app:1", Revision: strconv.Itoa(s.version),
-			Total: len(names), Complete: full, Skills: []skillsV1Document{}}
+			Total: len(names), Complete: true, Skills: []skillsV1Document{}}
 		for _, name := range names {
 			doc := s.docs[name]
 			if !full {
@@ -97,11 +98,17 @@ func (s *fakeSkills) handle(r fakeRequest, w http.ResponseWriter) {
 		answer(http.StatusOK, page)
 		return
 	}
-	if !strings.HasSuffix(r.Path, "/skills/by-name") {
+	_, escapedName, found := strings.Cut(r.EscapedPath, "/skills/")
+	if !found || escapedName == "" || strings.Contains(escapedName, "/") || len(r.Query) != 0 {
 		fail(http.StatusNotFound, "unknown endpoint")
 		return
 	}
-	name, key := r.Query.Get("name"), ""
+	name, err := url.PathUnescape(escapedName)
+	if err != nil {
+		fail(http.StatusBadRequest, "invalid skill name encoding")
+		return
+	}
+	key := ""
 	var old skillsV1Document
 	for candidate, doc := range s.docs {
 		if strings.EqualFold(candidate, name) {
@@ -185,7 +192,7 @@ func TestSkillsV1Reads(t *testing.T) {
 	if !strings.Contains(out, "3 skill(s)") || !strings.Contains(out, name) || len(s.hub.seen) != 1 {
 		t.Fatalf("listing: %s; calls: %v", out, s.hub.calls())
 	}
-	if s.hub.seen[0].Path != "/v1/projects/product:com.example:test/skills/list" {
+	if s.hub.seen[0].Path != "/v1/projects/product:com.example:test/skills" {
 		t.Fatal("catalog did not use the selected product")
 	}
 	s.hub.seen = nil
@@ -194,7 +201,7 @@ func TestSkillsV1Reads(t *testing.T) {
 		t.Fatalf("single read: %q; calls: %v", out, s.hub.calls())
 	}
 	last := s.hub.seen[0]
-	if last.Query.Get("name") != name || last.Header.Get("If-Match") != "" {
+	if last.EscapedPath != "/v1/projects/product:com.example:test/skills/"+url.PathEscape(name) || len(last.Query) != 0 || last.Header.Get("If-Match") != "" {
 		t.Fatalf("single read lost name or revision: %+v", last)
 	}
 	s.hub.seen = nil
@@ -216,6 +223,35 @@ func TestSkillsV1Reads(t *testing.T) {
 	}
 	if got, err = os.ReadFile(filepath.Join(dir, "empty.md")); err != nil || len(got) != 0 {
 		t.Fatalf("empty document: %q, %v", got, err)
+	}
+}
+
+func TestSkillsV1OddNames(t *testing.T) {
+	s := newFakeSkills(t)
+	names := []string{"100%.md", "literal%2F.md", "literal%25.md", "literal%252F.md", "references/a +#?&;雪%.md", "quote\"'[]{}@!$().md"}
+	for _, name := range names {
+		if err := skillsV1Store(name, []byte(name), "", nil); err != nil {
+			t.Fatalf("create %q: %v", name, err)
+		}
+	}
+	for _, name := range names {
+		read, err := skillsV1QueryName(name)
+		if err != nil || len(read) != 1 || read[0].Source != name || string(read[0].Payload) != name {
+			t.Fatalf("read %q: %+v, %v", name, read, err)
+		}
+		if err := skillsV1Store(name, nil, "", read); err != nil {
+			t.Fatalf("replace %q: %v", name, err)
+		}
+		read, err = skillsV1QueryName(name)
+		if err != nil || read[0].Payload == nil || len(read[0].Payload) != 0 {
+			t.Fatalf("empty content %q: %+v, %v", name, read, err)
+		}
+		if err := skillsV1Remove(read[0]); err != nil {
+			t.Fatalf("delete %q: %v", name, err)
+		}
+	}
+	if len(s.docs) != 0 {
+		t.Fatalf("leftover documents: %v", s.docs)
 	}
 }
 
@@ -317,8 +353,8 @@ func TestSkillsV1BackupRestoreAndDelete(t *testing.T) {
 	for _, r := range s.hub.seen {
 		if r.Method == http.MethodDelete {
 			deleted = true
-			if r.Query.Get("name") != "remove.md" {
-				t.Fatalf("restore deleted a case-only replacement: %s", r.Query)
+			if !strings.HasSuffix(r.EscapedPath, "/skills/remove.md") {
+				t.Fatalf("restore deleted a case-only replacement: %s", r.EscapedPath)
 			}
 		}
 		if deleted && r.Method == http.MethodPut {
@@ -406,7 +442,7 @@ func TestSkillsV1ConflictsAndFailures(t *testing.T) {
 		}
 		reads := 0
 		s.before = func(r fakeRequest) {
-			if r.Method == http.MethodGet && strings.HasSuffix(r.Path, "/skills") {
+			if r.Method == http.MethodGet && strings.HasSuffix(r.Path, "/skills") && r.Query.Get("includeContent") == "true" {
 				reads++
 				if reads == 2 {
 					s.put("new.md", "concurrent edit after restore's PUT")

@@ -306,13 +306,19 @@ tokens. The shared `note-go` token source and request helper are documented in
 For testing the new Skills APIs, `notehub/skills-storage.go` contains:
 
 ```go
-const useV0SkillApis = false
+const useV0SkillApis = true
 ```
 
-`false` sends every built-in `skills` command through V1, including backup, restore,
+The default remains `true` until the revised V1 API is deployed. Set it to
+`false` to send every built-in `skills` command through V1, including backup, restore,
 rename and dry runs. It requires a hub serving the new Skills endpoints and never
 falls back to V0 on an error. Set it to `true` and rebuild to select the original V0
 upload APIs. This switch does not change generic `files --type skill` or raw requests.
+
+V1 lists metadata with `GET /skills`, includes all content with
+`GET /skills?includeContent=true`, and reads, writes or deletes one skill at
+`/skills/{skillName}`. The CLI encodes names automatically, including nested paths
+and punctuation. Its command syntax is the same in both modes.
 
 ## Additional resources
 

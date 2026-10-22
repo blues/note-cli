@@ -55,7 +55,7 @@ func skillsV1WriteBody(content []byte, kinds string) skillsV1Write {
 	return skillsV1Write{string(content), tags}
 }
 
-func skillsV1Request(project, method, suffix string, query url.Values, headers http.Header, body, result any) (*apiResponse, error) {
+func skillsV1Request(project, method, name string, query url.Values, headers http.Header, body, result any) (*apiResponse, error) {
 	if project == "" {
 		var err error
 		project, err = skillsProject()
@@ -63,9 +63,15 @@ func skillsV1Request(project, method, suffix string, query url.Values, headers h
 			return nil, err
 		}
 	}
-	// Path is unescaped; url.URL escapes it exactly once. Names are query values,
-	// so nested paths, spaces, '+', '#' and non-ASCII names round-trip safely.
-	endpoint := &url.URL{Path: "/v1/projects/" + project + "/skills" + suffix, RawQuery: query.Encode()}
+	// Keep the logical path and its escaped form together. Encoding a whole name
+	// as one segment preserves slashes, literal percent signs and punctuation.
+	path := "/v1/projects/" + project + "/skills"
+	escaped := "/v1/projects/" + url.PathEscape(project) + "/skills"
+	if name != "" {
+		path += "/" + name
+		escaped += "/" + url.PathEscape(name)
+	}
+	endpoint := &url.URL{Path: path, RawPath: escaped, RawQuery: query.Encode()}
 	if headers == nil {
 		headers = http.Header{}
 	}
@@ -123,7 +129,7 @@ func skillsV1Query(content bool) ([]skillsUpload, error) {
 		return uploads, err
 	}
 	var set skillsV1Collection
-	_, err := skillsV1Request("", http.MethodGet, "", nil, nil, nil, &set)
+	_, err := skillsV1Request("", http.MethodGet, "", url.Values{"includeContent": {"true"}}, nil, nil, &set)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +150,7 @@ func skillsV1Query(content bool) ([]skillsUpload, error) {
 // The metadata catalog is complete in one response; there are no page parameters.
 func skillsV1Catalog() ([]skillsUpload, skillsV1Collection, error) {
 	var set skillsV1Collection
-	if _, err := skillsV1Request("", http.MethodGet, "/list", nil, nil, nil, &set); err != nil {
+	if _, err := skillsV1Request("", http.MethodGet, "", nil, nil, nil, &set); err != nil {
 		return nil, set, err
 	}
 	if set.Project == "" || set.Revision == "" || set.Total != len(set.Skills) {
@@ -172,7 +178,7 @@ func skillsV1QueryName(name string) ([]skillsUpload, error) {
 		name += skillsExt
 	}
 	var doc skillsV1Document
-	if _, err := skillsV1Request("", http.MethodGet, "/by-name", url.Values{"name": {name}}, nil, nil, &doc); err != nil {
+	if _, err := skillsV1Request("", http.MethodGet, name, nil, nil, nil, &doc); err != nil {
 		return nil, err
 	}
 	upload, err := doc.upload("", true)
@@ -188,7 +194,7 @@ func skillsV1Read(upload skillsUpload) ([]byte, error) {
 	}
 	var doc skillsV1Document
 	headers := http.Header{"If-Match": {strconv.Quote(upload.Revision)}}
-	if _, err := skillsV1Request(upload.Project, http.MethodGet, "/by-name", url.Values{"name": {upload.Source}}, headers, nil, &doc); err != nil {
+	if _, err := skillsV1Request(upload.Project, http.MethodGet, upload.Source, nil, headers, nil, &doc); err != nil {
 		return nil, err
 	}
 	if doc.Revision != upload.Revision || doc.Name != upload.Source {
@@ -217,7 +223,7 @@ func skillsV1Store(name string, content []byte, kinds string, previous []skillsU
 		Outcome string           `json:"outcome"`
 		Skill   skillsV1Document `json:"skill"`
 	}
-	if _, err := skillsV1Request(project, http.MethodPut, "/by-name", url.Values{"name": {name}}, headers, body, &result); err != nil {
+	if _, err := skillsV1Request(project, http.MethodPut, name, nil, headers, body, &result); err != nil {
 		return err
 	}
 	if _, err := result.Skill.upload(project, true); err != nil {
@@ -234,7 +240,7 @@ func skillsV1Remove(upload skillsUpload) error {
 	if upload.Revision == "" {
 		return fmt.Errorf("%s: missing revision; reread the skill", upload.Source)
 	}
-	_, err := skillsV1Request(upload.Project, http.MethodDelete, "/by-name", url.Values{"name": {upload.Source}},
+	_, err := skillsV1Request(upload.Project, http.MethodDelete, upload.Source, nil,
 		http.Header{"If-Match": {strconv.Quote(upload.Revision)}}, nil, nil)
 	return err
 }
