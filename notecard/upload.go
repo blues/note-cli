@@ -68,7 +68,7 @@ func uploadFile(filename string, route string, target string) error {
 	// The route parameter is mandatory as it specifies the Notehub proxy route
 	// that will receive the uploaded data.
 	if route == "" {
-		return fmt.Errorf("upload requires -route to be specified")
+		return fmt.Errorf("upload requires --route to be specified")
 	}
 
 	// =========================================================================

@@ -14,14 +14,26 @@ import (
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
-	notegoapi "github.com/blues/note-go/notehub/api"
+	notehubsdk "github.com/blues/notehub-go"
 )
 
 type Metadata struct {
 	Name string            `json:"name,omitempty"`
 	UID  string            `json:"uid,omitempty"`
+	Role string            `json:"role,omitempty"`
 	BA   string            `json:"billing_account_uid,omitempty"`
 	Vars map[string]string `json:"vars,omitempty"`
+}
+
+// appGetRole returns the signed-in account's role in a project, such as owner or viewer,
+// or "" if it can't be learned.  It is only displayed; nothing is decided by it.
+func appGetRole(flagVerbose bool, projectUID string) string {
+	rsp := map[string]interface{}{}
+	if err := reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", "/v1/projects/"+projectUID, nil, &rsp); err != nil {
+		return ""
+	}
+	role, _ := rsp["role"].(string)
+	return role
 }
 
 type AppMetadata struct {
@@ -59,9 +71,10 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 			for k, v := range fleets {
 				vj, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: vj["label"].(string), UID: k}
+					label, _ := vj["label"].(string)
+					i := Metadata{Name: label, UID: k}
 					if flagVars {
-						varsRsp := notegoapi.GetFleetEnvironmentVariablesResponse{}
+						varsRsp := notehubsdk.EnvironmentVariables{}
 						url := fmt.Sprintf("/v1/projects/%s/fleets/%s/environment_variables", appMetadata.App.UID, k)
 						err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &varsRsp)
 						if err != nil {
@@ -111,7 +124,9 @@ func appGetMetadata(flagVerbose bool, flagVars bool) (appMetadata AppMetadata, e
 			for _, v := range pi {
 				p, ok := v.(map[string]interface{})
 				if ok {
-					i := Metadata{Name: p["label"].(string), UID: p["uid"].(string)}
+					label, _ := p["label"].(string)
+					uid, _ := p["uid"].(string)
+					i := Metadata{Name: label, UID: uid}
 					items = append(items, i)
 				}
 				appMetadata.Products = items
@@ -214,7 +229,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 		for {
 			pageNum++
 
-			devices := notegoapi.GetDevicesResponse{}
+			devices := notehubsdk.GetDevices200Response{}
 			url := fmt.Sprintf("/v1/projects/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, pageSize, pageNum)
 			err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
 			if err != nil {
@@ -222,7 +237,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 			}
 
 			for _, device := range devices.Devices {
-				err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+				err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 				if err != nil {
 					return err
 				}
@@ -248,7 +263,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 				for {
 					pageNum++
 
-					devices := notegoapi.GetDevicesResponse{}
+					devices := notehubsdk.GetDevices200Response{}
 					url := fmt.Sprintf("/v1/projects/%s/fleets/%s/devices?pageSize=%d&pageNum=%d", appMetadata.App.UID, fleet.UID, pageSize, pageNum)
 					err = reqHubV1(flagVerbose, lib.ConfigAPIHub(), "GET", url, nil, &devices)
 					if err != nil {
@@ -256,7 +271,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 					}
 
 					for _, device := range devices.Devices {
-						err = addScope(device.UID, appMetadata, scopeDevices, scopeFleets, flagVerbose)
+						err = addScope(device.Uid, appMetadata, scopeDevices, scopeFleets, flagVerbose)
 						if err != nil {
 							return err
 						}
@@ -305,6 +320,7 @@ func addScope(scope string, appMetadata *AppMetadata, scopeDevices *[]string, sc
 type ProjectInfo struct {
 	Name     string     `json:"name,omitempty"`
 	UID      string     `json:"uid,omitempty"`
+	Role     string     `json:"role"`
 	Products []Metadata `json:"products,omitempty"`
 }
 
@@ -327,7 +343,8 @@ func appListProjects(flagVerbose bool) (projects []ProjectInfo, err error) {
 		}
 		uid, _ := p["uid"].(string)
 		label, _ := p["label"].(string)
-		info := ProjectInfo{Name: label, UID: uid}
+		role, _ := p["role"].(string)
+		info := ProjectInfo{Name: label, UID: uid, Role: role}
 
 		// Fetch products for this project
 		productsRsp := map[string]interface{}{}
@@ -338,10 +355,9 @@ func appListProjects(flagVerbose bool) (projects []ProjectInfo, err error) {
 				for _, pv := range pi {
 					pp, ok := pv.(map[string]interface{})
 					if ok {
-						info.Products = append(info.Products, Metadata{
-							Name: pp["label"].(string),
-							UID:  pp["uid"].(string),
-						})
+						label, _ := pp["label"].(string)
+						uid, _ := pp["uid"].(string)
+						info.Products = append(info.Products, Metadata{Name: label, UID: uid})
 					}
 				}
 			}

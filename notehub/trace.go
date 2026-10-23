@@ -131,7 +131,8 @@ traceloop:
 				config, _ := lib.GetConfig()
 				config.Hub = args[1]
 			}
-			fmt.Printf("hub is %s\n", flagApp)
+			config, _ := lib.GetConfig()
+			fmt.Printf("hub is %s\n", config.Hub)
 
 		case "get":
 			fallthrough
@@ -170,7 +171,7 @@ traceloop:
 				return err
 			}
 			if cleanApp != "" {
-				url := "/v1/products/" + cleanApp + "/products"
+				url := "/v1/projects/" + cleanApp + "/products"
 				_, err = reqHubV1JSON(true, lib.ConfigAPIHub(), "GET", url, nil)
 				if err != nil {
 					fmt.Printf("error: %s\n", err)

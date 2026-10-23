@@ -5,20 +5,23 @@ go 1.25.0
 replace github.com/blues/note-cli/lib => ./lib
 
 require (
-	github.com/blues/note-cli/lib v0.0.0-20251120160051-d509bdf52531
-	github.com/blues/note-go v1.10.0
+	github.com/blues/note-cli/lib v0.0.0-00010101000000-000000000000
+	github.com/blues/note-go v1.11.1
+	github.com/blues/notehub-go v0.0.10
 	github.com/fatih/color v1.18.0
+	github.com/mattn/go-isatty v0.0.20
 	github.com/peterh/liner v1.2.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	gopkg.in/validator.v2 v2.0.1 // indirect
 	periph.io/x/conn/v3 v3.7.3 // indirect
 )
 
@@ -31,7 +34,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.7 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
-	go.bug.st/serial v1.7.1
+	go.bug.st/serial v1.8.0
 	golang.org/x/sys v0.43.0 // indirect
 	periph.io/x/host/v3 v3.8.5 // indirect
 )

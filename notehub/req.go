@@ -52,6 +52,9 @@ func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehu
 	return
 }
 
+// All Notehub data requests use the shared OAuth request handling.
+var authenticatedDo = lib.ConfigDoAuthenticated
+
 // Process a V0 HTTPS request and unmarshal into an object
 func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
 	var response []byte
@@ -123,20 +126,19 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
-	err = lib.ConfigAuthenticationHeader(httpReq)
-	if err != nil {
-		return
-	}
-
 	if verbose {
 		fmt.Printf("%s\n", string(request))
 	}
 
 	httpClient := &http.Client{}
-	httpRsp, err2 := httpClient.Do(httpReq)
+	httpRsp, err2 := authenticatedDo(httpClient, httpReq)
 	if err2 != nil {
 		err = err2
 		return
+	}
+	defer httpRsp.Body.Close()
+	if httpRsp.StatusCode == http.StatusUnauthorized {
+		return nil, authUnauthorizedError(hub)
 	}
 
 	// Note that we must do this with no timeout specified on
@@ -227,10 +229,6 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 	}
 	httpReq.Header.Set("User-Agent", "notehub-client")
 	httpReq.Header.Set("Content-Type", "application/json")
-	err = lib.ConfigAuthenticationHeader(httpReq)
-	if err != nil {
-		return
-	}
 
 	if verbose {
 		fmt.Printf("%s %s\n", verb, httpurl)
@@ -240,13 +238,14 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 	}
 
 	httpClient := &http.Client{}
-	httpRsp, err2 := httpClient.Do(httpReq)
+	httpRsp, err2 := authenticatedDo(httpClient, httpReq)
 	if err2 != nil {
 		err = err2
 		return
 	}
+	defer httpRsp.Body.Close()
 	if httpRsp.StatusCode == http.StatusUnauthorized {
-		err = fmt.Errorf("please use -signin to authenticate")
+		err = authUnauthorizedError(hub)
 		return
 	}
 
