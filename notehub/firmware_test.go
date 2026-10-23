@@ -5,6 +5,7 @@
 package main
 
 import (
+	"flag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,177 @@ import (
 	"github.com/blues/note-cli/lib/cli"
 	"github.com/blues/note-go/note"
 )
+
+// Uploads detect the binary's product before requiring a project. Only Notecard
+// uploads default to Airnote; explicit project, product and type choices take priority.
+func TestFirmwareUploadSelection(t *testing.T) {
+	const notecard = "binary firmware::info:{\"product\":\"Notecard\",\"ver_major\":11,\"ver_minor\":4,\"ver_patch\":1,\"ver_build\":5602}\x00"
+	const host = "firmware::info:{\"product\":\"Airnote\",\"ver_major\":1}"
+	for _, test := range []struct {
+		name, verb, contents string
+		flags                []string
+		project, ftype       string
+		version              string
+		wantError            string
+		dryRun               bool
+	}{
+		{name: "detected Notecard", contents: notecard, project: firmwareNotecardProject, ftype: firmwareNotecard},
+		{name: "set alias", verb: "set", contents: notecard, project: firmwareNotecardProject, ftype: firmwareNotecard},
+		{name: "explicit project", contents: notecard, flags: []string{"--project", "app:chosen"}, project: "app:chosen", ftype: firmwareNotecard},
+		{name: "explicit product", contents: notecard, flags: []string{"--product", "com.example:chosen"}, project: "com.example:chosen", ftype: firmwareNotecard},
+		{name: "explicit Notecard type", contents: "firmware", flags: []string{"--type", "notecard"}, project: firmwareNotecardProject, ftype: firmwareNotecard},
+		{name: "explicit host type", contents: notecard, flags: []string{"--type", "host", "--project", "app:chosen"}, project: "app:chosen", ftype: firmwareHost},
+		{name: "explicit host needs project", contents: notecard, flags: []string{"--type", "host"}, wantError: "specify the project"},
+		{name: "host needs project", contents: host, wantError: "specify the project"},
+		{name: "host with project", contents: host, flags: []string{"--project", "app:chosen"}, project: "app:chosen", ftype: firmwareHost},
+		{name: "host version", contents: host, flags: []string{"--version", "2.3.4", "--project", "app:chosen"}, project: "app:chosen", ftype: firmwareHost, version: "2.3.4"},
+		{name: "missing metadata", contents: "notecard firmware", wantError: "specify the project"},
+		{name: "malformed metadata", contents: "firmware::info:{\"product\":\"Notecard\",", wantError: "specify the project"},
+		{name: "detected Notecard rejects version", contents: notecard, flags: []string{"--version", "1.0"}, wantError: "--version doesn't apply"},
+		{name: "dry run", contents: notecard, flags: []string{"--dry-run"}, project: firmwareNotecardProject, ftype: firmwareNotecard, dryRun: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			uploadsTestReset(t)
+			savedFlags := flag.CommandLine
+			flag.CommandLine = flag.NewFlagSet(cliName, flag.ContinueOnError)
+			t.Cleanup(func() { flag.CommandLine = savedFlags })
+			mode := cli.ModeNamed(modeFirmware)
+			cli.RegisterSwitches(mode)
+
+			// Neither the path nor the optional upload name determines the type.
+			local := filepath.Join(t.TempDir(), "notecard-u5.bin")
+			if err := os.WriteFile(local, []byte(test.contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			hub := newFakeHub(t)
+			hub.handle = func(r fakeRequest, w http.ResponseWriter) {
+				switch {
+				case r.Req["req"] == "hub.upload.query":
+					w.Write([]byte(`{"uploads":[]}`))
+				case r.Method == http.MethodGet:
+					w.Write([]byte(`[]`))
+				case r.Method == http.MethodPut:
+					w.Write([]byte(`{"filename":"renamed$1.bin","version":"11.4.1.5602"}`))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}
+			verb := test.verb
+			if verb == "" {
+				verb = "upload"
+			}
+			args := append([]string{verb, local, "renamed.bin", "--notes", "test build"}, test.flags...)
+			var err error
+			out := captureStdout(t, func() { err = cli.Dispatch(mode, nil, args) })
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("got %v, expected %q", err, test.wantError)
+				}
+				if len(hub.seen) != 0 {
+					t.Fatalf("invalid upload called %v", hub.calls())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := []string{"GET /v1/projects/" + test.project + "/firmware"}
+			if test.ftype == firmwareNotecard {
+				calls[0] = "hub.upload.query"
+			}
+			if !test.dryRun {
+				calls = append(calls, "PUT /v1/projects/"+test.project+"/firmware/"+test.ftype+"/renamed.bin")
+			}
+			if !slices.Equal(hub.calls(), calls) {
+				t.Fatalf("called %v, want %v", hub.calls(), calls)
+			}
+			if test.ftype == firmwareNotecard && hub.seen[0].Req["type"] != firmwareNotecard {
+				t.Errorf("queried %v, expected Notecard firmware", hub.seen[0].Req)
+			}
+			if !strings.Contains(out, test.project) {
+				t.Errorf("upload did not report its project: %q", out)
+			}
+			if test.dryRun {
+				if !strings.Contains(out, "Nothing was changed") {
+					t.Errorf("dry run wrote %q", out)
+				}
+				return
+			}
+			put := hub.seen[1]
+			if string(put.Body) != test.contents || put.Header.Get("Content-Type") != "application/octet-stream" || put.Query.Get("notes") != "test build" {
+				t.Errorf("upload did not send the binary and notes unchanged")
+			}
+			if put.Query.Get("version") != test.version {
+				t.Errorf("upload version = %q, want %q", put.Query.Get("version"), test.version)
+			}
+		})
+	}
+}
+
+// Replacing Notecard firmware uploads through v1 before removing the old global
+// upload. Identical bytes, --no-replace and an upload failure all keep the old one.
+func TestFirmwareNotecardReplacement(t *testing.T) {
+	for _, state := range []string{"replaced", "unchanged", "no-replace", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			uploadsTestReset(t)
+			flagApp = ""
+			flagUploadsNoReplace = state == "no-replace"
+			contents := []byte(`firmware::info:{"product":"Notecard","ver_major":11,"ver_minor":4,"ver_patch":1,"ver_build":5602}`)
+			local := filepath.Join(t.TempDir(), "notecard.bin")
+			if err := os.WriteFile(local, contents, 0600); err != nil {
+				t.Fatal(err)
+			}
+			hub := newFakeHub(t)
+			hub.handle = func(r fakeRequest, w http.ResponseWriter) {
+				switch {
+				case r.Req["req"] == "hub.upload.query":
+					md5 := "old"
+					if state == "unchanged" {
+						md5 = uploadsMD5(contents)
+					}
+					out, _ := note.JSONMarshal(map[string]any{"uploads": []map[string]any{{
+						"name": "notecard$1.bin", "source": "notecard.bin", "md5": md5,
+						"firmware": map[string]any{"ver_major": 11, "ver_minor": 4, "ver_patch": 1, "ver_build": 5602},
+					}}})
+					w.Write(out)
+				case r.Method == http.MethodPut:
+					if state == "failed" {
+						w.WriteHeader(http.StatusInternalServerError)
+						w.Write([]byte(`{"err":"upload failed"}`))
+						return
+					}
+					w.Write([]byte(`{"filename":"notecard$2.bin","version":"11.4.1.5602"}`))
+				case r.Req["req"] == "hub.upload.delete":
+					if r.Req["name"] != "notecard$1.bin" || r.Req["type"] != firmwareNotecard {
+						t.Errorf("deleted unexpected firmware: %v", r.Req)
+					}
+					w.Write([]byte(`{}`))
+				default:
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			}
+			var err error
+			out := captureStdout(t, func() { err = firmwareUploadCommand(nil, []string{local}) })
+			wantError := state == "no-replace" || state == "failed"
+			if (err != nil) != wantError {
+				t.Fatalf("got %v, expected error: %v", err, wantError)
+			}
+			calls := []string{"hub.upload.query"}
+			if state == "replaced" || state == "failed" {
+				calls = append(calls, "PUT /v1/projects/"+firmwareNotecardProject+"/firmware/notecard/notecard.bin")
+			}
+			if state == "replaced" {
+				calls = append(calls, "hub.upload.delete")
+			}
+			if !slices.Equal(hub.calls(), calls) {
+				t.Errorf("called %v, want %v", hub.calls(), calls)
+			}
+			if !wantError && !strings.Contains(out, state) {
+				t.Errorf("upload wrote %q, want %q", out, state)
+			}
+		})
+	}
+}
 
 // A stored filename carries the hub's stamp, and a Blues-style binary its version
 func TestFirmwareNames(t *testing.T) {
@@ -150,28 +322,28 @@ func TestFirmwareHost(t *testing.T) {
 	}
 	store.bytes["app$20260101000000.bin"] = old
 
-	// set: the same bytes are skipped; the same name and version, with other bytes, is
+	// upload: the same bytes are skipped; the same name and version, with other bytes, is
 	// replaced after the upload; --no-replace refuses; a new version is simply new
 	local := filepath.Join(dir, "app.bin")
 	hub.seen = nil
 	out = captureStdout(t, func() {
-		if err := firmwareSetCommand(nil, []string{local}); err != nil {
+		if err := firmwareUploadCommand(nil, []string{local}); err != nil {
 			t.Error(err)
 		}
 	})
 	if !strings.Contains(out, "unchanged") || len(hub.seen) != 1 {
-		t.Errorf("setting the same bytes wrote %q after %v", out, hub.calls())
+		t.Errorf("uploading the same bytes wrote %q after %v", out, hub.calls())
 	}
 	os.WriteFile(local, append(old, []byte(" rebuilt")...), 0666)
 	flagUploadsNoReplace = true
-	if err := firmwareSetCommand(nil, []string{local}); err == nil || !strings.Contains(err.Error(), "--no-replace") {
+	if err := firmwareUploadCommand(nil, []string{local}); err == nil || !strings.Contains(err.Error(), "--no-replace") {
 		t.Errorf("with --no-replace got %v", err)
 	}
 	flagUploadsNoReplace = false
 	flagUploadsNotes = "rebuilt"
 	hub.seen = nil
 	out = captureStdout(t, func() {
-		if err := firmwareSetCommand(nil, []string{local}); err != nil {
+		if err := firmwareUploadCommand(nil, []string{local}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -184,7 +356,7 @@ func TestFirmwareHost(t *testing.T) {
 	os.WriteFile(local, []byte("firmware::info:{\"ver_major\":1,\"ver_minor\":3,\"ver_patch\":0}"), 0666)
 	hub.seen = nil
 	out = captureStdout(t, func() {
-		if err := firmwareSetCommand(nil, []string{local}); err != nil {
+		if err := firmwareUploadCommand(nil, []string{local}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -196,7 +368,7 @@ func TestFirmwareHost(t *testing.T) {
 	flagFirmwareVersion, flagSkillsDryRun = "9.9.9", true
 	hub.seen = nil
 	out = captureStdout(t, func() {
-		if err := firmwareSetCommand(nil, []string{local}); err != nil {
+		if err := firmwareUploadCommand(nil, []string{local}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -357,8 +529,12 @@ func TestFirmwareNotecard(t *testing.T) {
 		t.Errorf("show wrote %q", out)
 	}
 	flagFirmwareVersion = "1.0"
-	if err := firmwareSetCommand(nil, []string{"x.bin"}); err == nil || !strings.Contains(err.Error(), "--version") {
-		t.Errorf("set --version on notecard firmware got %v", err)
+	local := filepath.Join(t.TempDir(), "x.bin")
+	if err := os.WriteFile(local, []byte("firmware"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := firmwareUploadCommand(nil, []string{local}); err == nil || !strings.Contains(err.Error(), "--version") {
+		t.Errorf("upload --version on notecard firmware got %v", err)
 	}
 	flagFirmwareVersion = ""
 	if err := firmwareEditCommand(nil, []string{"8.1.3.17044"}); err == nil || !strings.Contains(err.Error(), "can't be edited") {

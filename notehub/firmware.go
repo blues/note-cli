@@ -4,9 +4,9 @@
 
 // 'notehub firmware': the host firmware a project holds, and applying it to devices,
 // through the hub's v1 firmware and DFU calls.  With --type notecard, which isn't
-// documented, the same verbs manage the hub's own notecard firmware: its binaries
-// through the project-less v0 upload calls, since the v1 calls need a project, and its
-// updates through the DFU calls, which need the project the devices are in.
+// documented, the same verbs manage the hub's own notecard firmware. Uploads detect
+// Notecard binaries and use Airnote when no project is supplied for the v1 upload API.
+// Catalog operations use the project-less v0 calls; DFU calls need the devices' project.
 
 package main
 
@@ -36,6 +36,9 @@ import (
 const (
 	firmwareHost     = "host"
 	firmwareNotecard = "notecard"
+
+	// The v1 upload endpoint needs a project even for the hub's Notecard firmware.
+	firmwareNotecardProject = "app:2606f411-dea6-44a0-9743-1130f57d77d8" // Airnote
 )
 
 // Switches used in this mode
@@ -55,8 +58,8 @@ var inFirmware = []string{modeFirmware}
 func firmwareSwitches() []*cli.Switch {
 	return []*cli.Switch{
 		// The notecard type is Blues' to manage, so it isn't described
-		{Name: "type", Target: &flagFirmwareType, Default: firmwareHost, Group: "firmware", Modes: inFirmware, Hidden: true,
-			Usage: "the firmware `type`: host, or notecard, whose binaries are the hub's own and need no project"},
+		{Name: "type", Target: &flagFirmwareType, Group: "firmware", Modes: inFirmware, Hidden: true,
+			Usage: "the firmware `type`: host or notecard; uploads detect Notecard binaries, other commands default to host"},
 		{Name: "version", Target: &flagFirmwareVersion, Group: "firmware", Modes: inFirmware,
 			Usage: "the `version` to record for a firmware, when its binary doesn't carry one"},
 		{Name: "notes", Target: &flagUploadsNotes, Group: "firmware", Modes: inFirmware,
@@ -74,7 +77,7 @@ func firmwareSwitches() []*cli.Switch {
 		{Name: "no-replace", Target: &flagUploadsNoReplace, Group: "firmware", Modes: inFirmware,
 			Usage: "refuse to replace a firmware the project already holds under the same name and version"},
 		{Name: "dry-run", Target: &flagSkillsDryRun, Group: "firmware", Modes: inFirmware,
-			Usage: "say what set, edit, delete, update or cancel would do, without doing it"},
+			Usage: "say what upload, edit, delete, update or cancel would do, without doing it"},
 		{Name: "force", Target: &flagSkillsForce, Group: "firmware", Modes: inFirmware,
 			Usage: "let get overwrite a local file that differs, and update or cancel address every device in the project"},
 		{Name: "json", Target: &flagJson, Group: "output", Modes: inFirmware,
@@ -87,9 +90,9 @@ func firmwareExamples() []cli.Example {
 	return []cli.Example{
 		{What: "List the host firmware the project holds", Command: cliName + " firmware --project <projectUID>"},
 		{What: "The same as JSON, for a program", Command: cliName + " firmware list --json --project <projectUID>"},
-		{What: "Upload a build, with its version read from the binary and release notes from a file", Command: cliName + " firmware set ./build/app.bin --notes @RELEASE.md --project <projectUID>"},
-		{What: "The same, naming the version when the binary doesn't carry one", Command: cliName + " firmware set ./build/app.bin --version 1.2.3 --project <projectUID>"},
-		{What: "See what would be uploaded, without uploading", Command: cliName + " firmware set ./build/app.bin --dry-run --project <projectUID>"},
+		{What: "Upload a build, with its version read from the binary and release notes from a file", Command: cliName + " firmware upload ./build/app.bin --notes @RELEASE.md --project <projectUID>"},
+		{What: "The same, naming the version when the binary doesn't carry one", Command: cliName + " firmware upload ./build/app.bin --version 1.2.3 --project <projectUID>"},
+		{What: "See what would be uploaded, without uploading", Command: cliName + " firmware upload ./build/app.bin --dry-run --project <projectUID>"},
 		{What: "Download a firmware, verified against its md5", Command: cliName + " firmware get 1.2.3 ./app-1.2.3.bin --project <projectUID>"},
 		{What: "Apply a firmware to a fleet, and then watch it go", Command: cliName + ` firmware update 1.2.3 --scope "Field Units" --project <projectUID>`},
 		{What: "Each device's update, as it goes", Command: cliName + ` firmware status --scope "Field Units" --project <projectUID>`},
@@ -107,8 +110,10 @@ func firmwareCommands() []cli.Command {
 			Run: firmwareShowCommand},
 		{Name: "get", Args: "<firmware> [path|-]", Summary: "download a firmware to a file or stdout, verified against its md5",
 			Run: firmwareGetCommand},
-		{Name: "set", Args: "<path> [name]", Summary: "upload a firmware, skipping one the project holds already, and replacing one of the same name and version",
-			Run: firmwareSetCommand},
+		{Name: "upload", Args: "<path> [name]", Summary: "upload a firmware, skipping one the project holds already, and replacing one of the same name and version",
+			Run: firmwareUploadCommand},
+		{Name: "set", Args: "<path> [name]", Summary: "alias for upload",
+			Run: firmwareUploadCommand},
 		{Name: "edit", Args: "<firmware>", Summary: "change a firmware's --version, --notes or --info",
 			Run: firmwareEditCommand},
 		{Name: "delete", Args: "<firmware>", Summary: "remove a firmware from the project",
@@ -533,23 +538,28 @@ func firmwareSameVersion(a string, b string) bool {
 // firmwareInfoPrefix marks the information a Blues-style binary carries about itself
 var firmwareInfoPrefix = []byte("firmware::info:")
 
+type firmwareBinaryInfo struct {
+	Product string `json:"product"`
+	Version string `json:"version"`
+	Major   int    `json:"ver_major"`
+	Minor   int    `json:"ver_minor"`
+	Patch   int    `json:"ver_patch"`
+	Build   int    `json:"ver_build"`
+}
+
+// firmwareEmbeddedInfo reads metadata from the binary, independent of its filename.
+func firmwareEmbeddedInfo(contents []byte) (info firmwareBinaryInfo) {
+	at := bytes.Index(contents, firmwareInfoPrefix)
+	if at < 0 || json.NewDecoder(bytes.NewReader(contents[at+len(firmwareInfoPrefix):])).Decode(&info) != nil {
+		return firmwareBinaryInfo{}
+	}
+	return info
+}
+
 // firmwareEmbeddedVersion reads the version a binary carries, as the hub does: the
 // numbers in the JSON object after "firmware::info:", or its version string
 func firmwareEmbeddedVersion(contents []byte) string {
-	at := bytes.Index(contents, firmwareInfoPrefix)
-	if at < 0 {
-		return ""
-	}
-	var info struct {
-		Version string `json:"version"`
-		Major   int    `json:"ver_major"`
-		Minor   int    `json:"ver_minor"`
-		Patch   int    `json:"ver_patch"`
-		Build   int    `json:"ver_build"`
-	}
-	if json.NewDecoder(bytes.NewReader(contents[at+len(firmwareInfoPrefix):])).Decode(&info) != nil {
-		return ""
-	}
+	info := firmwareEmbeddedInfo(contents)
 	if info.Major > 0 || info.Minor > 0 || info.Patch > 0 || info.Build > 0 {
 		version := fmt.Sprintf("%d.%d.%d", info.Major, info.Minor, info.Patch)
 		if info.Build > 0 {
@@ -560,27 +570,35 @@ func firmwareEmbeddedVersion(contents []byte) string {
 	return info.Version
 }
 
-// firmwareSetCommand uploads a firmware.  One the project already holds, byte for byte, is
+// firmwareUploadCommand uploads a firmware. One the project already holds, byte for byte, is
 // skipped; one it holds under the same name and version is replaced, the new one going
 // up before the old one comes down, unless --no-replace refuses that.
-func firmwareSetCommand(config *lib.ConfigSettings, args []string) error {
+func firmwareUploadCommand(config *lib.ConfigSettings, args []string) error {
 	ftype, err := firmwareType()
 	if err != nil {
 		return err
+	}
+	if len(args) < 1 || len(args) > 2 {
+		return fmt.Errorf("usage: %s firmware upload <path> [name]", cliName)
+	}
+	contents, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+	if flagFirmwareType == "" && strings.EqualFold(firmwareEmbeddedInfo(contents).Product, "Notecard") {
+		ftype = firmwareNotecard
 	}
 	project, err := firmwareProject(ftype, false)
 	if err != nil {
 		return err
 	}
-	if len(args) < 1 || len(args) > 2 {
-		return fmt.Errorf("usage: %s firmware set <path> [name]", cliName)
-	}
-	if ftype == firmwareNotecard && flagFirmwareVersion != "" {
-		return errors.New("a notecard firmware's version is in the binary, so --version doesn't apply")
-	}
-	contents, err := os.ReadFile(args[0])
-	if err != nil {
-		return err
+	if ftype == firmwareNotecard {
+		if flagFirmwareVersion != "" {
+			return errors.New("a notecard firmware's version is in the binary, so --version doesn't apply")
+		}
+		if project == "" {
+			project = firmwareNotecardProject
+		}
 	}
 	name := filepath.Base(args[0])
 	if len(args) == 2 {
@@ -637,35 +655,32 @@ func firmwareSetCommand(config *lib.ConfigSettings, args []string) error {
 	}
 
 	// Up it goes, and then the old ones come down
-	stored := firmwareItem{}
-	if ftype == firmwareNotecard {
-		upload, storeErr := uploadsStore(firmwareScope, name, contents, "", notes, superseded)
-		if storeErr != nil {
-			return storeErr
+	query := url.Values{}
+	if flagFirmwareVersion != "" {
+		query.Set("version", flagFirmwareVersion)
+	}
+	if notes != "" {
+		query.Set("notes", notes)
+	}
+	rsp, err := firmwareCall(http.MethodPut, "/v1/projects/"+project+"/firmware/"+ftype+"/"+name, query, contents, "application/octet-stream")
+	if err != nil {
+		return err
+	}
+	var stored firmwareItem
+	if err = note.JSONUnmarshal(rsp.Body, &stored); err != nil {
+		return fmt.Errorf("the hub's answer can't be read: %w", err)
+	}
+	for _, old := range superseded {
+		if old == stored.Filename {
+			continue
 		}
-		stored = firmwareItemFromUpload(upload)
-	} else {
-		query := url.Values{}
-		if flagFirmwareVersion != "" {
-			query.Set("version", flagFirmwareVersion)
+		if ftype == firmwareNotecard {
+			err = uploadsRemove(firmwareScope, old)
+		} else {
+			_, err = firmwareCall(http.MethodDelete, "/v1/projects/"+project+"/firmware/"+ftype+"/"+old, nil, nil, "")
 		}
-		if notes != "" {
-			query.Set("notes", notes)
-		}
-		rsp, callErr := firmwareCall(http.MethodPut, "/v1/projects/"+project+"/firmware/"+ftype+"/"+name, query, contents, "application/octet-stream")
-		if callErr != nil {
-			return callErr
-		}
-		if err = note.JSONUnmarshal(rsp.Body, &stored); err != nil {
-			return fmt.Errorf("the hub's answer can't be read: %w", err)
-		}
-		for _, old := range superseded {
-			if old == stored.Filename {
-				continue
-			}
-			if _, err = firmwareCall(http.MethodDelete, "/v1/projects/"+project+"/firmware/"+ftype+"/"+old, nil, nil, ""); err != nil {
-				return fmt.Errorf("%s: %s", old, err)
-			}
+		if err != nil {
+			return fmt.Errorf("%s: %s", old, err)
 		}
 	}
 	skillsSummary("%s is stored in %s as %s, version %s.", name, project, stored.Filename, stored.Version)

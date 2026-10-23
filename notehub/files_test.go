@@ -92,7 +92,7 @@ func uploadsTestReset(t *testing.T) {
 	flagFilesType, flagUploadsTags, flagUploadsNotes, flagUploadsNoReplace = "data", "", "", false
 	flagSkillsDryRun, flagSkillsForce, flagApp, flagProduct = false, false, "app:1", ""
 	flagJson, flagPretty, flagVerbose = false, false, false
-	flagFirmwareType, flagFirmwareVersion, flagFirmwareInfo = "host", "", ""
+	flagFirmwareType, flagFirmwareVersion, flagFirmwareInfo = "", "", ""
 	flagFirmwareTags, flagFirmwareSNs, flagFirmwareSKUs, flagScope = nil, nil, nil, ""
 }
 

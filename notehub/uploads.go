@@ -5,7 +5,7 @@
 // The hub's uploads, through the v0 upload calls, which take every kind the hub stores:
 // a project's files and host firmware, and the hub's own notecard firmware, which no
 // project holds.  The 'files' mode is built on this, and the 'firmware' mode uses it for
-// notecard firmware, which the v1 firmware calls can't reach without a project.  The hub
+// Notecard catalog operations. Uploads use v1 with an explicit or default project. The hub
 // stores an upload under a name of its own, the name given with the moment it arrived,
 // and keeps the name given as the upload's source; adding never replaces, so replacing
 // means adding and then removing what the addition supersedes.

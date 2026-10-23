@@ -254,7 +254,7 @@ func Switches() []*Switch {
 }
 
 // SwitchNamed returns the named switch in any mode, or nil.  A name defined for more than
-// one set of modes returns its first definition, which is enough to know how it is parsed.
+// one set of modes returns its first definition.
 func SwitchNamed(name string) *Switch {
 	for _, s := range switches {
 		if s.Name == name {
@@ -716,9 +716,15 @@ func ParseCommandSwitches(mode *Mode, args []string) (positional []string, err e
 		}
 		found = append(found, arg)
 		if !strings.Contains(name, "=") {
-			if s := SwitchNamed(name); s != nil && s.takesValue() && i+1 < len(args) {
-				i++
-				found = append(found, args[i])
+			// A name can take a value in this mode and be a boolean in another.
+			for _, s := range SwitchesNamed(name) {
+				if s.AllowedIn(mode.Name) {
+					if s.takesValue() && i+1 < len(args) {
+						i++
+						found = append(found, args[i])
+					}
+					break
+				}
 			}
 		}
 	}

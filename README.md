@@ -211,8 +211,8 @@ endpoint.
 ```bash
 notehub firmware --project app:123                                             # what the project holds
 notehub firmware show 1.2.3 --project app:123                                  # one firmware, with what its binary says
-notehub firmware set ./build/app.bin --notes @RELEASE.md --project app:123     # upload, version read from the binary
-notehub firmware set ./build/app.bin --version 1.2.3 --project app:123         # or given
+notehub firmware upload ./build/app.bin --notes @RELEASE.md --project app:123     # upload, version read from the binary
+notehub firmware upload ./build/app.bin --version 1.2.3 --project app:123         # or given
 notehub firmware get 1.2.3 ./app-1.2.3.bin --project app:123                   # download, verified against its md5
 notehub firmware edit 1.2.3 --notes "fixes the sensor timeout" --project app:123
 notehub firmware delete app$20260324190911.bin --project app:123
@@ -223,13 +223,13 @@ notehub firmware update 1.2.3 --scope all --force --project app:123            #
 ```
 
 A firmware is named by its stored filename, such as `app$20260324190911.bin`, or by its
-original name or its version when that names just one. `set` skips a binary the project
+original name or its version when that names just one. `upload` skips a binary the project
 already holds byte for byte, and replaces one of the same name and version, uploading the
-new one before removing the old, unless `--no-replace` refuses that.
+new one before removing the old, unless `--no-replace` refuses that. `set` remains an alias for `upload`.
 
 `--scope` names devices, fleets, a fleet's name, or `@file` of them, and `all` with
 `--force` addresses every device in the project; `--tag`, `--sn` and `--sku` narrow it
-further. `--dry-run` says what `set`, `edit`, `delete`, `update` or `cancel` would do,
+further. `--dry-run` says what `upload`, `edit`, `delete`, `update` or `cancel` would do,
 without doing it, and `--json` writes a listing, metadata, status or history as JSON.
 
 ### Skills

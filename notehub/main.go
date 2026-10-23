@@ -191,13 +191,16 @@ func runDefault(config *lib.ConfigSettings) (err error) {
 		})
 	}
 
-	if flagReq != "" {
+	if flagReq != "" || flagUpload != "" {
 		didSomething = true
 		err = withCreds(config, func() (err error) {
 			var rsp []byte
-			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), "", "", "", "", false, flagJson, nil)
+			rsp, err = reqHubV0JSON(flagVerbose, lib.ConfigAPIHub(), []byte(flagReq), flagUpload, flagType, flagTags, flagNotes, flagOverwrite, flagJson, nil)
 			if err != nil {
 				return err
+			}
+			if flagOut != "" {
+				return os.WriteFile(flagOut, rsp, 0666)
 			}
 			if flagPretty {
 				var rspo map[string]interface{}

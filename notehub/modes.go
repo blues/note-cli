@@ -183,16 +183,17 @@ func notehubModes() []*cli.Mode {
 				"it.  A firmware is named by its stored filename, such as\n" +
 				"app$20260324190911.bin, or by its original name or its version when that\n" +
 				"names just one.\n\n" +
-				"'set' uploads a binary, skipping one the project already holds byte for byte,\n" +
+				"'upload' uploads a binary, skipping one the project already holds byte for byte,\n" +
 				"and replacing one of the same name and version, the new one going up before\n" +
 				"the old comes down, unless --no-replace refuses that.  The version is read\n" +
 				"from the binary when it carries one, or given with --version.  'edit' changes\n" +
-				"the version, notes or info of a firmware already uploaded.\n\n" +
+				"the version, notes or info of a firmware already uploaded.  'set' is an alias\n" +
+				"for 'upload'.\n\n" +
 				"'update' asks the devices in --scope to install a firmware, 'cancel' calls\n" +
 				"that off, and 'status' and 'history' show each device's update as it goes\n" +
 				"and as it went.  --scope names devices, fleets, a fleet's name, or @file of\n" +
 				"them, and 'all' with --force addresses every device in the project; --tag,\n" +
-				"--sn and --sku narrow it further.  --dry-run says what set, edit, delete,\n" +
+				"--sn and --sku narrow it further.  --dry-run says what upload, edit, delete,\n" +
 				"update or cancel would do, without doing it.",
 			Run: runFirmware,
 		},

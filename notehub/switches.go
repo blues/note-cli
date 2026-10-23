@@ -24,6 +24,12 @@ var (
 	flagReq         string
 	flagPretty      bool
 	flagJson        bool
+	flagUpload      string
+	flagType        string
+	flagTags        string
+	flagNotes       string
+	flagOverwrite   bool
+	flagOut         string
 	flagTrace       bool
 	flagSignIn      bool
 	flagSignInAgent string
@@ -127,6 +133,20 @@ func defaultSwitches() []*cli.Switch {
 			Usage: "keep only the JSON lines of a response"},
 		{Name: "verbose", Target: &flagVerbose, Group: "request", Modes: inProjectModes,
 			Usage: "display requests and responses as they go by"},
+
+		// Upload switches kept for scripts that predate the firmware and files modes.
+		{Name: "upload", Target: &flagUpload, Group: "files", Modes: inDefault, Hidden: true,
+			Usage: "the `filename` to upload"},
+		{Name: "type", Target: &flagType, Group: "files", Modes: inDefault, Hidden: true,
+			Usage: "the upload `type`, such as firmware"},
+		{Name: "tags", Target: &flagTags, Group: "files", Modes: inDefault, Hidden: true,
+			Usage: "`tags` to attach to the upload"},
+		{Name: "notes", Target: &flagNotes, Group: "files", Modes: inDefault, Hidden: true,
+			Usage: "`notes` to attach to the upload"},
+		{Name: "overwrite", Target: &flagOverwrite, Group: "files", Modes: inDefault, Hidden: true,
+			Usage: "use the exact upload filename and overwrite it on the service"},
+		{Name: "out", Target: &flagOut, Group: "output", Modes: inDefault, Hidden: true,
+			Usage: "write the request or upload response to a `filename`"},
 
 		// Notefiles
 		{Name: "explore", Target: &flagExplore, Group: "notefile", Modes: inDefault,
