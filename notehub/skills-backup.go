@@ -56,7 +56,7 @@ func skillsBackupCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		return fmt.Errorf("%s holds no skills yet", project)
 	}
@@ -131,8 +131,7 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
-	stored := skillsStorageVersions(uploads)
+	current := skillsStorageCurrent(uploads)
 
 	// Store what the zip holds, then remove what it doesn't
 	width := skillsWidth(append(skillsSortedNames(files), skillsOrder(current, nil)...))
@@ -146,16 +145,14 @@ func skillsRestoreCommand(config *lib.ConfigSettings, args []string) error {
 			continue
 		}
 		if !flagSkillsDryRun {
-			for _, name := range stored[source] {
-				if err = skillsStorageRemove(name); err != nil {
-					return fmt.Errorf("%s: %s", source, err)
-				}
+			if err = skillsStorageRemove(current[source]); err != nil {
+				return fmt.Errorf("%s: %s", source, err)
 			}
 		}
 		skillsReport("removed", width, source, "")
 		removed++
 	}
-	if !useV0SkillApis && !flagSkillsDryRun {
+	if !flagSkillsDryRun {
 		if err = skillsVerifyRestore(files); err != nil {
 			return fmt.Errorf("restore writes finished, but final verification failed: %w", err)
 		}

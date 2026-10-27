@@ -34,7 +34,10 @@ func TestRequestPathsUseSharedAuthentication(t *testing.T) {
 			_, err := reqHubV1JSON(false, "api.notefile.net", "GET", "/v1/projects", nil)
 			return err
 		}},
-		{"skills", func() error { _, err := skillsRequest(map[string]any{"req": "hub.app.upload.query"}); return err }},
+		{"skills", func() error {
+			_, err := skillsV1Request("app:1", http.MethodGet, "", nil, nil, nil, nil)
+			return err
+		}},
 		{"uploads", func() error {
 			_, err := uploadsRequest(uploadsScope{Type: "file"}, "query", map[string]any{})
 			return err

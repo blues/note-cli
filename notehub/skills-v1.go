@@ -204,19 +204,18 @@ func skillsV1Read(upload skillsUpload) ([]byte, error) {
 	return read.Payload, err
 }
 
-func skillsV1Store(name string, content []byte, kinds string, previous []skillsUpload) error {
+func skillsV1Store(name string, content []byte, kinds string, previous *skillsUpload) error {
 	if err := skillsV1ValidateWrite(name, content, kinds); err != nil {
 		return err
 	}
 	headers := http.Header{"If-None-Match": {"*"}}
 	project := ""
-	if len(previous) != 0 {
-		old := previous[0]
-		if len(previous) != 1 || old.Revision == "" || !strings.EqualFold(name, old.Source) {
+	if previous != nil {
+		if previous.Revision == "" || !strings.EqualFold(name, previous.Source) {
 			return fmt.Errorf("%s: missing or inconsistent revision; reread the skill", name)
 		}
-		project = old.Project
-		headers = http.Header{"If-Match": {strconv.Quote(old.Revision)}}
+		project = previous.Project
+		headers = http.Header{"If-Match": {strconv.Quote(previous.Revision)}}
 	}
 	body := skillsV1WriteBody(content, kinds)
 	var result struct {

@@ -39,7 +39,7 @@ func skillsListCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, superseded := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		fmt.Printf("%s holds no skills yet.\n", project)
 		return nil
@@ -66,15 +66,6 @@ func skillsListCommand(config *lib.ConfigSettings, args []string) error {
 	fmt.Printf("\n%d skill(s), %d bytes.  Read one with '%s %s show <name>', or the whole set with '%s %s'.\n",
 		len(sources), total, cliName, modeSkills, cliName, modeSkills)
 
-	// Superseded uploads are still stored, so say how many
-	count := 0
-	for _, names := range superseded {
-		count += len(names)
-	}
-	if count != 0 {
-		fmt.Printf("%d superseded upload(s) are also stored, and are not part of the set.\n", count)
-	}
-
 	return nil
 
 }
@@ -100,7 +91,7 @@ func skillsShowCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		return fmt.Errorf("%s holds no skills yet", project)
 	}

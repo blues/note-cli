@@ -21,7 +21,7 @@ import (
 )
 
 // A small HTTP contract fixture exercises commands through the real auth/transport
-// and JSON paths. It rejects V0 and enforces the public API's write preconditions.
+// and JSON paths. It rejects non-V1 endpoints and enforces the public API's write preconditions.
 type fakeSkills struct {
 	hub       *fakeHub
 	docs      map[string]skillsV1Document
@@ -32,9 +32,6 @@ type fakeSkills struct {
 
 func newFakeSkills(t *testing.T) *fakeSkills {
 	t.Helper()
-	if useV0SkillApis {
-		t.Skip("V1 command tests; run with useV0SkillApis = false")
-	}
 	uploadsTestReset(t)
 	s := &fakeSkills{hub: newFakeHub(t), docs: map[string]skillsV1Document{}}
 	s.hub.handle = s.handle
@@ -239,7 +236,7 @@ func TestSkillsV1OddNames(t *testing.T) {
 		if err != nil || len(read) != 1 || read[0].Source != name || string(read[0].Payload) != name {
 			t.Fatalf("read %q: %+v, %v", name, read, err)
 		}
-		if err := skillsV1Store(name, nil, "", read); err != nil {
+		if err := skillsV1Store(name, nil, "", &read[0]); err != nil {
 			t.Fatalf("replace %q: %v", name, err)
 		}
 		read, err = skillsV1QueryName(name)
@@ -537,50 +534,6 @@ func TestSkillsV1DryRunsAndValidation(t *testing.T) {
 		}
 		if len(s.hub.seen) != 0 {
 			t.Fatal("validation happened after a write")
-		}
-	}
-}
-
-// This test is run with a Go source overlay setting the compile-time switch true.
-// It covers the retained V0 query/read/add/delete flow without changing the checkout.
-func TestSkillsV0Selected(t *testing.T) {
-	if !useV0SkillApis {
-		t.Skip("V0 selection test; run with useV0SkillApis = true")
-	}
-	uploadsTestReset(t)
-	hub := newFakeHub(t)
-	hub.handle = func(r fakeRequest, w http.ResponseWriter) {
-		var body any = map[string]any{}
-		switch r.Req["req"] {
-		case "hub.app.upload.query":
-			body = skillsUploadResponse{Uploads: []skillsUpload{{Name: "index$old.md", Source: "index.md", Length: 3}}}
-		case "hub.app.upload.get":
-			body = skillsUploadResponse{Payload: []byte("old")}
-		case "hub.app.upload.add":
-			body = skillsUploadResponse{Name: "index$new.md"}
-		case "hub.app.upload.delete":
-		default:
-			t.Errorf("unexpected V0 request: %+v", r)
-		}
-		_ = json.NewEncoder(w).Encode(body)
-	}
-	uploads, err := skillsStorageQuery(false)
-	if err != nil || len(uploads) != 1 {
-		t.Fatalf("query: %v, %v", uploads, err)
-	}
-	content, err := skillsStorageRead(uploads[0])
-	if err != nil || string(content) != "old" {
-		t.Fatalf("read: %q, %v", content, err)
-	}
-	if err = skillsStorageStore("index.md", []byte("new"), "index", uploads); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(hub.calls(), []string{"hub.app.upload.query", "hub.app.upload.get", "hub.app.upload.add", "hub.app.upload.delete"}) {
-		t.Fatalf("V0 selection: %v", hub.calls())
-	}
-	for _, r := range hub.seen {
-		if r.Path != "/req" || r.Query.Get("app") != "app:1" || r.Req["type"] != "skill" {
-			t.Fatalf("incorrect V0 scope: %+v", r)
 		}
 	}
 }

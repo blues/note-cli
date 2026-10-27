@@ -516,27 +516,6 @@ func TestSkillsKinds(t *testing.T) {
 	}
 }
 
-// Only Markdown uploads are skills
-func TestIsSkill(t *testing.T) {
-	tests := []struct {
-		source string
-		skill  bool
-	}{
-		{"glossary.md", true},
-		{"references/schema.md", true},
-		{"GLOSSARY.MD", true},
-		{"model.bin", false},
-		{"notes.txt", false},
-		{"", false},
-	}
-	for _, test := range tests {
-		upload := skillsUpload{Source: test.source}
-		if upload.isSkill() != test.skill {
-			t.Errorf("'%s': expected isSkill to be %v", test.source, test.skill)
-		}
-	}
-}
-
 // A skill's name must be a clean relative path, so a file has one name and none escapes
 // its directory
 func TestSkillsCheckName(t *testing.T) {
@@ -612,18 +591,6 @@ func TestSkillsReadDir(t *testing.T) {
 	}
 	if names := skillsSortedNames(skills); !slices.Equal(names, []string{"index.md", "references/a.md"}) {
 		t.Errorf("skills are %v, expected [index.md references/a.md]", names)
-	}
-}
-
-// Replacing or removing a skill covers every upload under its name, superseded ones too
-func TestSkillsStorageVersions(t *testing.T) {
-	names := skillsStorageVersions([]skillsUpload{
-		{Name: "index$2.md", Source: "index.md"},
-		{Name: "index$1.md", Source: "index.md"},
-		{Name: "product$1.md", Source: "product.md"},
-	})
-	if len(names["index.md"]) != 2 || names["index.md"][0].Name != "index$2.md" || names["index.md"][1].Name != "index$1.md" || len(names["product.md"]) != 1 || names["product.md"][0].Name != "product$1.md" {
-		t.Errorf("names are %v", names)
 	}
 }
 

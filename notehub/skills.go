@@ -108,7 +108,7 @@ func skillsGetCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		return fmt.Errorf("%s holds no skills yet", project)
 	}
@@ -245,7 +245,7 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 
 	// Name any skills the directory left untouched
 	if info.IsDir() {
-		current, _ := skillsStorageCurrent(uploads)
+		current := skillsStorageCurrent(uploads)
 		others := []string{}
 		for _, source := range skillsOrder(current, nil) {
 			if !skillsFilesContain(files, source) {
@@ -262,8 +262,8 @@ func skillsSetCommand(config *lib.ConfigSettings, args []string) error {
 }
 
 // skillsStore stores files as skills, each under its name, and reports each as new,
-// replaced or unchanged. Every local file is checked before the first write. V1
-// confirms even unchanged skills conditionally; --dry-run performs no writes.
+// replaced or unchanged. Every local file is checked before the first write. Even
+// unchanged skills are confirmed conditionally; --dry-run performs no writes.
 func skillsStore(files map[string][]byte, uploads []skillsUpload, width int) (changed int, unchanged int, err error) {
 
 	// Check every name and kind before storing anything
@@ -276,46 +276,42 @@ func skillsStore(files map[string][]byte, uploads []skillsUpload, width int) (ch
 		if kinds[name], err = skillsKinds(files[name]); err != nil {
 			return 0, 0, fmt.Errorf("%s: %s", name, err)
 		}
-		if !useV0SkillApis {
-			if err = skillsV1ValidateWrite(name, files[name], kinds[name]); err != nil {
-				return
-			}
-			for _, other := range names {
-				if other != name && strings.EqualFold(other, name) {
-					return 0, 0, fmt.Errorf("%s and %s are the same skill name in V1; choose one spelling", name, other)
-				}
+		if err = skillsV1ValidateWrite(name, files[name], kinds[name]); err != nil {
+			return
+		}
+		for _, other := range names {
+			if other != name && strings.EqualFold(other, name) {
+				return 0, 0, fmt.Errorf("%s and %s are the same skill name; choose one spelling", name, other)
 			}
 		}
 	}
 
 	// Store each one that differs from what the project holds
-	current, _ := skillsStorageCurrent(uploads)
-	stored := skillsStorageVersions(uploads)
+	current := skillsStorageCurrent(uploads)
 	for _, name := range names {
 		state := "new"
 		source := name
-		if !useV0SkillApis {
-			for existing := range current {
-				if strings.EqualFold(existing, name) {
-					source = existing
-					break
-				}
+		for existing := range current {
+			if strings.EqualFold(existing, name) {
+				source = existing
+				break
 			}
 		}
+		var previous *skillsUpload
 		if upload, have := current[source]; have {
+			previous = &upload
 			state = "replaced"
 			held, readErr := skillsStorageRead(upload)
 			if readErr != nil {
 				return changed, unchanged, fmt.Errorf("%s: %s", name, readErr)
 			}
-			if source == name && bytes.Equal(held, files[name]) && upload.Tags == kinds[name] && len(stored[source]) == 1 {
+			if source == name && bytes.Equal(held, files[name]) && upload.Tags == kinds[name] {
 				state = "unchanged"
 			}
 		}
-		// Even an unchanged V1 PUT checks write access and the original revision,
-		// and lets the service retire superseded V0 records atomically.
-		if !flagSkillsDryRun && (state != "unchanged" || !useV0SkillApis) {
-			if err = skillsStorageStore(name, files[name], kinds[name], stored[source]); err != nil {
+		// Even an unchanged PUT checks write access and the original revision
+		if !flagSkillsDryRun {
+			if err = skillsStorageStore(name, files[name], kinds[name], previous); err != nil {
 				return changed, unchanged, fmt.Errorf("%s: %w", name, err)
 			}
 		}
@@ -347,11 +343,10 @@ func skillsRenameCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		return fmt.Errorf("%s holds no skills", project)
 	}
-	stored := skillsStorageVersions(uploads)
 
 	// The skill, and the name it is to have, which ends in .md like any other
 	upload, err := skillsResolve(current, args[0])
@@ -371,38 +366,34 @@ func skillsRenameCommand(config *lib.ConfigSettings, args []string) error {
 
 	// A skill already under the new name, or under one differing from it only in case,
 	// is replaced only with --force
-	replacing := []skillsUpload{}
-	for source := range current {
+	var replacing *skillsUpload
+	for source, held := range current {
 		if source != upload.Source && strings.EqualFold(source, newName) {
 			if !flagSkillsForce {
 				return fmt.Errorf("%s already holds %s - add --force to replace it", project, source)
 			}
-			replacing = append(replacing, stored[source]...)
+			replacing = &held
 		}
 	}
-	caseOnly := !useV0SkillApis && strings.EqualFold(upload.Source, newName)
+	caseOnly := strings.EqualFold(upload.Source, newName)
 	if caseOnly {
-		replacing = stored[upload.Source]
+		replacing = &upload
 	}
 
 	contents, err := skillsStorageRead(upload)
 	if err != nil {
 		return err
 	}
-	if !useV0SkillApis {
-		if err = skillsV1ValidateWrite(newName, contents, upload.Tags); err != nil {
-			return err
-		}
+	if err = skillsV1ValidateWrite(newName, contents, upload.Tags); err != nil {
+		return err
 	}
 	if !flagSkillsDryRun {
 		if err = skillsStorageStore(newName, contents, upload.Tags, replacing); err != nil {
 			return fmt.Errorf("%s: %s", newName, err)
 		}
 		if !caseOnly {
-			for _, previous := range stored[upload.Source] {
-				if err = skillsStorageRemove(previous); err != nil {
-					return fmt.Errorf("%s was stored, but removing %s failed: %w; both names may remain", newName, upload.Source, err)
-				}
+			if err = skillsStorageRemove(upload); err != nil {
+				return fmt.Errorf("%s was stored, but removing %s failed: %w; both names may remain", newName, upload.Source, err)
 			}
 		}
 	}
@@ -443,11 +434,10 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 	if err != nil {
 		return err
 	}
-	current, _ := skillsStorageCurrent(uploads)
+	current := skillsStorageCurrent(uploads)
 	if len(current) == 0 {
 		return fmt.Errorf("%s holds no skills", project)
 	}
-	stored := skillsStorageVersions(uploads)
 
 	// Which skills; removing them all requires --force, unless nothing is to be changed
 	sources := []string{}
@@ -465,13 +455,10 @@ func skillsDeleteCommand(config *lib.ConfigSettings, args []string) error {
 		sources = append(sources, upload.Source)
 	}
 
-	// Remove every upload stored under each name, superseded ones included
 	for _, source := range sources {
 		if !flagSkillsDryRun {
-			for _, name := range stored[source] {
-				if err = skillsStorageRemove(name); err != nil {
-					return fmt.Errorf("%s: %s", source, err)
-				}
+			if err = skillsStorageRemove(current[source]); err != nil {
+				return fmt.Errorf("%s: %s", source, err)
 			}
 		}
 		fmt.Printf("  removed   %s\n", source)
@@ -492,17 +479,12 @@ func skillsProject() (project string, err error) {
 	return "", fmt.Errorf("specify the project with --project or --product")
 }
 
-// V1 names have case-insensitive identity, including when restoring an exact set.
+// Skill names have case-insensitive identity, including when restoring an exact set.
 // A case-only replacement must not subsequently be treated as an absent old name.
 func skillsFilesContain(files map[string][]byte, name string) bool {
-	if _, ok := files[name]; ok {
-		return true
-	}
-	if !useV0SkillApis {
-		for candidate := range files {
-			if strings.EqualFold(candidate, name) {
-				return true
-			}
+	for candidate := range files {
+		if strings.EqualFold(candidate, name) {
+			return true
 		}
 	}
 	return false

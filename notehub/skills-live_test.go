@@ -8,14 +8,10 @@ import (
 )
 
 // Invoked by hub's TestSkillsCLIThroughFabio with a disposable project and PAT.
-// Build this test binary with useV0SkillApis=false (a Go source overlay is enough).
 func TestSkillsLiveAPI(t *testing.T) {
 	endpoint, project := os.Getenv("NOTECLI_SKILLS_TEST_URL"), os.Getenv("NOTECLI_SKILLS_TEST_PROJECT")
 	if endpoint == "" || project == "" {
 		t.Skip("requires a disposable hub test project")
-	}
-	if useV0SkillApis {
-		t.Fatal("live Skills contract test requires the V1 build")
 	}
 	uploadsTestReset(t)
 	flagApp = project
