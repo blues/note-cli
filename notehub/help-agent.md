@@ -152,11 +152,30 @@ On authentication failure, check status and follow section 2. On permission or
 request errors, inspect the response and spec. Respect rate-limit retry guidance.
 After an uncertain write result, inspect the resource before repeating the write.
 
-### Read changes with cursors
+### Read changes with modification cursors
 
 For endpoints documenting a modification-time `cursor`, results arrive oldest
 modification first. Start at a UTC Unix timestamp in **microseconds**, or `0`
-when you need to read from the beginning:
+when you need to read from the beginning. Use the collection endpoint documented
+in the deployed spec, such as `/v1/projects/{project}/events`.
+
+To read all available batches automatically:
+
+```sh
+notehub api GET '/v1/projects/{project}/events' \
+  --project app:PROJECT_UID --paginate --field pageSize=1000
+```
+
+`--paginate` starts at `cursor=0` unless you supply `--raw-field cursor=VALUE`.
+It follows `next_cursor`/`has_more` or the `X-Next-Cursor`/`X-Has-More` headers
+until no more results remain. Each response is written separately; the output
+is a sequence of responses, not one combined JSON document. Add `--include`
+when you need to retain cursor headers. Missing continuation metadata or a
+repeated cursor with more results causes a nonzero exit; do not treat partial
+output as a complete read. Do not combine automatic pagination with a page
+number beyond 1 or conflicting sort options.
+
+For processing and checkpointing one batch at a time, omit `--paginate`:
 
 ```sh
 notehub api GET '/v1/projects/{project}/devices' \
@@ -164,7 +183,9 @@ notehub api GET '/v1/projects/{project}/devices' \
 ```
 
 Process the records, then send the exact returned `next_cursor` as the next
-`cursor`, preserving it as an opaque string. Continue while `has_more` is true.
+`cursor`, preserving it as an opaque string. A returned cursor may include a
+tie breaker; never truncate it to a timestamp or convert it to a floating-point
+number. Continue while `has_more` is true.
 Save the final cursor after processing; reuse it later to read new changes,
 keeping the same endpoint, resource, and filters. Empty results may still carry
 a useful cursor. Apply updates by resource identifier and handle `deleted: true`

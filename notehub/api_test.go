@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -287,29 +288,159 @@ func TestApiStreams(t *testing.T) {
 	_ = hub
 }
 
-// --paginate asks for page after page until the hub says there are no more
+// Modification cursors retain their full precision, including timestamp ties.
+// Both JSON metadata and headers (including array bodies) drive continuation.
 func TestApiPaginate(t *testing.T) {
+	for _, test := range []struct {
+		name, start, query string
+		headers            bool
+		rawCursor          bool
+	}{
+		{name: "JSON from beginning", start: "0"},
+		{name: "headers and arrays", start: "0", headers: true},
+		{name: "timestamp", start: "1793145600123456", query: "&cursor=1793145600123456"},
+		{name: "resume exact cursor", start: "1793145600123456.9007199254740993", query: "&cursor=1793145600123456.9007199254740993&pageNum=1", headers: true},
+		{name: "resume raw field", start: "1793145600123456.9007199254740993", rawCursor: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiTestReset(t)
+			cursors := []string{test.start, "1793145600123456.9007199254740994", "1793145600123456.9007199254740995"}
+			calls := 0
+			hub := newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				index := calls
+				calls++
+				if index >= len(cursors) {
+					t.Error("requested a page after has_more=false")
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				query := r.URL.Query()
+				if query.Get("cursor") != cursors[index] || query.Has("pageNum") || query.Get("pageSize") != "1" || query.Get("deviceUID") != "dev:1" || query.Get("test") != "yes" {
+					t.Errorf("page %d: unexpected query %v", index, query)
+				}
+				more := index < len(cursors)-1
+				next := cursors[index]
+				if more {
+					next = cursors[index+1]
+				}
+				if test.headers {
+					w.Header().Set("X-Next-Cursor", next)
+					w.Header().Set("X-Has-More", fmt.Sprint(more))
+					fmt.Fprintf(w, `[{"id":%d,"deleted":true}]`, index)
+				} else {
+					fmt.Fprintf(w, `{"events":[{"id":%d,"deleted":true}],"next_cursor":%q,"has_more":%t}`, index, next, more)
+				}
+			})
+			flagApiPaginate, flagApp = true, "app:1"
+			flagApiFields = cli.StringList{"pageSize=1"}
+			flagApiRaw = cli.StringList{"deviceUID=dev:1"}
+			if test.rawCursor {
+				flagApiRaw = append(flagApiRaw, "cursor="+test.start)
+			}
+			flagApiInclude = test.headers
+			out, err := apiTestRun(t, []string{"GET", "/v1/projects/{project}/events?test=yes" + test.query}, "")
+			if err != nil || calls != 3 || hub.path != "/v1/projects/app:1/events" {
+				t.Fatalf("calls=%d path=%s error=%v", calls, hub.path, err)
+			}
+			if strings.Count(out, `"deleted":true`) != 3 || !strings.Contains(out, `"id":2`) {
+				t.Errorf("page bodies were not preserved: %q", out)
+			}
+			if test.headers && strings.Count(out, "X-Next-Cursor:") != 3 {
+				t.Errorf("--include lost cursor headers: %q", out)
+			}
+		})
+	}
+}
+
+func TestApiPaginateFailures(t *testing.T) {
+	for _, test := range []struct {
+		name, body, want string
+		header           http.Header
+	}{
+		{name: "missing cursor", body: `{"has_more":true}`, want: "missing next_cursor"},
+		{name: "missing continuation", body: `{"next_cursor":"1.2"}`, want: "missing has_more"},
+		{name: "invalid JSON", body: `{`, want: "expected modification cursor metadata"},
+		{name: "numeric cursor", body: `{"next_cursor":1793145600123456,"has_more":true}`, want: "expected modification cursor metadata"},
+		{name: "invalid continuation", body: `{"next_cursor":"1.2","has_more":"true"}`, want: "expected modification cursor metadata"},
+		{name: "unsupported endpoint", body: `[]`, want: "expected modification cursor metadata"},
+		{name: "repeated cursor", body: `{"next_cursor":"0","has_more":true}`, want: "repeated a modification cursor"},
+		{name: "invalid header", body: `[]`, header: http.Header{"X-Next-Cursor": {"1.2"}, "X-Has-More": {"maybe"}}, want: "invalid X-Has-More"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiTestReset(t)
+			calls := 0
+			newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls > 1 {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				for key, values := range test.header {
+					w.Header()[key] = values
+				}
+				io.WriteString(w, test.body)
+			})
+			flagApiPaginate = true
+			out, err := apiTestRun(t, []string{"/v1/projects/app:1/events"}, "")
+			if err == nil || !strings.Contains(err.Error(), test.want) || calls != 1 {
+				t.Fatalf("calls=%d error=%v, want %q", calls, err, test.want)
+			}
+			if out != test.body+"\n" {
+				t.Errorf("response body lost: %q", out)
+			}
+		})
+	}
+}
+
+func TestApiPaginateStops(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		bodies []string
+		status int
+		want   string
+	}{
+		{name: "empty terminal page", bodies: []string{`{"events":[],"next_cursor":"0","has_more":false}`}},
+		{name: "cursor cycle", bodies: []string{`{"next_cursor":"1.2","has_more":true}`, `{"next_cursor":"1.3","has_more":true}`, `{"next_cursor":"1.2","has_more":true}`}, want: "repeated a modification cursor"},
+		{name: "HTTP error on next page", bodies: []string{`{"next_cursor":"1.2","has_more":true}`, `{"err":"rate limit"}`}, status: http.StatusTooManyRequests, want: "HTTP 429 Too Many Requests: rate limit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			apiTestReset(t)
+			calls := 0
+			newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				index := calls
+				calls++
+				if index >= len(test.bodies) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if index == len(test.bodies)-1 && test.status != 0 {
+					w.WriteHeader(test.status)
+				}
+				io.WriteString(w, test.bodies[index])
+			})
+			flagApiPaginate = true
+			out, err := apiTestRun(t, []string{"/v1/projects/app:1/events"}, "")
+			if (test.want == "" && err != nil) || (test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want))) || calls != len(test.bodies) {
+				t.Fatalf("calls=%d error=%v, want %q", calls, err, test.want)
+			}
+			if out != strings.Join(test.bodies, "\n")+"\n" {
+				t.Errorf("response bodies lost: %q", out)
+			}
+		})
+	}
+}
+
+func TestApiPaginateRejectsConflictingRequests(t *testing.T) {
 	apiTestReset(t)
-	pages := []string{}
-	hub := newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		pages = append(pages, r.URL.Query().Get("pageNum"))
-		hasMore := r.URL.Query().Get("pageNum") != "3"
-		w.Write([]byte(`{"devices":["` + r.URL.Query().Get("pageNum") + `"],"has_more":` + map[bool]string{true: "true", false: "false"}[hasMore] + `}`))
-	})
 	flagApiPaginate = true
-	flagApp = "app:1"
-	out, err := apiTestRun(t, []string{"/v1/projects/{project}/devices?pageSize=1"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(pages, ",") != "1,2,3" || hub.path != "/v1/projects/app:1/devices" {
-		t.Errorf("hub was asked for pages %v at %s", pages, hub.path)
-	}
-	if strings.Count(out, "\n") != 3 || !strings.Contains(out, `"devices":["3"]`) {
-		t.Errorf("wrote %q", out)
-	}
-	if _, err := apiTestRun(t, []string{"POST", "/v1/things"}, ""); err == nil {
-		t.Errorf("--paginate on a POST was accepted")
+	for _, args := range [][]string{
+		{"POST", "/v1/projects/app:1/events"},
+		{"GET", "/v1/projects/app:1/events?pageNum=2"},
+		{"GET", "/v1/projects/app:1/events?cursor=0&pageNum=2"},
+	} {
+		if _, err := apiTestRun(t, args, ""); err == nil {
+			t.Errorf("accepted %v", args)
+		}
 	}
 }
 

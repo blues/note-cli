@@ -22,7 +22,6 @@ import (
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/blues/note-cli/lib"
@@ -58,7 +57,7 @@ func apiSwitches() []*cli.Switch {
 		{Name: "include", Target: &flagApiInclude, Group: "request", Modes: inApi,
 			Usage: "write the status line and headers before the body"},
 		{Name: "paginate", Target: &flagApiPaginate, Group: "request", Modes: inApi,
-			Usage: "follow has_more through every page of a GET, writing each"},
+			Usage: "follow a GET's modification cursor until has_more is false; starts at cursor=0 unless given"},
 		{Name: "spec", Target: &flagApiSpec, Group: "request", Modes: inApi,
 			Usage: "show the hub's OpenAPI spec, from https://<hub>/openapi.yaml, instead of sending a request"},
 	}
@@ -70,7 +69,7 @@ func apiExamples() []cli.Example {
 		{What: "List your projects", Command: cliName + " api /v1/projects"},
 		{What: "List a project's devices, with the project written into the path", Command: cliName + " api /v1/projects/app:123/devices"},
 		{What: "The same, with --project filling in {project}", Command: cliName + " api /v1/projects/{project}/devices --project app:123"},
-		{What: "Every page of them", Command: cliName + " api /v1/projects/{project}/devices --paginate --project <projectUID>"},
+		{What: "Read all device changes using modification cursors", Command: cliName + " api GET '/v1/projects/{project}/devices' --paginate --project <projectUID>"},
 		{What: "Get a device's environment variables, --project and --device filling in the placeholders", Command: cliName + " api /v1/projects/{project}/devices/{device}/environment_variables --project <projectUID> --device <deviceUID>"},
 		{What: "Set them, with the body from a file", Command: cliName + " api PUT /v1/projects/{project}/devices/{device}/environment_variables --input vars.json --project <projectUID> --device <deviceUID>"},
 		{What: "Send a body from stdin", Command: "cat fleet.json | " + cliName + " api POST /v1/projects/{project}/fleets --input - --project <projectUID>"},
@@ -168,13 +167,18 @@ func apiCommand(args []string, in io.Reader, out io.Writer, client *http.Client)
 	if request.Method != http.MethodGet {
 		return errors.New("--paginate follows the pages of a GET")
 	}
-	pageNum := 1
-	if given, err := strconv.Atoi(request.URL.Query().Get("pageNum")); err == nil && given > 0 {
-		pageNum = given
+	query := request.URL.Query()
+	if query.Has("pageNum") && query.Get("pageNum") != "1" {
+		return errors.New("--paginate uses modification cursors; omit pageNum and use cursor to resume")
 	}
+	query.Del("pageNum")
+	cursor := query.Get("cursor")
+	if cursor == "" {
+		cursor = "0"
+	}
+	seen := map[string]bool{cursor: true}
 	for {
-		query := request.URL.Query()
-		query.Set("pageNum", strconv.Itoa(pageNum))
+		query.Set("cursor", cursor)
 		request.URL.RawQuery = query.Encode()
 		rsp, err := apiSend(client, request)
 		if err != nil {
@@ -184,15 +188,57 @@ func apiCommand(args []string, in io.Reader, out io.Writer, client *http.Client)
 		if err := apiFailure(rsp); err != nil {
 			return err
 		}
-		var page struct {
-			HasMore bool `json:"has_more"`
+		next, more, err := apiCursorPage(rsp)
+		if err != nil {
+			return fmt.Errorf("--paginate: %w", err)
 		}
-		if json.Unmarshal(rsp.Body, &page) != nil || !page.HasMore {
+		if !more {
 			return nil
 		}
-		pageNum++
+		if seen[next] {
+			return errors.New("--paginate: the hub repeated a modification cursor while has_more is true")
+		}
+		seen[next] = true
+		cursor = next
 	}
 
+}
+
+// apiCursorPage reads the modification-feed continuation. Headers also support
+// endpoints with array or streamed bodies; object responses may carry the same
+// values in JSON. Keep cursors as strings so their full precision is preserved.
+func apiCursorPage(rsp *apiResponse) (string, bool, error) {
+	var page struct {
+		NextCursor *string `json:"next_cursor"`
+		HasMore    *bool   `json:"has_more"`
+	}
+	next := rsp.Header.Get("X-Next-Cursor")
+	moreHeader := rsp.Header.Get("X-Has-More")
+	if next == "" || moreHeader == "" {
+		if err := json.Unmarshal(rsp.Body, &page); err != nil {
+			return "", false, errors.New("expected modification cursor metadata in X-Next-Cursor/X-Has-More headers or next_cursor/has_more JSON fields")
+		}
+	}
+	if next == "" && page.NextCursor != nil {
+		next = *page.NextCursor
+	}
+	if strings.TrimSpace(next) == "" {
+		return "", false, errors.New("missing next_cursor; use --paginate on an endpoint that supports modification cursors")
+	}
+	if moreHeader != "" {
+		switch moreHeader {
+		case "true":
+			return next, true, nil
+		case "false":
+			return next, false, nil
+		default:
+			return "", false, fmt.Errorf("invalid X-Has-More header: %q", moreHeader)
+		}
+	}
+	if page.HasMore == nil {
+		return "", false, errors.New("missing has_more in the modification cursor response")
+	}
+	return next, *page.HasMore, nil
 }
 
 // apiRequestFrom builds the request from the command line: the method and path, the

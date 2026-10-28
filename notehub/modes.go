@@ -167,6 +167,11 @@ func notehubModes() []*cli.Mode {
 				"it whole.  The exit code is 0 when the hub answered with success, and 1 when\n" +
 				"it answered with an error, whose body is still written, or couldn't be\n" +
 				"reached.\n\n" +
+				"--paginate reads a GET as a modification feed, starting at cursor=0 unless\n" +
+				"a cursor is supplied.  It follows next_cursor and has_more from the JSON\n" +
+				"response or X-Next-Cursor and X-Has-More headers, writing each response.\n" +
+				"Use --raw-field cursor=<value> to start at Unix epoch microseconds or resume\n" +
+				"from an exact returned cursor; --include retains continuation headers.\n\n" +
 				"The hub's OpenAPI spec describes every endpoint, and --spec shows it, from\n" +
 				"https://<hub>/openapi.yaml.",
 			Run: runApi,
