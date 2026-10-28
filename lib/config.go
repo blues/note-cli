@@ -5,13 +5,14 @@
 package lib
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,10 +24,13 @@ import (
 
 // ConfigCreds are the credentials for a given Notehub
 type ConfigCreds struct {
-	User      string     `json:"user,omitempty"`
-	Token     string     `json:"token,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	Hub       string     `json:"-"`
+	User         string     `json:"user,omitempty"`
+	Token        string     `json:"token,omitempty"`
+	RefreshToken string     `json:"refresh_token,omitempty"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	Hub          string     `json:"-"`
+	// Source is the environment variable the token came from, or "" for a saved sign-in
+	Source string `json:"-"`
 }
 
 func (creds ConfigCreds) IsOAuthAccessToken() bool {
@@ -39,9 +43,34 @@ func (creds ConfigCreds) IsOAuthAccessToken() bool {
 	return true
 }
 
+// ExpiredAt reports whether the credentials had expired by the given time
+func (creds ConfigCreds) ExpiredAt(now time.Time) bool {
+	return creds.ExpiresAt != nil && !creds.ExpiresAt.After(now)
+}
+
+// ConfigTimeFormat is how a time is displayed, as in "expires at 2026-01-02 15:04:05 MST"
+const ConfigTimeFormat = "2006-01-02 15:04:05 MST"
+
+// ExpirationDescription says when the credentials expire, as "expires at <time>", or
+// expired, as "expired at <time>", or "" when no expiration is recorded, as for a
+// personal access token, whose expiration Notehub keeps
+func (creds ConfigCreds) ExpirationDescription(now time.Time) string {
+	switch {
+	case creds.ExpiresAt == nil:
+		return ""
+	case creds.ExpiredAt(now):
+		return "expired at " + creds.ExpiresAt.Format(ConfigTimeFormat)
+	}
+	return "expires at " + creds.ExpiresAt.Format(ConfigTimeFormat)
+}
+
 func (creds ConfigCreds) AddHttpAuthHeader(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+creds.Token)
 }
+
+// ErrCredentialsRejected distinguishes an invalid login from a service or network
+// failure. Only an explicit authentication rejection warrants a new sign-in.
+var ErrCredentialsRejected = errors.New("credentials rejected")
 
 func IntrospectToken(hub string, token string) (string, error) {
 	if !strings.HasPrefix(hub, "api.") {
@@ -59,12 +88,18 @@ func IntrospectToken(hub string, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return introspectionResponse(resp)
+}
 
+func introspectionResponse(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("%w (http %d)", ErrCredentialsRejected, resp.StatusCode)
+	}
 
 	userinfo := map[string]interface{}{}
 	if err := note.JSONUnmarshal(body, &userinfo); err != nil {
@@ -100,11 +135,12 @@ type ConfigPort struct {
 
 // ConfigSettings defines the config file that maintains the command processor's state
 type ConfigSettings struct {
-	When      string                 `json:"when,omitempty"`
-	Hub       string                 `json:"hub,omitempty"`
-	HubCreds  map[string]ConfigCreds `json:"creds,omitempty"`
-	Interface string                 `json:"interface,omitempty"`
-	IPort     map[string]ConfigPort  `json:"iport,omitempty"`
+	When              string                 `json:"when,omitempty"`
+	Hub               string                 `json:"hub,omitempty"`
+	HubCreds          map[string]ConfigCreds `json:"creds,omitempty"`
+	Interface         string                 `json:"interface,omitempty"`
+	IPort             map[string]ConfigPort  `json:"iport,omitempty"`
+	credentialChanges map[string]bool
 }
 
 // Config are the master config settings
@@ -115,95 +151,278 @@ var configFlagPort string
 var configFlagPortConfig int
 
 func (config *ConfigSettings) Write() error {
-	// Marshal it
-	configJSON, err := note.JSONMarshalIndent(config, "", "    ")
-	if err != nil {
-		return fmt.Errorf("can't marshal configuration: %s", err)
-	}
-
-	// Write the file
-	configPath := configSettingsPath()
-	fd, err := os.OpenFile(configPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	if _, err := fd.Write(configJSON); err != nil {
-		return fmt.Errorf("can't write %s: %s", configPath, err)
-	}
-	return fd.Close()
+	return withConfigLock(context.Background(), func() error {
+		stored, err := readConfigFromFile()
+		if err != nil {
+			return err
+		}
+		updated := *config
+		// An unrelated settings write must not restore tokens rotated by another CLI.
+		if stored != nil {
+			updated.HubCreds = stored.HubCreds
+			if updated.HubCreds == nil {
+				updated.HubCreds = map[string]ConfigCreds{}
+			}
+			for hub := range config.credentialChanges {
+				updated.HubCreds[hub] = config.HubCreds[hub]
+			}
+		}
+		contents, err := updated.savedJSON()
+		if err != nil {
+			return err
+		}
+		if err = writeConfigJSON(contents); err != nil {
+			return err
+		}
+		config.HubCreds, config.credentialChanges = updated.HubCreds, nil
+		return nil
+	})
 }
 
-func (config *ConfigSettings) Print() {
-	fmt.Printf("\nCurrently saved values:\n")
+// configSavedHub is the hub the configuration file names, as read before any --hub given
+// for this command alone, or "" when the flags haven't been processed
+var configSavedHub string
 
+// savedJSON is the configuration as it is written: with the saved hub, so that a --hub
+// given for one command doesn't become the hub of the commands that follow unless
+// AdoptHub says so
+func (config *ConfigSettings) savedJSON() ([]byte, error) {
+	saved := *config
+	if configSavedHub != "" {
+		saved.Hub = configSavedHub
+	}
+	return note.JSONMarshalIndent(&saved, "", "    ")
+}
+
+// AdoptHub makes the hub in use the saved one, for the commands that follow, when the
+// configuration is next written
+func (config *ConfigSettings) AdoptHub() {
+	configSavedHub = config.Hub
+}
+
+// ConfigSavedHub returns the hub the configuration names: the one in use between
+// commands, whatever --hub was given for this one
+func ConfigSavedHub() string {
+	if configSavedHub != "" {
+		return configSavedHub
+	}
+	if config != nil {
+		return config.Hub
+	}
+	return ""
+}
+
+// PrintSettings shows the saved settings a tool uses: the Notecard's interface and port
+// for one that talks to a Notecard, and the hub and its logins for one that talks to
+// Notehub
+func (config *ConfigSettings) PrintSettings(notecardSettings bool, notehubSettings bool) {
+	if notehubSettings && config.EnvCredentials() != nil {
+		fmt.Printf("\n%s is set, and its token is used for every request in place of the saved credentials.\n", ConfigTokenEnvVar)
+	}
+	fmt.Printf("\nCurrently saved values:\n")
+	shown := false
+	if notehubSettings {
+		shown = config.printNotehubSettings() || shown
+	}
+	if notecardSettings {
+		shown = config.printNotecardSettings() || shown
+	}
+	if !shown {
+		fmt.Printf("   none\n")
+	}
+}
+
+// printNotehubSettings shows the hub and each hub's login, and reports whether there
+// were any
+func (config *ConfigSettings) printNotehubSettings() (shown bool) {
 	if config.Hub != "" {
 		fmt.Printf("       hub: %s\n", config.Hub)
+		shown = true
 	}
-	if len(config.HubCreds) != 0 {
-		fmt.Printf("     creds:\n")
-		for hub, cred := range config.HubCreds {
-			tokenType := "PAT"
-			if cred.IsOAuthAccessToken() {
-				tokenType = "OAuth"
-			}
+	// Each hub's login, in a fixed order, with when it expires, or expired
+	now := time.Now()
+	hubs := []string{}
+	for hub := range config.HubCreds {
+		hubs = append(hubs, hub)
+	}
+	sort.Strings(hubs)
+	shownCreds := false
+	for _, hub := range hubs {
+		cred := config.HubCreds[hub]
 
-			expires := ""
-			if cred.ExpiresAt != nil {
-				if cred.ExpiresAt.Before(time.Now()) {
-					expires = fmt.Sprintf(" (expired)")
-				} else {
-					expires = fmt.Sprintf(" (expires at %s)", cred.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
-				}
-			}
+		tokenType := "token"
+		if cred.IsOAuthAccessToken() {
+			tokenType = "login"
+		}
+
+		expires := ""
+		if description := cred.ExpirationDescription(now); description != "" {
+			expires = " " + description
+		}
+		if !shownCreds {
+			shownCreds = true
+			fmt.Printf("     creds: %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
+		} else {
 			fmt.Printf("            %s: %s (%s)%s\n", hub, cred.User, tokenType, expires)
 		}
+		shown = true
 	}
+	return shown
+}
+
+// printNotecardSettings shows the interface and port, as the options that set them, so
+// they can be pasted onto a command line, and reports whether there were any
+func (config *ConfigSettings) printNotecardSettings() (shown bool) {
 	if config.Interface != "" {
-		fmt.Printf("   -interface %s\n", config.Interface)
+		shown = true
+		fmt.Printf("   --interface %s\n", config.Interface)
 
 		configPort := config.IPort[config.Interface]
 		if configPort.Port == "" {
-			fmt.Printf("   -port -\n")
-			fmt.Printf("   -portconfig -\n")
+			fmt.Printf("   --port -\n")
+			fmt.Printf("   --portconfig -\n")
 		} else {
-			fmt.Printf("   -port %s\n", configPort.Port)
-			fmt.Printf("   -portconfig %d\n", configPort.PortConfig)
+			fmt.Printf("   --port %s\n", configPort.Port)
+			fmt.Printf("   --portconfig %d\n", configPort.PortConfig)
 		}
 	}
+	return shown
 }
 
+// ConfigTokenEnvVar names the environment variable that, when set, supplies the token for
+// every request, in place of any saved sign-in
+const ConfigTokenEnvVar = "NOTEHUB_TOKEN"
+
+// EnvCredentials returns the credentials given by the NOTEHUB_TOKEN environment variable,
+// for the configured hub, or nil when it isn't set
+func (config *ConfigSettings) EnvCredentials() *ConfigCreds {
+	token := strings.TrimSpace(os.Getenv(ConfigTokenEnvVar))
+	if token == "" {
+		return nil
+	}
+	return &ConfigCreds{Hub: config.Hub, Token: token, Source: ConfigTokenEnvVar}
+}
+
+// DefaultCredentials returns the credentials for the configured hub: those in the
+// environment when NOTEHUB_TOKEN is set, and otherwise the saved sign-in, or nil if there
+// is neither
 func (config *ConfigSettings) DefaultCredentials() *ConfigCreds {
-	if creds, present := config.HubCreds[config.Hub]; present && creds.Token != "" && creds.User != "" {
-		creds.Hub = config.Hub
+	if creds := config.EnvCredentials(); creds != nil {
+		return creds
+	}
+	return config.SavedCredentials(config.Hub)
+}
+
+// CredentialsForHub uses the environment token only for the connection in use.
+func (config *ConfigSettings) CredentialsForHub(hub string) *ConfigCreds {
+	if hub == config.Hub {
+		return config.DefaultCredentials()
+	}
+	return config.SavedCredentials(hub)
+}
+
+// SavedCredentials returns the login saved for a hub, or nil if there is none
+func (config *ConfigSettings) SavedCredentials(hub string) *ConfigCreds {
+	if creds, present := config.HubCreds[hub]; present && creds.Token != "" && creds.User != "" {
+		creds.Hub = hub
 		return &creds
 	}
 	return nil
 }
 
-// clear credentials for the currently config.Hub value
-// if the credentials are from OAuth, then revoke the access token
+// RemoveDefaultCredentials clears the credentials for config.Hub. An OAuth
+// sign-in is also ended at Notehub and Hydra. A personal access token is left
+// alone: the user set its expiration and manages it under API Access.
 func (config *ConfigSettings) RemoveDefaultCredentials() error {
-	credentials, present := config.HubCreds[config.Hub]
-	if !present {
-		return fmt.Errorf("not signed in to %s", config.Hub)
+	// Renew before asking Notehub to remove the session. Logout must still clear
+	// local credentials when the grant is revoked or the service is unavailable.
+	_, _ = config.RefreshCredentials(context.Background(), "")
+	var credentials *ConfigCreds
+	err := config.withStoredCredentials(context.Background(), func(stored *ConfigSettings) (bool, error) {
+		credentials = stored.SavedCredentials(config.Hub)
+		if credentials == nil {
+			return false, fmt.Errorf("not logged in to %s", config.Hub)
+		}
+		delete(stored.HubCreds, config.Hub)
+		return true, nil
+	})
+	if err != nil {
+		return err
 	}
 
-	if !credentials.IsOAuthAccessToken() {
-		notehub.RevokeAccessToken(credentials.Hub, credentials.Token)
+	if credentials.IsOAuthAccessToken() {
+		signOutOAuthToken(config.Hub, credentials.Token)
+		if credentials.RefreshToken != "" {
+			_ = notehub.RevokeRefreshToken(config.Hub, credentials.RefreshToken)
+		}
 	}
 
-	// remove the credentials, and write the credentials file
-	delete(config.HubCreds, config.Hub)
-	return config.Write()
+	return nil
+}
+
+// signOutOAuthToken ends an OAuth sign-in. Notehub first: it deletes the
+// sign-in that API Access lists, which refuses the token from then on, and a
+// token Hydra has already revoked could no longer authenticate that. Both calls
+// are best effort; the local credentials go regardless.
+func signOutOAuthToken(hub, token string) {
+	if err := deleteSignIn(apiBaseURL(hub), token); err != nil {
+		fmt.Fprintf(os.Stderr, "logout: the login stays listed under API Access at %s until it lapses: %s\n", hub, err)
+	}
+	notehub.RevokeAccessToken(hub, token)
+}
+
+// deleteSignIn deletes the sign-in behind an OAuth token at the Notehub API
+// rooted at apiBaseURL.
+func deleteSignIn(apiBaseURL, token string) error {
+	req, err := http.NewRequest(http.MethodPost, apiBaseURL+"/auth/logout", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// apiBaseURL is the HTTPS root of the Notehub API for a hub, whichever way the
+// hub was configured: with or without its "api." prefix.
+func apiBaseURL(hub string) string {
+	if !strings.HasPrefix(hub, "api.") {
+		hub = "api." + hub
+	}
+	return "https://" + hub
 }
 
 func (config *ConfigSettings) SetDefaultCredentials(token string, email string, expiresAt *time.Time) {
+	if config.HubCreds == nil {
+		config.HubCreds = map[string]ConfigCreds{}
+	}
 	config.HubCreds[config.Hub] = ConfigCreds{
 		Hub:       config.Hub,
 		User:      email,
 		Token:     token,
 		ExpiresAt: expiresAt,
 	}
+	if config.credentialChanges == nil {
+		config.credentialChanges = map[string]bool{}
+	}
+	config.credentialChanges[config.Hub] = true
+}
+
+// SetOAuthCredentials preserves the refresh token returned at login.
+func (config *ConfigSettings) SetOAuthCredentials(token *notehub.AccessToken) {
+	config.SetDefaultCredentials(token.AccessToken, token.Email, &token.ExpiresAt)
+	credentials := config.HubCreds[config.Hub]
+	credentials.RefreshToken = token.RefreshToken
+	config.HubCreds[config.Hub] = credentials
 }
 
 func defaultConfig() *ConfigSettings {
@@ -264,40 +483,6 @@ func GetConfig() (*ConfigSettings, error) {
 	return config, nil
 }
 
-// ConfigRead reads the current info from config file
-func ConfigRead() error {
-
-	// As a convenience to all tools, generate a new random seed for each iteration
-	rand.Seed(time.Now().UnixNano())
-	rand.Seed(rand.Int63() ^ time.Now().UnixNano())
-
-	// Read the config file
-	configPath := configSettingsPath()
-	contents, err := os.ReadFile(configPath)
-	if os.IsNotExist(err) {
-		// If no interface has been provided and no saved config,
-		// set it to a default value and write it
-		config = defaultConfig()
-		return config.Write()
-	} else if err != nil {
-		return fmt.Errorf("can't read %s: %s", configPath, err)
-	}
-
-	var newConfig ConfigSettings
-	if err := note.JSONUnmarshal(contents, &newConfig); err != nil {
-		return fmt.Errorf("can't parse %s: %s", configPath, err)
-	}
-	config = &newConfig
-	if config.IPort == nil {
-		config.IPort = make(map[string]ConfigPort)
-	}
-	if config.HubCreds == nil {
-		config.HubCreds = make(map[string]ConfigCreds)
-	}
-
-	return nil
-}
-
 // load current config, apply CLI flag values, and save if appropriate
 func ConfigFlagsProcess() (err error) {
 	config, err := GetConfig()
@@ -311,12 +496,16 @@ func ConfigFlagsProcess() (err error) {
 		config.Interface = configFlagInterface
 	}
 
-	// Set or reset the flags as desired
-	if configFlagHub != "" {
-		ConfigSetHub(configFlagHub)
-	}
+	// Set or reset the flags as desired, remembering the saved hub, which a --hub given
+	// for this command alone doesn't replace
 	if config.Hub == "" {
 		config.Hub = notehub.DefaultAPIService
+	}
+	if configSavedHub == "" {
+		configSavedHub = config.Hub
+	}
+	if configFlagHub != "" {
+		ConfigSetHub(configFlagHub)
 	}
 
 	defaultPort := config.IPort[config.Interface]
@@ -349,19 +538,29 @@ func ConfigFlagsRegister(notecardFlags bool, notehubFlags bool) {
 		flag.IntVar(&configFlagPortConfig, "portconfig", 0, "set serial device speed or i2c address for Notecard")
 	}
 	if notehubFlags {
-		flag.StringVar(&configFlagHub, "hub", "", "set Notehub domain")
+		flag.StringVar(&configFlagHub, "hub", "", "set currently active Notehub domain")
 	}
 
 }
 
-// FlagParse is a wrapper around flag.Parse that handles our config flags
+// FlagParse is a wrapper around flag.Parse that handles our config flags, saving them when
+// the command line does nothing else
 func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
+	return FlagParseSaving(notecardFlags, notehubFlags, true)
+}
+
+// FlagParseSaving is FlagParse with a say in whether a command line that only sets
+// configuration saves it.  A mode that acts on the hub named by --hub, rather than
+// adopting it, passes false.
+func FlagParseSaving(notecardFlags bool, notehubFlags bool, saveConfig bool) (err error) {
 
 	// Register our flags
 	ConfigFlagsRegister(notecardFlags, notehubFlags)
 
 	// Parse them
-	flag.Parse()
+	if err = flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		return
+	}
 
 	// Process our flags
 	err = ConfigFlagsProcess()
@@ -369,28 +568,10 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 		return
 	}
 
-	// If our flags were the only ones present, save them
-	configOnly := true
-	if len(os.Args) == 1 {
-		configOnly = false
-	} else {
-		for i, arg := range os.Args {
-			// Even arguments are parameters, odd args are flags
-			if (i & 1) != 0 {
-				switch arg {
-				case "-interface":
-				case "-port":
-				case "-portconfig":
-				case "-hub":
-				// any odd argument that isn't one of our switches
-				default:
-					configOnly = false
-				}
-			}
-		}
-	}
-
-	if configOnly && config.Interface != "lease" {
+	// Save only when the command line does nothing but set configuration, adopting the
+	// hub it names as the saved one
+	if saveConfig && configFlagsOnly(flag.CommandLine) && config.Interface != "lease" {
+		config.AdoptHub()
 		if err := config.Write(); err != nil {
 			return fmt.Errorf("could not write config file: %w", err)
 		}
@@ -416,25 +597,44 @@ func FlagParse(notecardFlags bool, notehubFlags bool) (err error) {
 
 }
 
-// ConfigSignedIn returns info about whether or not we're signed in
-//
-// TODO: check credentials by issuing an HTTP request
-// maybe this should return an error if a PAT is expired?
-// what happens if an access token is expired?
-func ConfigSignedIn() *ConfigCreds {
-	if creds, present := config.HubCreds[config.Hub]; present && creds.Token != "" && creds.User != "" {
-		creds.Hub = config.Hub
-		return &creds
+// configFlagsOnly reports whether the command line sets configuration and nothing else
+func configFlagsOnly(flags *flag.FlagSet) bool {
+	if flags.NFlag() == 0 || flags.NArg() != 0 {
+		return false
 	}
-	return nil
+	configOnly := true
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "interface", "port", "portconfig", "hub":
+		default:
+			configOnly = false
+		}
+	})
+	return configOnly
+}
+
+// ConfigSignedIn returns the credentials in use, or nil if there are none
+func ConfigSignedIn() *ConfigCreds {
+	return config.DefaultCredentials()
 }
 
 // ConfigAuthenticationHeader sets the authorization field in the header as appropriate
 func ConfigAuthenticationHeader(httpReq *http.Request) error {
+	config, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return config.authenticationHeader(httpReq, config.Hub)
+}
+
+func (config *ConfigSettings) authenticationHeader(httpReq *http.Request, hub string) error {
+	if _, err := config.RefreshCredentialsForHub(httpReq.Context(), hub, ""); err != nil {
+		return err
+	}
 	// Exit if not signed in
-	credentials := ConfigSignedIn()
+	credentials := config.CredentialsForHub(hub)
 	if credentials == nil {
-		return fmt.Errorf("not authenticated to %s: please use 'notehub -signin' to sign into the Notehub service", config.Hub)
+		return fmt.Errorf("not logged in to %s: set %s, or run 'notehub login'", hub, ConfigTokenEnvVar)
 	}
 
 	// Set the header

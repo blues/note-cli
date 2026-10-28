@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/blues/note-cli/lib"
+	"github.com/blues/note-cli/lib/cli"
 	"github.com/blues/note-go/note"
 	"github.com/blues/note-go/notecard"
 )
@@ -33,109 +34,7 @@ var version = "development"
 var validateJSON bool = false
 var jsonSchemaUrl string = "https://github.com/blues/notecard-schema/releases/latest/download/notecard.api.json"
 
-// getFlagGroups returns the organized flag groups
-func getFlagGroups() []lib.FlagGroup {
-	return []lib.FlagGroup{
-		{
-			Name:        "config",
-			Description: "Basic Configuration",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("product"),
-				lib.GetFlagByName("sn"),
-				lib.GetFlagByName("hub"),
-				lib.GetFlagByName("info"),
-			},
-		},
-		{
-			Name:        "device",
-			Description: "Device Management",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("scan"),
-				lib.GetFlagByName("factory"),
-				lib.GetFlagByName("format"),
-				lib.GetFlagByName("setup"),
-				lib.GetFlagByName("setup-sku"),
-				lib.GetFlagByName("provision"),
-				lib.GetFlagByName("sideload"),
-				lib.GetFlagByName("nobin"),
-			},
-		},
-		{
-			Name:        "comm",
-			Description: "Communication & Debug",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("verbose"),
-				lib.GetFlagByName("pretty"),
-				lib.GetFlagByName("req"),
-				lib.GetFlagByName("dry"),
-				lib.GetFlagByName("input"),
-				lib.GetFlagByName("output"),
-				lib.GetFlagByName("fast"),
-				lib.GetFlagByName("trace"),
-			},
-		},
-		{
-			Name:        "hub",
-			Description: "Notehub Sync & Status",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("when-connected"),
-				lib.GetFlagByName("when-disconnected"),
-				lib.GetFlagByName("when-disarmed"),
-				lib.GetFlagByName("when-synced"),
-				lib.GetFlagByName("sync"),
-				lib.GetFlagByName("watch"),
-			},
-		},
-		{
-			Name:        "tools",
-			Description: "Utilities & Tools",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("play"),
-				lib.GetFlagByName("playtime"),
-				lib.GetFlagByName("commtest"),
-				lib.GetFlagByName("echo"),
-				lib.GetFlagByName("rtc"),
-				lib.GetFlagByName("binpack"),
-				lib.GetFlagByName("pcap"),
-			},
-		},
-		{
-			Name:        "upload",
-			Description: "File Upload",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("upload"),
-				lib.GetFlagByName("route"),
-				lib.GetFlagByName("target"),
-			},
-		},
-		{
-			Name:        "notefile",
-			Description: "Notefile Management",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("explore"),
-				lib.GetFlagByName("reserved"),
-				lib.GetFlagByName("log"),
-			},
-		},
-		{
-			Name:        "cli",
-			Description: "CLI Configuration",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("interface"),
-				lib.GetFlagByName("port"),
-				lib.GetFlagByName("portconfig"),
-			},
-		},
-		{
-			Name:        "other",
-			Description: "Other",
-			Flags: []*flag.Flag{
-				lib.GetFlagByName("version"),
-			},
-		},
-	}
-}
-
+// exitFailAndCloseCard closes the Notecard, if it is open, and exits with failure
 func exitFailAndCloseCard() {
 	if card != nil {
 		card.Close()
@@ -145,217 +44,102 @@ func exitFailAndCloseCard() {
 
 // Main entry
 func main() {
-	// Channel to handle OS signals
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	// Make sure to close the Notecard connection before the program ends.
+	// Describe this CLI to the framework
+	cli.Define(notecardTool())
+
+	// Close the Notecard before the program ends, and on SIGINT, SIGTERM and SIGQUIT
 	defer func() {
 		if card != nil {
 			card.Close()
 		}
 	}()
-
-	// Similarly, close the Notecard connection on SIGINT, SIGTERM, and SIGQUIT.
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
 		sig := <-signalChan
-		fmt.Printf("Received signal: %s\n", sig)
+		fmt.Fprintf(os.Stderr, "received signal: %s\n", sig)
 		exitFailAndCloseCard()
 	}()
 
 	// Check the environment for JSON schema control variables
-	_, validateJSON = os.LookupEnv("BLUES")  // Opt-in Blues employees to validation
-	url := os.Getenv("NOTE_JSON_SCHEMA_URL") // Override the default schema URL
-	if url != "" {
-		jsonSchemaUrl = url
+	_, validateJSON = os.LookupEnv("BLUES") // Opt-in Blues employees to validation
+	if url := os.Getenv("NOTE_JSON_SCHEMA_URL"); url != "" {
+		jsonSchemaUrl = url // Override the default schema URL
 	}
 
-	// Override the default usage function to use our grouped format
-	flag.Usage = func() {
-		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
-	}
-
-	// Process actions
-	var actionPretty bool
-	flag.BoolVar(&actionPretty, "pretty", false, "format JSON output indented")
-	var actionRequest string
-	flag.StringVar(&actionRequest, "req", "", "perform the specified request (in quotes)")
-	var actionRequestDry bool
-	flag.BoolVar(&actionRequestDry, "dry", false, "validate a -req but do not send it to the Notecard")
-	var actionWhenConnected bool
-	flag.BoolVar(&actionWhenConnected, "when-connected", false, "wait until connected")
-	var actionWhenDisconnected bool
-	flag.BoolVar(&actionWhenDisconnected, "when-disconnected", false, "wait until disconnected")
-	var actionWhenDisarmed bool
-	flag.BoolVar(&actionWhenDisarmed, "when-disarmed", false, "wait until ATTN is disarmed")
-	var actionVerbose bool
-	flag.BoolVar(&actionVerbose, "verbose", false, "display Notecard requests and responses")
-	var actionWhenSynced bool
-	flag.BoolVar(&actionWhenSynced, "when-synced", false, "sync if needed and wait until sync completed")
-	var actionReserved bool
-	flag.BoolVar(&actionReserved, "reserved", false, "when exploring, include reserved notefiles")
-	var actionExplore bool
-	flag.BoolVar(&actionExplore, "explore", false, "explore the contents of the device")
-	var actionFactory bool
-	flag.BoolVar(&actionFactory, "factory", false, "reset Notecard to factory defaults")
-	var actionFormat bool
-	flag.BoolVar(&actionFormat, "format", false, "reset Notecard's Notefile storage but retain configuration")
-	var actionInput string
-	flag.StringVar(&actionInput, "input", "", "add the contents of this file as a payload to the request")
-	var actionOutput string
-	flag.StringVar(&actionOutput, "output", "", "output file")
-	var actionLog string
-	flag.StringVar(&actionLog, "log", "", "add a text string to the _log.qo Notefile")
-	var actionTrace bool
-	flag.BoolVar(&actionTrace, "trace", false, "watch Notecard's trace output")
-	var actionPlayground bool
-	flag.BoolVar(&actionPlayground, "play", false, "enter JSON request/response playground")
-	var actionPlaytime int
-	flag.IntVar(&actionPlaytime, "playtime", 0, "enter number of minutes to play")
-	var actionSync bool
-	flag.BoolVar(&actionSync, "sync", false, "manually initiate a sync")
-	var actionProduct string
-	flag.StringVar(&actionProduct, "product", "", "set product UID")
-	var actionSN string
-	flag.StringVar(&actionSN, "sn", "", "set serial number")
-	var actionInfo bool
-	flag.BoolVar(&actionInfo, "info", false, "show information about the Notecard")
-	var actionHub string
-	flag.StringVar(&actionHub, "hub", "", "set notehub domain")
-	var actionWatchLevel int
-	flag.IntVar(&actionWatchLevel, "watch", -1, "watch ongoing sync status of a given level (0-5)")
-	var actionCommtest bool
-	flag.BoolVar(&actionCommtest, "commtest", false, "perform repetitive request/response test to validate comms with the Notecard")
-	var actionSetup string
-	flag.StringVar(&actionSetup, "setup", "", "issue requests sequentially as stored in the specified .json file")
-	var actionSetupSKU string
-	flag.StringVar(&actionSetupSKU, "setup-sku", "", "configure a Notecard for self-setup even after factory restore, with  requests in the specified .json file")
-	var actionScan string
-	flag.StringVar(&actionScan, "scan", "", "scan a batch of Notecards to collect info or to set them up")
-	var actionProvision string
-	flag.StringVar(&actionProvision, "provision", "", "provision into carrier account using AccountSID:AuthTOKEN")
-	var actionDFUPackage string
-	flag.StringVar(&actionDFUPackage, "binpack", "", "package multiple .bin's for DFU into a single .bins package")
-	var actionFast bool
-	flag.BoolVar(&actionFast, "fast", false, "use low timeouts and big buffers when sending to Notecard knowing that {io} errors are to be expected")
-	var actionSideload string
-	flag.StringVar(&actionSideload, "sideload", "", "side-load a .bin or .bins into the Notecard's storage")
-	var actionNoBin bool
-	flag.BoolVar(&actionNoBin, "nobin", false, "when side-loading, force the inline dfu.put path and do not use card.binary")
-	var actionEcho int
-	flag.IntVar(&actionEcho, "echo", 0, "perform <N> iterations of a communications reliability test to the Notecard")
-	var actionRTC string
-	flag.StringVar(&actionRTC, "rtc", "", "measure the Notecard's RTC drift against the host clock; use \"test\" to measure, \"calibrate\" to measure and store the calibration, \"reset\" to clear the stored calibration, or \"calibration\" to show the stored calibration")
-	var actionVersion bool
-	flag.BoolVar(&actionVersion, "version", false, "print the current version of the CLI")
-	var actionPcap string
-	flag.StringVar(&actionPcap, "pcap", "", "enable PCAP mode and stream packets to output file (required: 'usb' or 'aux')")
-
-	// Upload flags - for efficient binary file upload via web.post
-	var actionUpload string
-	flag.StringVar(&actionUpload, "upload", "", "upload a file to Notehub via a proxy route using efficient binary transfer")
-	var actionRoute string
-	flag.StringVar(&actionRoute, "route", "", "Notehub proxy route alias for upload (required with -upload)")
-	var actionTarget string
-	flag.StringVar(&actionTarget, "target", "", "optional URL path appended to the route (becomes 'name' in web.post); use [filename] for the uploaded filename")
-
-	// Parse these flags and also the note tool config flags
-	err := lib.FlagParse(true, false)
+	// Parse the command line, and get the resulting configuration
+	mode, args := cli.Start(os.Args[1:])
+	config, err := cli.Parse(mode, args)
 	if err != nil {
-		fmt.Printf("%s\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(exitFail)
+	}
+
+	// Run it.  A request's failure is answered as the Notecard would answer it, as JSON.
+	if err = mode.Run(config); err != nil {
+		if flagRequest != "" && !flagVerbose {
+			errJSON, _ := note.JSONMarshal(map[string]any{"err": err.Error()})
+			fmt.Printf("%s\n", errJSON)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", err)
+		}
 		exitFailAndCloseCard()
 	}
 
-	config, err := lib.GetConfig()
-	if err != nil {
-		fmt.Printf("%s\n", err)
-		exitFailAndCloseCard()
-	}
+}
 
-	// If no action specified (i.e. just -port x), exit so that we don't touch the wrong port
+// runDefault is the handler for the one mode: the request, or the actions, on the command
+// line
+func runDefault(config *lib.ConfigSettings) (err error) {
+
+	// With nothing to do, show where to go next, the saved settings, and the ports
 	if len(os.Args) == 1 {
-		lib.PrintGroupedFlags(getFlagGroups(), "notecard")
-		config.Print()
-		fmt.Printf("\n")
-		fmt.Printf("Upload Usage:\n")
-		fmt.Printf("  notecard -upload <filepath> -route <route_alias>\n")
-		fmt.Printf("  notecard -upload <filepath> -route <route_alias> -target <url_path>\n")
-		fmt.Printf("  Example: notecard -upload ./data.bin -route MyRoute\n")
-		fmt.Printf("  Example: notecard -upload ./firmware.bin -route Upload -target /devices/[filename]\n")
-		fmt.Printf("\n")
-		fmt.Printf("PCAP Usage:\n")
-		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -output <path.pcap>\n")
-		fmt.Printf("  notecard -port <port_path> -pcap <usb|aux> -portconfig <baud> -output <path.pcap>\n")
-		fmt.Printf("  Example: notecard -port /dev/ttyUSB0 -pcap usb -output capture.pcap\n")
-		fmt.Printf("  Example: notecard -port /dev/ttyAMA0 -pcap aux -portconfig 115200 -output capture.pcap\n")
-		fmt.Printf("\n")
-		nInterface, nPort, _ := notecard.Defaults()
-		if config.Interface != "" {
-			nInterface = config.Interface
-			nPort = config.IPort[config.Interface].Port
-		}
-		var ports []string
-		if nInterface == notecard.NotecardInterfaceSerial {
-			ports, _, _, _ = notecard.SerialPorts()
-		}
-		if nInterface == notecard.NotecardInterfaceI2C {
-			ports, _, _, _ = notecard.I2CPorts()
-		}
-		if len(ports) != 0 {
-			fmt.Printf("Ports on '%s':\n", nInterface)
-			for _, port := range ports {
-				if port == nPort {
-					nPortConfig := config.IPort[config.Interface].PortConfig
-					if nPortConfig == 0 {
-						fmt.Printf("   %s ***\n", port)
-					} else {
-						fmt.Printf("   %s (%d) ***\n", port, nPortConfig)
-					}
-				} else {
-					fmt.Printf("   %s\n", port)
-				}
-			}
-		}
-		return
+		cli.PrintHelp(cli.ModeNamed(cli.ModeDefault), false)
+		cli.PrintSettings(config)
+		printPorts(config)
+		return nil
 	}
 
-	// Process the main part of the command line as a -req if neither Req nor DFU are specified
-	if actionDFUPackage == "" && actionRequest == "" {
-		argsLeft := len(flag.Args())
-		if argsLeft == 1 {
-			actionRequest = flag.Args()[0]
-		} else if argsLeft > 0 {
-			fmt.Printf("to send a JSON request to the Notecard, please place it in quotes")
-			exitFailAndCloseCard()
+	// What needs no Notecard comes first
+	if flagVersion {
+		fmt.Printf("Notecard CLI Version: %s\n", version)
+		return nil
+	}
+	if flagDFUPackage != "" {
+		if flagRequest != "" {
+			return fmt.Errorf("--req and --binpack may not be combined into one command")
 		}
+		return dfuPackage(flagVerbose, flagOutput, flagDFUPackage, flag.Args())
 	}
 
-	// Both actionDFUPackage and actionRequest potentially use the 'remaining args' outside the flags
-	if actionDFUPackage != "" && actionRequest != "" {
-		fmt.Printf("-req and -binpack may not be combined into one command")
-		exitFailAndCloseCard()
+	// The rest of the command line is the request, unless --req gave it
+	switch {
+	case len(flag.Args()) == 0:
+	case len(flag.Args()) == 1 && flagRequest == "":
+		flagRequest = flag.Args()[0]
+	default:
+		return fmt.Errorf("a request must be in quotes, as the last argument, with the options before it")
 	}
 
-	// PCAP mode is exclusive with other actions
-	if actionPcap != "" && (actionRequest != "" || actionDFUPackage != "" || actionTrace || actionPlayground || actionCommtest || actionEcho != 0) {
-		fmt.Printf("-pcap cannot be combined with other actions")
-		exitFailAndCloseCard()
-	}
-
-	// Validate PCAP mode argument
-	if actionPcap != "" && actionPcap != "usb" && actionPcap != "aux" {
-		fmt.Printf("-pcap argument must be 'usb' or 'aux'")
-		exitFailAndCloseCard()
+	// Recording packets is exclusive with the other things that talk to the Notecard
+	if flagPcap != "" {
+		if flagPcap != "usb" && flagPcap != "aux" {
+			return fmt.Errorf("--pcap must be 'usb' or 'aux'")
+		}
+		if flagRequest != "" || flagTrace || flagPlayground || flagCommtest || flagEcho != 0 {
+			return fmt.Errorf("--pcap cannot be combined with other actions")
+		}
 	}
 
 	// Open the card, just to make sure errors are reported early
 	configVal := config.IPort[config.Interface].PortConfig
-	if actionPlaytime != 0 {
-		configVal = actionPlaytime
-		actionPlayground = true
+	if flagPlaytime != 0 {
+		configVal = flagPlaytime
+		flagPlayground = true
 	}
-	notecard.InitialDebugMode = actionVerbose
-	notecard.InitialTraceMode = actionTrace
+	notecard.InitialDebugMode = flagVerbose
+	notecard.InitialTraceMode = flagTrace
 	card, err = notecard.Open(config.Interface, config.IPort[config.Interface].Port, configVal)
 
 	// Process non-config commands
@@ -370,17 +154,17 @@ func main() {
 	// in the Notecard, in build 15741 Jan 26 2023.  At that time, this was
 	// 1024/30, but is no longer relevant as we can pound the Notecard on the
 	// USB port because of hardware flow control.
-	if err == nil && actionFast {
+	if err == nil && flagFast {
 		notecard.RequestSegmentMaxLen = 1024
 		notecard.RequestSegmentDelayMs = 5
 	}
 
 	// Wait until disconnected
-	if err == nil && actionWhenDisconnected {
+	if err == nil && flagWhenDisconnected {
 		for {
 			rsp, err := card.TransactionRequest(notecard.Request{Req: "hub.status", NotefileID: notecard.SyncLogNotefile, Delete: true})
 			if err != nil {
-				fmt.Printf("%s\n", err)
+				fmt.Fprintf(os.Stderr, "%s\n", err)
 				break
 			}
 			if strings.Contains(rsp.Status, note.StatusTransportDisconnected) {
@@ -392,7 +176,7 @@ func main() {
 	}
 
 	// Wait until connected
-	if err == nil && actionWhenConnected {
+	if err == nil && flagWhenConnected {
 		for {
 			delay := true
 			rsp, err := card.TransactionRequest(notecard.Request{Req: "note.get", NotefileID: notecard.SyncLogNotefile, Delete: true})
@@ -401,7 +185,7 @@ func main() {
 				err = nil
 			}
 			if err != nil {
-				fmt.Printf("%s\n", err)
+				fmt.Fprintf(os.Stderr, "%s\n", err)
 				break
 			}
 			if rsp.Connected {
@@ -418,11 +202,11 @@ func main() {
 	}
 
 	// Wait until disarmed
-	if err == nil && actionWhenDisarmed {
+	if err == nil && flagWhenDisarmed {
 		for {
 			rsp, err = card.TransactionRequest(notecard.Request{Req: "card.attn"})
 			if err != nil {
-				fmt.Printf("%s\n", err)
+				fmt.Fprintf(os.Stderr, "%s\n", err)
 			} else if rsp.Set {
 				break
 			}
@@ -431,18 +215,18 @@ func main() {
 	}
 
 	// Wait until synced
-	if err == nil && actionWhenSynced {
+	if err == nil && flagWhenSynced {
 		req := notecard.Request{Req: "hub.sync.status"}
 		req.Sync = true // Initiate sync if sync is needed
 		rsp, err = card.TransactionRequest(req)
 		for err == nil {
 			rsp, err = card.TransactionRequest(notecard.Request{Req: "hub.sync.status"})
 			if err != nil {
-				fmt.Printf("%s\n", err)
+				fmt.Fprintf(os.Stderr, "%s\n", err)
 				break
 			}
 			if rsp.Alert {
-				fmt.Printf("sync error\n")
+				fmt.Fprintf(os.Stderr, "sync error\n")
 				break
 			}
 			if rsp.Completed > 0 {
@@ -455,20 +239,20 @@ func main() {
 
 	// Turn on Notecard library debug output
 	if card != nil {
-		card.DebugOutput(actionVerbose, false)
+		card.DebugOutput(flagVerbose, false)
 	}
 
 	// Do SKU setup before anything else, particularly because if we are going
 	// to do a factory reset it needs to be done after we set up the SKU
-	if err == nil && actionSetupSKU != "" && actionScan == "" {
+	if err == nil && flagSetupSKU != "" && flagScan == "" {
 		var requestsString string
-		requestsString, err = loadRequestsString(actionSetupSKU)
+		requestsString, err = loadRequestsString(flagSetupSKU)
 		if err == nil {
 			req := notecard.Request{Req: "card.setup"}
 			req.Text = requestsString
 			_, err = card.TransactionRequest(req)
 		}
-		if err == nil && !(actionFactory || actionFormat) {
+		if err == nil && !(flagFactory || flagFormat) {
 			_, err = card.TransactionRequest(notecard.Request{Req: "card.restart"})
 			if err == nil {
 				for i := 0; i < 5; i++ {
@@ -483,12 +267,12 @@ func main() {
 
 	// Factory reset & format
 	verifyCompletion := false
-	if err == nil && actionFormat {
+	if err == nil && flagFormat {
 		req := notecard.Request{Req: "card.restore"}
 		card.TransactionRequest(req)
 		verifyCompletion = true
 	}
-	if err == nil && actionFactory && (actionScan == "" && actionSetup == "") {
+	if err == nil && flagFactory && (flagScan == "" && flagSetup == "") {
 		req := notecard.Request{Req: "card.restore"}
 		req.Delete = true
 		_, err = card.TransactionRequest(req)
@@ -503,10 +287,10 @@ func main() {
 		}
 	}
 
-	if err == nil && actionInfo {
+	if err == nil && flagInfo {
 
 		var infoErr error
-		if !actionVerbose {
+		if !flagVerbose {
 			card.DebugOutput(false, false)
 		}
 
@@ -731,41 +515,35 @@ func main() {
 		err = infoErr
 	}
 
-	if err == nil && actionProduct != "" {
-		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", ProductUID: actionProduct})
+	if err == nil && flagProduct != "" {
+		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", ProductUID: flagProduct})
 	}
 
-	if err == nil && actionSN != "" {
-		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", SN: actionSN})
+	if err == nil && flagSN != "" {
+		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", SN: flagSN})
 	}
 
-	if err == nil && actionHub != "" {
-		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Host: actionHub})
-		lib.ConfigSetHub(actionHub)
+	if err == nil && flagHub != "" {
+		_, err = card.TransactionRequest(notecard.Request{Req: "hub.set", Host: flagHub})
 	}
 
-	if err == nil && actionSideload != "" && actionScan == "" {
-		err = dfuSideload(actionSideload, actionNoBin, actionVerbose)
+	if err == nil && flagSideload != "" && flagScan == "" {
+		err = dfuSideload(flagSideload, flagNoBin, flagVerbose)
 	}
 
-	if err == nil && actionUpload != "" {
-		err = uploadFile(actionUpload, actionRoute, actionTarget)
+	if err == nil && flagUpload != "" {
+		err = uploadFile(flagUpload, flagRoute, flagTarget)
 	}
 
-	if err == nil && actionDFUPackage != "" {
-		err = dfuPackage(actionVerbose, actionOutput, actionDFUPackage, flag.Args())
-		actionRequest = ""
-	}
-
-	if err == nil && actionRequest != "" {
+	if err == nil && flagRequest != "" {
 		var rspJSON []byte
 		var req, rsp notecard.Request
-		note.JSONUnmarshal([]byte(actionRequest), &req)
+		note.JSONUnmarshal([]byte(flagRequest), &req)
 
 		// Append payload from the specified file
-		if actionInput != "" {
+		if flagInput != "" {
 			var contents []byte
-			contents, err = os.ReadFile(actionInput)
+			contents, err = os.ReadFile(flagInput)
 			if err == nil {
 				req.Payload = &contents
 
@@ -773,7 +551,7 @@ func main() {
 				var reqBytes []byte
 				reqBytes, err = note.JSONMarshal(req)
 				if err == nil {
-					actionRequest = string(reqBytes)
+					flagRequest = string(reqBytes)
 				}
 			}
 		}
@@ -781,9 +559,9 @@ func main() {
 		// Validate the request against the schema
 		if err == nil && validateJSON {
 			var reqMap map[string]interface{}
-			err = note.JSONUnmarshal([]byte(actionRequest), &reqMap)
+			err = note.JSONUnmarshal([]byte(flagRequest), &reqMap)
 			if err == nil {
-				validationErr := validateRequest(reqMap, jsonSchemaUrl, actionVerbose)
+				validationErr := validateRequest(reqMap, jsonSchemaUrl, flagVerbose)
 				if validationErr != nil {
 					fmt.Fprintf(os.Stderr, "warning: %s\n", validationErr)
 				}
@@ -835,20 +613,20 @@ func main() {
 			}
 		} else if err == nil {
 			// Transact using CLI input to avoid JSON parsing complications
-			if !actionRequestDry {
-				actionRequest = strings.ReplaceAll(actionRequest, "\\n", "\n")
-				rspJSON, err = card.TransactionJSON([]byte(actionRequest))
+			if !flagDry {
+				flagRequest = strings.ReplaceAll(flagRequest, "\\n", "\n")
+				rspJSON, err = card.TransactionJSON([]byte(flagRequest))
 				if err == nil {
 					_ = note.JSONUnmarshal(rspJSON, &rsp)
 				}
-			} else if actionVerbose {
-				fmt.Printf("%s\n", actionRequest)
+			} else if flagVerbose {
+				fmt.Printf("%s\n", flagRequest)
 			}
 		}
 
 		// Write the payload to an output file if appropriate
-		if err == nil && actionOutput != "" && rsp.Payload != nil {
-			err = os.WriteFile(actionOutput, *rsp.Payload, 0644)
+		if err == nil && flagOutput != "" && rsp.Payload != nil {
+			err = os.WriteFile(flagOutput, *rsp.Payload, 0644)
 			// If we can't write the file, set the payload to nil so
 			// we don't try to print it out and cause a JSON error.
 			if err != nil {
@@ -857,8 +635,8 @@ func main() {
 		}
 
 		// Output the response to the console
-		if err == nil && !actionVerbose && !actionRequestDry {
-			if actionPretty {
+		if err == nil && !flagVerbose && !flagDry {
+			if flagPretty {
 				rspJSON, _ = note.JSONMarshalIndent(rsp, "", "    ")
 			} else {
 				rspJSON, _ = note.JSONMarshal(rsp)
@@ -867,28 +645,28 @@ func main() {
 		}
 	}
 
-	if err == nil && actionLog != "" {
-		_, err = card.TransactionRequest(notecard.Request{Req: "hub.log", Text: actionLog})
+	if err == nil && flagLog != "" {
+		_, err = card.TransactionRequest(notecard.Request{Req: "hub.log", Text: flagLog})
 	}
 
-	if err == nil && actionSync {
+	if err == nil && flagSync {
 		_, err = card.TransactionRequest(notecard.Request{Req: "hub.sync"})
 	}
 
-	if err == nil && actionSetup != "" && actionScan == "" {
+	if err == nil && flagSetup != "" && flagScan == "" {
 		var requests []map[string]interface{}
-		requests, err = loadRequests(actionSetup)
+		requests, err = loadRequests(flagSetup)
 		if err == nil {
 			card.DebugOutput(true, false)
-			err = processRequests(actionFactory, requests)
+			err = processRequests(flagFactory, requests)
 		}
 	}
 
-	if err == nil && actionScan != "" {
-		err = scan(actionVerbose, actionFactory, actionSetup, actionSetupSKU, actionProvision, actionFactory, actionSideload, actionNoBin, actionScan)
+	if err == nil && flagScan != "" {
+		err = scan(flagVerbose, flagFactory, flagSetup, flagSetupSKU, flagProvision, flagFactory, flagSideload, flagNoBin, flagScan)
 	}
 
-	if err == nil && actionCommtest {
+	if err == nil && flagCommtest {
 
 		// Turn off debug output
 		card.DebugOutput(false, false)
@@ -913,45 +691,60 @@ func main() {
 		}
 	}
 
-	if err == nil && actionTrace {
+	if err == nil && flagTrace {
 		err = card.Trace()
 	}
 
-	if err == nil && actionPlayground {
+	if err == nil && flagPlayground {
 		os.Exit(NewREPL(card).Start())
 	}
 
-	if err == nil && actionEcho != 0 {
-		err = echo(actionEcho)
+	if err == nil && flagEcho != 0 {
+		err = echo(flagEcho)
 	}
 
-	if err == nil && actionRTC != "" {
-		err = rtc(actionRTC, actionVerbose)
+	if err == nil && flagRTC != "" {
+		err = rtc(flagRTC, flagVerbose)
 	}
 
-	if err == nil && actionVersion {
-		fmt.Printf("Notecard CLI Version: %s\n", version)
+	if err == nil && flagPcap != "" {
+		err = pcapRecord(flagOutput, flagPcap, card)
 	}
 
-	if err == nil && actionPcap != "" {
-		err = pcapRecord(actionOutput, actionPcap, card)
+	if err == nil && flagExplore {
+		err = explore(flagReserved, flagPretty)
 	}
 
-	if err == nil && actionExplore {
-		err = explore(actionReserved, actionPretty)
-	}
+	return err
 
-	// Process errors
-	if err != nil {
-		if actionRequest != "" && !actionVerbose {
-			jerr := map[string]interface{}{}
-			jerr["err"] = err.Error()
-			jj, _ := note.JSONMarshal(jerr)
-			fmt.Printf("%s\n", string(jj))
+}
+
+// printPorts lists the ports of the interface in use, marking the one that is saved
+func printPorts(config *lib.ConfigSettings) {
+	nInterface, nPort, _ := notecard.Defaults()
+	if config.Interface != "" {
+		nInterface = config.Interface
+		nPort = config.IPort[config.Interface].Port
+	}
+	var ports []string
+	switch nInterface {
+	case notecard.NotecardInterfaceSerial:
+		ports, _, _, _ = notecard.SerialPorts()
+	case notecard.NotecardInterfaceI2C:
+		ports, _, _, _ = notecard.I2CPorts()
+	}
+	if len(ports) == 0 {
+		return
+	}
+	fmt.Printf("\nPorts on '%s':\n", nInterface)
+	for _, port := range ports {
+		if port != nPort {
+			fmt.Printf("   %s\n", port)
+		} else if nPortConfig := config.IPort[config.Interface].PortConfig; nPortConfig == 0 {
+			fmt.Printf("   %s ***\n", port)
 		} else {
-			fmt.Printf("%s\n", err)
+			fmt.Printf("   %s (%d) ***\n", port, nPortConfig)
 		}
-		exitFailAndCloseCard()
 	}
 }
 
