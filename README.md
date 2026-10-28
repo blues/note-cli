@@ -1,331 +1,380 @@
 # Notecard & Notehub CLI
 
-This repository holds two command-line tools: `notecard`, for a Notecard attached to this
-computer, and `notehub`, for the Notehub service.
+Two command-line tools for working with Blues devices and services:
 
-## Installing
+- **`notecard`** communicates with a Notecard attached to your computer.
+- **`notehub`** manages Notehub projects, devices, data, firmware, and project skills.
 
-Install with Homebrew, or download a binary from the
-[releases page](https://github.com/blues/note-cli/releases).
+## Install
 
-```bash
+Install both tools with Homebrew:
+
+```sh
 brew install --cask blues/note-cli/note-cli
 ```
 
+Or download the appropriate binary archive from the
+[releases page](https://github.com/blues/note-cli/releases).
+
 > [!IMPORTANT]
-> If you are upgrading with Homebrew from a version older than v1.9.1, uninstall first with
+> When upgrading a Homebrew installation older than v1.9.1, first run
 > `brew uninstall note-cli`.
 
-Each release has builds of both tools for several operating systems and architectures. If
-yours is missing, file an issue and we'll add it.
+This README describes the code in this branch. To use changes that are not yet in a
+release, [build from source](#build-from-source). Check your installed version with
+`notehub --version` or `notecard --version`.
 
-## Using the Notecard CLI
+## Using Notehub from an AI agent
 
-```
-notecard [options] ['{"req":"..."}']
-```
+Start by reading the guide embedded in the installed CLI:
 
-`notecard` by itself shows how to get going, the saved settings, and the ports it can see,
-with the saved one marked. `notecard --help` describes every option, with examples.
-
-```bash
-notecard --interface serial --port /dev/ttyUSB0   # save the port the Notecard is on
-notecard '{"req":"card.version"}'                 # send a request to the Notecard
-notecard --req '{"req":"card.version"}'           # the same, with the request as an option
-notecard --info                                   # what the Notecard knows about itself
-notecard --explore                                # its notefiles, and the notes in each
-notecard --trace                                  # watch its trace output
+```sh
+notehub --help-agent
 ```
 
-A request is in the Notecard's own JSON form, given as the last argument or with `--req`,
-and the Notecard's answer is written as JSON, indented with `--pretty`. Put options before
-the request, since option parsing stops at the first argument that isn't one; a standalone
-`--` ends it too. Value options take `--port /dev/ttyUSB0` or `--port=/dev/ttyUSB0`, and
-boolean options take `--verbose` or `--verbose=false`.
+The same guide is available in [notehub/help-agent.md](notehub/help-agent.md).
+It covers authentication, API discovery, request bodies, responses, and modification
+cursors. An agent with command execution can use `notehub` directly; an MCP connection
+is not required.
 
-Running `notecard --interface serial --port /dev/ttyUSB0` alone saves the interface and
-port for the commands that follow. With any other option, or a request, they apply to that
-one command. `NOTE_INTERFACE`, `NOTE_PORT` and `NOTE_PORT_CONFIG` in the environment
-override the saved ones.
+### 1. Check authentication
 
-## Using the Notehub CLI
-
+```sh
+notehub auth status --json
 ```
-notehub [options] [request]
+
+Read `signed_in` in the returned object. **Exit code 0 alone does not mean the user
+is signed in.** If `signed_in` is true, reuse that connection. Otherwise inspect
+`reason` and `action`; a network failure calls for retrying the check, not starting
+a new login.
+
+### 2. Guide the user through sign-in
+
+If authorization is needed, start this command in a persistent execution session:
+
+```sh
+notehub login --name "My Agent" --json
+```
+
+The CLI does not open a browser or prompt for input. The user approves access in
+their own browser:
+
+1. Read stdout while the command is running. It emits one JSON object per line.
+2. As soon as an object contains `url`, give the user that exact link and ask them
+   to open it, sign in, and approve access for your named agent. They do not need
+   to copy anything back.
+3. Keep monitoring the **same process**. Progress messages contain
+   `expires_in_seconds`; allow that window, normally up to ten minutes. Do not
+   wait for the process to exit before showing the link or start duplicate logins.
+4. Continue with the task only after a final object contains `success: true` and
+   the command exits successfully. On failure, explain `status`. Respect
+   cancellation; if the link expires, start again only if the user wants to proceed.
+
+An existing valid login can produce the final success object immediately. The CLI
+saves credentials and renews OAuth access tokens when the service provides a refresh
+token. Reuse the login across tasks.
+
+For unattended use, the user can supply a personal access token through the agent
+runtime's secret settings as `NOTEHUB_TOKEN`. It overrides saved credentials;
+check `auth status --json` again, and no login command is needed. Have the user
+replace or remove a rejected environment token before trying browser sign-in.
+Keep credentials out of chat and command output; let the CLI add authentication.
+
+If the service reports that polling sign-in is unavailable, follow its instructions
+for interactive sign-in on the machine running the CLI, or use `NOTEHUB_TOKEN`.
+
+### 3. Discover the API and the target project
+
+```sh
+notehub api --spec > notehub-openapi.yaml
+notehub api GET /v1/projects
+```
+
+`--spec` fetches the selected hub's public OpenAPI specification without requiring
+login. On the default service, it is available at
+[api.notefile.net/openapi.yaml](https://api.notefile.net/openapi.yaml).
+Read the relevant operation and its referenced schemas before constructing a request.
+Use project and device identifiers returned by Notehub, and resolve ambiguous targets
+with the user before making changes.
+
+If the project has skills, read them for context about its devices and data:
+
+```sh
+notehub skills --project app:PROJECT_UID
+```
+
+Examples below use placeholder identifiers such as `app:PROJECT_UID` and
+`dev:DEVICE_UID`; replace them with real identifiers. For additional guidance about
+working with a user's Notehub project, `notehub --agent-chat` fetches the public
+guide from [chat.notehub.io](https://chat.notehub.io).
+
+## Notehub commands
+
+```text
 notehub <mode> [options] [arguments]
+notehub [options] [request]
 ```
-
-Everything `notehub` does needs Notehub API access. Sign in once with `notehub login`,
-which opens your browser. An agent signs in without a browser, either with
-`notehub login --json` or by setting the `NOTEHUB_TOKEN` environment variable to a
-personal access token; while that variable is set, its token is used for every request,
-whatever login is saved.
-
-The first word on the command line may name a mode. Without one, `notehub` sends a request
-to the hub in the Notecard's own JSON form, or works on a device's notefiles, environment
-variables, and provisioning.
 
 | Mode | Purpose |
 | --- | --- |
-| *(none)* | Send a request, list a device's notefiles, manage environment variables, provision devices |
-| `login`, `logout` | Sign into a hub, or out of it |
-| `auth` | Manage logins: `login`, `logout`, `status`, `switch`, `token` |
-| `api` | Send one request to the Notehub API, the way `gh api` does for GitHub |
-| `firmware` | Manage a project's host firmware, and apply it to devices |
-| `skills` | Read and manage the skills a project holds |
+| `login`, `logout` | Sign in to or out of a hub |
+| `auth` | Check and manage saved logins |
+| `api` | Make authenticated HTTP requests to the Notehub API |
+| `firmware` | Upload host firmware and manage device updates |
+| `skills` | Read, edit, back up, and restore a project's skills |
+| No mode | Send Notecard-format requests and manage notefiles, variables, and provisioning |
 
-`notehub` by itself lists the modes and the saved settings, without examples.
-`notehub --help` adds every option of the default mode and its examples, and
-`notehub <mode> --help` describes a mode, with examples. A mode given nothing to do
-shows abbreviated help too. `notehub --help-agent` prints the agent guide embedded
-from [`notehub/help-agent.md`](notehub/help-agent.md).
-`notehub --agent-chat` fetches additional agent guidance from `https://chat.notehub.io`.
+Run `notehub` for a command overview and saved settings, `notehub --help` for the
+default mode's options, or `notehub <mode> --help` for a mode's commands and examples.
+Put the mode first. Within a mode, options may appear before or after arguments;
+in the default mode, put options before the request. A standalone `--` ends option
+parsing. Values accept either `--project app:PROJECT_UID` or
+`--project=app:PROJECT_UID`; booleans accept `--pretty` or `--pretty=false`.
 
-Value options take `--project app:123` or `--project=app:123`, boolean options take
-`--pretty` or `--pretty=false`, and a standalone `--` ends option parsing. In the default
-mode, options come before the request. In a mode, they may come before or after a
-command's arguments.
+### Sign-in and hub selection
 
-Running `notehub --hub example.com` alone makes that hub the active one for the commands
-that follow. With anything else on the command line, `--hub` applies to that command only.
+For interactive use:
 
-### Signing in
-
-The CLI keeps one login per hub. Each is listed in Notehub's API Access as
-`Notehub CLI - <name>`, with your computer's name unless `--name` gives another.
-
-```bash
-notehub login                                  # in your browser
-notehub login --name "Ray's laptop"            # under a name of your choosing
-echo "$SECRET" | notehub login --with-token    # with a personal access token, kept out of your shell history
-notehub login --hub preprod.blues.tools        # into another hub, which stays inactive
-notehub logout                                 # out of the active hub
-notehub auth status                            # check the active connection's login
-notehub auth status --all                      # check every saved login, and show which hub is active
-notehub auth switch preprod.blues.tools        # make a hub you have signed into the active one
-notehub auth token                             # print the token in use, for a program
+```sh
+notehub login --name "My laptop"
+notehub auth status
+notehub auth status --all
+notehub logout
 ```
 
-`notehub auth login` and `notehub auth logout` are the same commands as `notehub login`
-and `notehub logout`. A login leaves the active hub as it is; `auth switch` changes it.
-A login that Notehub still accepts is kept: `notehub login` checks it and exits with
-success without opening anything. A revoked session requires new browser approval.
-Interactive login falls back to the localhost callback when polling is unavailable,
-and retries with the original scopes if the service refuses `offline_access`.
-`auth status` checks only the active connection, or the one given with `--hub`, against
-the service. It exits 0 when that connection accepts its login, and 1 otherwise.
-With `--json` it writes that connection's status as one object with `hub`, `active`,
-`signed_in`, and any available identity or error details, and exits 0; inspect
-`signed_in` to determine whether authentication succeeded. Add `--all` to check every
-saved login; `--all --json` returns an object with the active hub and a `hubs` array.
-`--all` and `--hub` cannot be combined.
+Browser logins appear in Notehub's API Access screen as `Notehub CLI - <name>`.
+Without `--name`, the CLI uses the computer's name. `notehub auth login` and
+`notehub auth logout` are aliases for `login` and `logout`.
 
-Browser logins retain an OAuth refresh token when the service issues one. All
-authenticated Notehub operations use shared renewal before sending a request,
-including status checks, files, firmware, skills, and legacy commands. Access tokens
-within a minute of expiration are renewed; a replayable request retries once after
-a 401 when renewal succeeds. Rotated tokens are saved atomically under a process
-lock. PATs, including `NOTEHUB_TOKEN`, are not refreshed. Deleting the OAuth entry
-in Notehub prevents further API access even with refreshed tokens; `notehub login`
-then requires new approval. Sessions without refresh tokens remain usable until
-their access tokens expire.
+The CLI stores one login per hub. `--hub` selects a hub for one command, and logging
+in to another hub does not change the active one:
 
-An agent signs in with `--json`, which opens nothing and types nothing:
-
-```bash
-notehub login --name "DotBot" --json                 # the URL to give the user, progress, and the result
-echo "$SECRET" | notehub login --with-token --json   # with a token: the result alone
+```sh
+notehub login --hub example.com
+notehub auth switch example.com
 ```
 
-The output is one JSON object per line: the URL to hand to the user, with
-`expires_in_seconds` for how long the hub will honor it; a progress line every ten seconds
-with the seconds remaining; and a final line with `success` and `status`. With a login
-already in place, the final line is all there is. `--expires-in` asks the hub for a
-shorter window than its usual ten minutes.
-If polling is unavailable, the JSON flow returns instructions for the user to sign
-in interactively on the CLI's machine, or to supply `NOTEHUB_TOKEN`.
+`notehub --hub example.com` by itself also saves the active hub. `auth status --all`
+checks every saved login; `--all --json` returns an object with `active` and a `hubs`
+array. `--all` cannot be combined with `--hub`.
 
-### Requests, notefiles, environment variables and provisioning
+To save a personal access token supplied through a secret variable, pass it on stdin:
 
-With no mode, `notehub` works on one project, named by `--project` or `--product`, and
-often one device, named by `--device`.
-
-```bash
-notehub --projects --pretty                                                        # the projects you belong to
-notehub --product com.example:sensor --device dev:864475040518622 '{"req":"note.get","file":"hub.db","note":"config"}'
-notehub --product com.example:sensor --device dev:864475040518622 --explore        # the device's notefiles and notes
-notehub --product com.example:sensor --scope "Field Units" --get-vars --pretty     # a fleet's environment variables
-notehub --product com.example:sensor --scope dev:864475040518622 --set-vars '{"interval":"60","debug":"-"}'
-notehub --product com.example:sensor --scope dev:864475040518622 --provision --sn SN-0042
+```sh
+printf '%s\n' "$SECRET" | notehub login --with-token
 ```
 
-A request is in the Notecard's own JSON form, given as the last argument or with `--req`,
-and `@file` reads it from a file. The hub answers as the Notecard would, and the answer is
-written as JSON, indented with `--pretty`.
-
-`--scope` names the devices or fleets that `--get-vars`, `--set-vars`, `--provision` and
-`--explore` concern: `dev:` and `fleet:` UIDs, a fleet's name, `@fleet` for a fleet's
-devices, `@file` for a file listing any of these one per line, or `devices` and `fleets`
-for all of them, separated by commas. A variable set to `-` is removed.
+`NOTEHUB_TOKEN` takes precedence over saved logins and must be cleared before
+changing them or signing out. OAuth logins renew automatically when possible;
+personal access tokens are not refreshed. A revoked login requires new authorization.
 
 ### API requests
 
-`notehub api` sends one request to the Notehub API, authorized as you, and writes the
-response body to stdout, the way `gh api` does for GitHub:
+Name the HTTP method explicitly so adding fields does not change the operation:
 
-```bash
-notehub api /v1/projects                                                          # a GET
-notehub api /v1/projects/app:123/devices                                          # the project written into the path
-notehub api /v1/projects/{project}/devices --project app:123                      # or --project filling in {project}
-notehub api /v1/projects/{project}/devices --paginate --project app:123           # every page
-notehub api PUT /v1/projects/{project}/devices/{device}/environment_variables --input vars.json --project app:123 --device dev:abc
-cat fleet.json | notehub api POST /v1/projects/{project}/fleets --input - --project app:123   # a body from stdin
-notehub api /v1/projects/{project}/fleets --field label=Field --project app:123   # parameters make a POST
-notehub api GET /v1/projects/{project}/events --field pageSize=5 --project app:123 # or a GET's query string
-notehub api /v1/projects --include                                                # the status line and headers too
-notehub api --spec                                                                # the hub's OpenAPI spec
+```sh
+notehub api GET '/v1/projects/{project}/devices' --project app:PROJECT_UID
+notehub api GET '/v1/projects/{project}/devices/{device}/environment_variables' \
+  --project app:PROJECT_UID --device dev:DEVICE_UID
+notehub api PUT '/v1/projects/{project}/devices/{device}/environment_variables' \
+  --project app:PROJECT_UID --device dev:DEVICE_UID --input vars.json
 ```
 
-Write the path as the API documents it, with the UIDs in it, or write `{project}`,
-`{product}` or `{device}` in their place and let `--project`, `--product` or `--device`
-fill them in. Without a placeholder, those options aren't needed. The method is GET unless
-one is given, or a body is sent, which makes it POST.
+Pass a path, not a full URL. Quote paths containing braces or query strings.
+`--project`, `--product`, and `--device` fill their corresponding placeholders;
+actual identifiers can also be written directly into the path. Without an explicit
+method, the default is GET, or POST when fields or a body are supplied.
 
-Parameters given with `--field key=value` are typed as `gh` types them: `true`, `false`,
-`null` and numbers as such, `@file` for a file's contents and `@-` for stdin. `--raw-field`
-keeps a string as it is. Parameters go in a JSON body, or in the query string when the
-method given is GET. `--input` sends a file, or stdin with `-`, as the body, and `--header`
-adds a header.
+- `--field key=value` converts numbers, booleans, and `null`; other values remain
+  strings. `@file` and `@-` read a file or stdin as a string value.
+- `--raw-field key=value` always supplies a literal string. Use it for cursors.
+- With GET or HEAD, fields become query parameters. With other methods, they form
+  a JSON body. Use `--input FILE` or `--input -` for nested JSON, arrays, or a complete
+  body; it cannot be combined with field options.
+- `--header 'Name: value'` adds a header. JSON is the default body content type.
 
-The response is written as it arrives, for as long as the hub keeps sending, unless
-`--pretty` must read it whole. The exit code is 0 when the hub answered with success, and 1
-when it answered with an error, whose body is still written, or when it couldn't be
-reached. `--paginate` follows `has_more` through every page of a GET, writing each. `--spec`
-shows the hub's OpenAPI spec, from `https://<hub>/openapi.yaml`, which describes every
-endpoint.
+The response body goes to stdout and diagnostics to stderr. JSON responses need no
+`--json` flag. HTTP errors retain their response body and return a nonzero exit code;
+successful responses may be empty. Check the exit code before treating a request as
+successful. After an uncertain write result, inspect the resource before retrying.
+
+`--include` adds the HTTP status and headers. `--pretty` formats JSON but buffers the
+response; omit it for streaming responses. `--verbose` writes request details and
+response status to stderr.
+
+### Large collections and modification cursors
+
+Use `--paginate` on GET endpoints whose specification declares a `cursor` parameter,
+including project events and devices:
+
+```sh
+notehub api GET '/v1/projects/{project}/events' --project app:PROJECT_UID \
+  --paginate --field pageSize=1000
+```
+
+The CLI starts at `cursor=0`, follows the returned `next_cursor` or `X-Next-Cursor`
+header, and stops when `has_more` or `X-Has-More` is false. It writes each response
+separately, preserving the response bodies and continuation metadata rather than
+combining them into one JSON document. Use `--include` to retain cursor headers for
+endpoints whose bodies are arrays or other formats.
+
+To start at a particular modification time, supply a UTC Unix epoch timestamp in
+**microseconds**. For subsequent reads, pass the exact returned cursor as a string:
+
+```sh
+notehub api GET '/v1/projects/{project}/events' --project app:PROJECT_UID \
+  --paginate --raw-field cursor="$CURSOR" --field pageSize=1000
+```
+
+Results arrive in ascending modification order. A returned cursor may include more
+than the timestamp; preserve it exactly so records sharing a timestamp are not skipped.
+Save the final cursor after processing the results, then reuse it with the same
+endpoint and filters to read later changes. An empty response can still carry a useful
+cursor. Apply updates by resource identifier and handle `deleted: true` where supported.
+
+For processing and checkpointing one batch at a time, omit `--paginate` and advance
+the cursor yourself after each successful batch. Automatic pagination stops with an
+error on missing continuation metadata or a repeated cursor while more results remain.
+Do not combine it with a page number beyond 1 or ordering options that conflict with
+the endpoint's modification order.
 
 ### Firmware
 
-`notehub firmware` manages the host firmware a project holds, and applies it to devices:
-
-```bash
-notehub firmware --project app:123                                             # what the project holds
-notehub firmware show 1.2.3 --project app:123                                  # one firmware, with what its binary says
-notehub firmware upload ./build/app.bin --notes @RELEASE.md --project app:123     # upload, version read from the binary
-notehub firmware upload ./build/app.bin --version 1.2.3 --project app:123         # or given
-notehub firmware get 1.2.3 ./app-1.2.3.bin --project app:123                   # download, verified against its md5
-notehub firmware edit 1.2.3 --notes "fixes the sensor timeout" --project app:123
-notehub firmware delete app$20260324190911.bin --project app:123
-notehub firmware update 1.2.3 --scope "Field Units" --project app:123          # apply it to a fleet
-notehub firmware status --scope "Field Units" --project app:123                # each device's update, as it goes
-notehub firmware history --scope dev:864475040518622 --project app:123         # and as it went
-notehub firmware update 1.2.3 --scope all --force --project app:123            # every device in the project
+```sh
+notehub firmware list --project app:PROJECT_UID --json
+notehub firmware upload ./build/app.bin --version 1.2.3 --project app:PROJECT_UID
+notehub firmware show 1.2.3 --project app:PROJECT_UID
+notehub firmware get 1.2.3 ./app-1.2.3.bin --project app:PROJECT_UID
+notehub firmware update 1.2.3 --scope "Field Units" --project app:PROJECT_UID --dry-run
+notehub firmware update 1.2.3 --scope "Field Units" --project app:PROJECT_UID
+notehub firmware status --scope "Field Units" --project app:PROJECT_UID --json
 ```
 
-A firmware is named by its stored filename, such as `app$20260324190911.bin`, or by its
-original name or its version when that names just one. `upload` skips a binary the project
-already holds byte for byte, and replaces one of the same name and version, uploading the
-new one before removing the old, unless `--no-replace` refuses that. `set` remains an alias for `upload`.
+Identify firmware by its stored filename, original filename, or an unambiguous version.
+Quote stored names containing `$`, such as `'app$20260324190911.bin'`. Upload reads the
+version from the binary when available, skips identical content, and replaces firmware
+with the same name and version unless `--no-replace` is set. `set` is an alias for
+`upload`. Use `edit` to change metadata, `delete` to remove firmware, `cancel` to cancel
+an update, and `history` to inspect past updates.
 
-`--scope` names devices, fleets, a fleet's name, or `@file` of them, and `all` with
-`--force` addresses every device in the project; `--tag`, `--sn` and `--sku` narrow it
-further. `--dry-run` says what `upload`, `edit`, `delete`, `update` or `cancel` would do,
-without doing it, and `--json` writes a listing, metadata, status or history as JSON.
+`--scope` accepts device or fleet UIDs, fleet names, or `@file` containing targets.
+`--tag`, `--sn`, and `--sku` narrow the selection. Updating or cancelling across
+`--scope all` requires `--force`. `--dry-run` previews uploads, edits, deletes, updates,
+and cancellations. Downloads verify MD5 and require `--force` to overwrite a different
+local file. `--json` is available for listings, metadata, status, and history.
 
-### Skills
+### Project skills
 
-A project's skills are Markdown files, stored in the project, that tell an AI agent what
-the product is and what its data means. To write them, point any AI agent at
-https://notehub.md and ask it to train your project. The `skills` mode reads and manages
-them:
+Skills are Markdown files that explain a project's product and data to an agent.
+To create them, point an agent at [notehub.md](https://notehub.md) and ask it to train
+your project.
 
-```bash
-notehub skills --project app:123                          # every skill, assembled into one linked document
-notehub skills list --project app:123                     # what the project holds, by name, size, date and kind
-notehub skills show index.md --project app:123            # one skill, exactly as stored
-notehub skills get index.md - --project app:123           # the same, as 'get' writes it to stdout
-notehub skills get all ./skills --project app:123         # copy every skill into ./skills
-notehub skills set ./skills --dry-run --project app:123   # what storing them back would change
-notehub skills set ./skills --project app:123             # store the ones that changed
-notehub skills rename old.md new.md --project app:123     # store a skill under another name
-notehub skills delete old.md --project app:123            # remove one skill from the project
-notehub skills backup skills.zip --project app:123        # save every skill into a zip file
-notehub skills restore skills.zip --project app:123       # make the project hold exactly the zip's skills
+```sh
+notehub skills --project app:PROJECT_UID
+notehub skills list --project app:PROJECT_UID
+notehub skills show index.md --project app:PROJECT_UID
+notehub skills get all ./skills --project app:PROJECT_UID
+notehub skills set ./skills --project app:PROJECT_UID --dry-run
+notehub skills set ./skills --project app:PROJECT_UID
+notehub skills backup skills.zip --project app:PROJECT_UID
+notehub skills restore skills.zip --project app:PROJECT_UID --dry-run
 ```
 
-A skill's kinds, such as `product` or `recipe`, are stored as its tags, taken from the
-`kind:` (or `kinds:` or `tags:`) line of its front matter. To change them, edit that line
-and `set` the file again. A backup writes the kinds a skill is stored under into its front
-matter when they aren't already there, so a restore keeps them.
+With no command, `skills --project ...` assembles the full set into one linked document.
+`show` displays one skill; `get <name> -` writes its exact contents to stdout.
+`set` uploads changed files without deleting other skills. `rename` changes a skill's
+name, and `delete` removes it. Kinds are stored as tags from the `kind:`, `kinds:`, or
+`tags:` field in Markdown front matter and preserved in backups.
 
-With the V1 Skills API, updates and deletes use the revision that was read. If another
-writer changes a skill, the command stops with a conflict; reread and review the change
-before retrying. Rename and restore are sequences of conditional operations, so a
-failure can leave a partially completed operation. Restore verifies the resulting set
-before reporting success. An unchanged `set` still checks write access and its revision.
+**`restore` makes the project match the ZIP archive, deleting skills absent from it.**
+Preview it with `--dry-run`, then omit that flag to apply the changes. `--dry-run` also
+works with `set`, `rename`, `delete`, and `backup`. Overwriting different local files
+with `get` or `backup`, replacing another skill with `rename`, and `delete all` require
+`--force`.
 
-Each V1 read takes one request: the entire metadata catalog, one named document, or
-the complete set with content. Writes accept at most 1 MiB of UTF-8 per document and
-2 MiB plus 64 KiB of encoded JSON. Full-set reads are capped at 8 MiB of content and
-17 MiB of encoded JSON. An oversized bulk read stops with an error; `list` and named
-`show`/`get` remain available. Backup stays a single full-set read.
+The CLI uses the current Skills API and handles names with nested paths and punctuation.
+Writes check the revision that was read; on a conflict, reread and review before
+retrying. Rename and restore involve multiple operations and can finish only partially
+if an operation fails. Restore verifies the resulting set before reporting success.
+If a full-set read exceeds the service's size limit, use `list` and named reads.
 
-`get` won't overwrite a local file that differs unless given `--force`, and neither will
-`backup`. `set` stores only what differs, and never removes anything. `rename` won't
-replace another skill without `--force`, and `delete all` requires it. `restore` stores
-what the zip holds and then removes every other skill. `--dry-run` says what `set`,
-`rename`, `delete`, `backup` or `restore` would do, without doing it.
+### Notefiles, environment variables, and provisioning
 
-## Building from source
+The default mode accepts Notecard-format JSON requests and device-management options:
 
-With Go 1.25 or later installed:
-
-```bash
-cd notecard && go build .
-cd notehub && go build .
+```sh
+notehub --projects --pretty
+notehub --project app:PROJECT_UID --device dev:DEVICE_UID \
+  '{"req":"note.get","file":"hub.db","note":"config"}'
+notehub --project app:PROJECT_UID --device dev:DEVICE_UID --explore
+notehub --project app:PROJECT_UID --scope "Field Units" --get-vars --pretty
+notehub --project app:PROJECT_UID --scope dev:DEVICE_UID \
+  --set-vars '{"interval":"60","debug":"-"}'
+notehub --product com.example:sensor --scope dev:DEVICE_UID --provision --sn SN-0042
 ```
 
-The OAuth refresh changes currently use the matching SDK in the sibling `hub`
-checkout. From the root of this repository, a local Go workspace connects them:
+Give the request as the last argument or with `--req`; `@file` reads it from a file.
+Responses are JSON, formatted with `--pretty` when requested. `--scope` accepts device
+or fleet UIDs, fleet names, `@fleet` for a fleet's devices, `@file` listing targets, and
+`devices` or `fleets` for all of them. Separate multiple targets with commas. Setting
+an environment variable to `-` removes it.
 
-```bash
-go work init . ./lib ../hub/note-go
+## Using the Notecard CLI
+
+```text
+notecard [options] ['{"req":"..."}']
 ```
 
-Workspace files are ignored by Git. Before releasing standalone CLI builds, publish
-the updated `note-go` SDK and update its required version in both `go.mod` and
-`lib/go.mod`. Existing Notehub deployments support interactive login through the
-compatibility fallback. Refresh requires the `notehub_cli` OAuth registration to
-allow `offline_access` and `refresh_token`; this is a registration change, not a
-new token endpoint. `hydraLauncher` maintains those settings. Polling login also
-needs its callback registered, and its service handler must request `offline_access`
-to obtain refresh tokens. An older polling handler can still issue ordinary access
-tokens. The shared `note-go` token source and request helper are documented in
-`note-go/notehub/README.md` in the SDK checkout.
+Run `notecard` to see saved settings and available ports, or `notecard --help` for
+all options and examples. Select your attached Notecard's actual port:
 
-For testing the new Skills APIs, `notehub/skills-storage.go` contains:
-
-```go
-const useV0SkillApis = true
+```sh
+notecard --interface serial --port /dev/ttyUSB0
+notecard '{"req":"card.version"}'
+notecard --pretty --req '{"req":"card.version"}'
+notecard --info
+notecard --explore
+notecard --trace
 ```
 
-The default remains `true` until the revised V1 API is deployed. Set it to
-`false` to send every built-in `skills` command through V1, including backup, restore,
-rename and dry runs. It requires a hub serving the new Skills endpoints and never
-falls back to V0 on an error. Set it to `true` and rebuild to select the original V0
-upload APIs. This switch does not change generic `files --type skill` or raw requests.
+Setting only the interface and port saves them for later commands. When combined
+with a request or another action, they apply only to that invocation.
+`NOTE_INTERFACE`, `NOTE_PORT`, and `NOTE_PORT_CONFIG` override saved settings.
 
-V1 lists metadata with `GET /skills`, includes all content with
-`GET /skills?includeContent=true`, and reads, writes or deletes one skill at
-`/skills/{skillName}`. The CLI encodes names automatically, including nested paths
-and punctuation. Its command syntax is the same in both modes.
+Put options before the JSON request. Replies use the Notecard's JSON format; check
+both the exit code and any `err` field. A standalone `--` ends option parsing.
+
+## Build from source
+
+From the repository root with Go 1.25 or later, build both tools using the published
+dependencies pinned in the module files:
+
+```sh
+GOWORK=off go build -o ./dist/notecard ./notecard
+GOWORK=off go build -o ./dist/notehub ./notehub
+./dist/notehub --help-agent
+```
+
+The examples use POSIX shell syntax. Add `dist` to your PATH or invoke the binaries
+by their paths. `GOWORK=off` ensures the build uses the pinned dependencies even if
+you have a local development workspace.
+
+To run the audit checks and tests, including the separate library module:
+
+```sh
+GOWORK=off go mod verify
+GOWORK=off go build ./...
+GOWORK=off go vet ./...
+GOWORK=off go test ./...
+(cd lib && GOWORK=off go mod verify && GOWORK=off go vet ./... && GOWORK=off go test ./...)
+```
 
 ## Additional resources
 
-- [blues.com](https://blues.com), about Blues, the Notecard and Notehub
-- [dev.blues.io](https://dev.blues.io), the developer documentation
-- [notehub.io](https://notehub.io), the Notehub service
+- [Blues](https://blues.com)
+- [Developer documentation](https://dev.blues.io)
+- [Notehub](https://notehub.io)
 
 ## License
 
-Copyright (c) 2017 Blues Inc. Released under the MIT license. See [LICENSE](LICENSE) for details.
+Copyright (c) 2017 Blues Inc. Released under the MIT license. See [LICENSE](LICENSE).
