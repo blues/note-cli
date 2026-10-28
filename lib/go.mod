@@ -2,7 +2,10 @@ module github.com/blues/note-cli/lib
 
 go 1.25.0
 
-require github.com/blues/note-go v1.10.0
+require (
+	github.com/blues/note-go v1.12.1
+	golang.org/x/sys v0.43.0
+)
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -13,8 +16,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.bug.st/serial v1.7.1 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	go.bug.st/serial v1.8.0 // indirect
 	periph.io/x/conn/v3 v3.7.3 // indirect
 	periph.io/x/host/v3 v3.8.5 // indirect
 )

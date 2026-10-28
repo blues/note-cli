@@ -6,7 +6,7 @@ replace github.com/blues/note-cli/lib => ./lib
 
 require (
 	github.com/blues/note-cli/lib v0.0.0-00010101000000-000000000000
-	github.com/blues/note-go v1.11.1
+	github.com/blues/note-go v1.12.1
 	github.com/blues/notehub-go v0.0.10
 	github.com/fatih/color v1.18.0
 	github.com/mattn/go-isatty v0.0.20
