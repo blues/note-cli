@@ -16,9 +16,7 @@ credentials and OAuth renewal when available.
 
 Your workflow is: lead the user through authentication, fetch the deployed
 OpenAPI specification, identify the relevant operations and resources, make
-requests, and report the results. The default API base is
-`https://api.notefile.net`. Use the selected hub consistently for authentication,
-discovery, and requests; select another hub only when the user's task calls for it.
+requests through the CLI, and report the results.
 
 ## 2. Lead the user through authentication
 
@@ -29,7 +27,7 @@ notehub auth status --json
 ```
 
 Read the single result object's `signed_in` boolean; exit code 0 alone does not
-mean signed in. If true, check the reported `hub` and `user`, then continue with
+mean signed in. If true, check the reported `user`, then continue with
 the task. Otherwise inspect `reason` and `action`. A network or temporary service
 failure calls for retrying the check, not a new login. When sign-in is needed,
 the suggested `action` is `notehub login`; as an agent, use the `--json` workflow
@@ -38,10 +36,12 @@ below.
 ### Preferred: guide the user through sign-in
 
 Tell the user that you will provide a link for them to approve Notehub access.
-Use a recognizable name for your agent:
+Use the name of the agent harness you are running in, such as `Grok Bot`, `Muse`,
+`Claude` or `Codex`, so the user can recognize which agent is requesting access.
+Replace `YOUR_HARNESS_NAME` with that actual name:
 
 ```sh
-notehub login --name "My Agent" --json
+notehub login --name "YOUR_HARNESS_NAME" --json
 ```
 
 This command opens no browser and requires no terminal input. The user opens
@@ -53,7 +53,7 @@ the approval link in their own browser, which can be on another machine.
 2. **When a message contains `url`, immediately give that exact link to the
    user.** In your own friendly words, ask them to open it in their browser,
    sign in, and approve access for your named agent. For example:
-   “Please open this link in your browser to complete sign-in for My Agent.
+   “Please open this link in your browser to complete sign-in.
    I'll keep watching here and continue once it's approved.”
    The user does not need to copy anything back to you.
 3. **Keep monitoring the same process's stdout.** Messages with
@@ -106,23 +106,11 @@ an `Authorization` header yourself.
 
 ## 3. Discover the entire public API
 
-Fetch the deployed OpenAPI YAML from
-[https://api.notefile.net/openapi.yaml](https://api.notefile.net/openapi.yaml):
-
-```sh
-curl -fsSL 'https://api.notefile.net/openapi.yaml' -o notehub-openapi.yaml
-```
-
-The CLI can fetch the selected hub's specification too:
+Fetch the deployed OpenAPI YAML through the CLI:
 
 ```sh
 notehub api --spec > notehub-openapi.yaml
 ```
-
-Both fetches are public and need no login. For the default hub they retrieve
-the same specification. If the task targets another hub, fetch that hub's spec
-with `--spec --hub HUB` and use the same `--hub HUB` for subsequent commands.
-The spec must describe the service you are actually calling.
 
 **Use the live YAML as the complete catalog of public API capabilities.**
 The CLI's named modes are convenient entry points; `notehub api` can call the
@@ -155,14 +143,13 @@ Read the full operation, using a YAML parser when helpful:
    and any permission or resource annotations. Keep using the CLI's login
    rather than implementing a separate credential exchange from the spec.
 
-Cache the YAML for the task and refresh it when changing hubs or when an
-operation appears to have changed. Discover paths and schemas from this file
+Cache the YAML for the task. Refresh it when a response contradicts the contract.
+Discover paths and schemas from this file
 instead of inventing endpoint names or relying on deprecated APIs.
 
 ## 4. Use the CLI as an authenticated request proxy
 
-For example, an authenticated GET to
-`https://api.notefile.net/v1/projects` becomes:
+For example, list the user's projects:
 
 ```sh
 notehub api GET /v1/projects
@@ -188,8 +175,8 @@ Quote paths containing braces or query strings.
 | Response status and headers | `--include` |
 | Save the response body | Shell redirection, such as `> response.json` |
 
-The CLI supplies authentication for each request using the selected hub's saved
-login or `NOTEHUB_TOKEN`. You do not need to extract a token, add an authorization
+The CLI supplies authentication for each request using the saved login or
+`NOTEHUB_TOKEN`. You do not need to extract a token, add an authorization
 header, or invoke curl for authenticated Notehub operations.
 
 ### Identify resources and fill paths
@@ -350,4 +337,4 @@ For guidance on how the user might want to interact with their Notehub work, run
 notehub --agent-chat
 ```
 
-It prints the guide from `https://chat.notehub.io`; no login is needed.
+It prints Notehub's conversation guide; no login is needed.
