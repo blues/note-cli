@@ -1,6 +1,6 @@
 module github.com/note-cli
 
-go 1.25.0
+go 1.26
 
 replace github.com/blues/note-cli/lib => ./lib
 
@@ -32,7 +32,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
-	github.com/shoenig/go-m1cpu v0.1.7 // indirect
+	github.com/shoenig/go-m1cpu v0.2.4 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	go.bug.st/serial v1.8.0
 	golang.org/x/sys v0.43.0 // indirect
