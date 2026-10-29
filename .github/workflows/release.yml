@@ -15,8 +15,6 @@ permissions:
 jobs:
   goreleaser:
     runs-on: macos-26
-    env:
-      MACOSX_DEPLOYMENT_TARGET: '15.0'
     steps:
       -
         name: Checkout
@@ -59,11 +57,3 @@ jobs:
           name: note-cli
           path: dist/*
           retention-days: 7
-      -
-        name: Verify macOS deployment target
-        run: |
-          for bin in dist/*_darwin_*/note*; do
-            minos=$(otool -l "$bin" | awk '/LC_BUILD_VERSION/{f=1} f && /minos/{print $2; exit}')
-            echo "$bin: minos $minos"
-            test "$minos" = "$MACOSX_DEPLOYMENT_TARGET"
-          done
