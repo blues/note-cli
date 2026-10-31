@@ -4,27 +4,36 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
   goreleaser:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
       -
         name: Fetch all tags
         run: git fetch --force --tags
       -
         name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25.0'
+          go-version: '1.26'
+          cache: false
       -
         name: Generate Homebrew tap token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         id: tap-token
         with:
           app-id: ${{ secrets.TAP_APP_ID }}
@@ -33,7 +42,7 @@ jobs:
           repositories: homebrew-note-cli
       -
         name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: '~> v2'
@@ -43,7 +52,8 @@ jobs:
           TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
       -
         name: Upload assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: note-cli
           path: dist/*
+          retention-days: 7
