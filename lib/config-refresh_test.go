@@ -30,7 +30,7 @@ func refreshTestConfig(t *testing.T, expires time.Time) *ConfigSettings {
 	oldPath, oldHub := configSettingsPath, configSavedHub
 	t.Cleanup(func() { configSettingsPath, configSavedHub = oldPath, oldHub })
 	path := filepath.Join(t.TempDir(), "config.json")
-	configSettingsPath = func() string { return path }
+	configSettingsPath = func() (string, error) { return path, nil }
 	configSavedHub = "api.other.example"
 	t.Setenv(ConfigTokenEnvVar, "")
 	settings := &ConfigSettings{Hub: "api.example.com", HubCreds: map[string]ConfigCreds{
@@ -78,7 +78,7 @@ func TestCredentialRefresh(t *testing.T) {
 				}
 			}
 			t.Setenv(ConfigTokenEnvVar, test.env)
-			before, _ := os.ReadFile(configSettingsPath())
+			before, _ := os.ReadFile(testConfigPath(t))
 			calls := 0
 			original := http.DefaultTransport
 			t.Cleanup(func() { http.DefaultTransport = original })
@@ -105,7 +105,7 @@ func TestCredentialRefresh(t *testing.T) {
 			if test.status == 400 && !errors.Is(err, notehub.ErrRefreshTokenRejected) {
 				t.Fatalf("lost rejection: %v", err)
 			}
-			after, _ := os.ReadFile(configSettingsPath())
+			after, _ := os.ReadFile(testConfigPath(t))
 			if !changed {
 				if !bytes.Equal(before, after) {
 					t.Error("changed credentials without a successful refresh")
@@ -237,7 +237,7 @@ func TestConfigRefreshProcess(t *testing.T) {
 	if path == "" {
 		return
 	}
-	configSettingsPath = func() string { return path }
+	configSettingsPath = func() (string, error) { return path, nil }
 	settings, err := readConfigFromFile()
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestConcurrentProcessRefresh(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		t.Cleanup(cancel)
 		c := &child{cmd: exec.CommandContext(ctx, executable, "-test.run=^TestConfigRefreshProcess$")}
-		c.cmd.Env = append(os.Environ(), "NOTECLI_REFRESH_TEST_PATH="+configSettingsPath(), "NOTECLI_REFRESH_TEST_URL="+server.URL)
+		c.cmd.Env = append(os.Environ(), "NOTECLI_REFRESH_TEST_PATH="+testConfigPath(t), "NOTECLI_REFRESH_TEST_URL="+server.URL)
 		c.cmd.Stderr = &c.stderr
 		c.stdin, err = c.cmd.StdinPipe()
 		if err != nil {
@@ -323,4 +323,14 @@ func TestConcurrentProcessRefresh(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("expected one renewal, got %d", calls.Load())
 	}
+}
+
+// testConfigPath returns the configuration path that the test installed
+func testConfigPath(t *testing.T) string {
+	t.Helper()
+	path, err := configSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

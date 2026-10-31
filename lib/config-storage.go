@@ -20,7 +20,11 @@ var configSettingsPath = defaultConfigSettingsPath
 func withConfigLock(ctx context.Context, fn func() error) error {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	file, err := os.OpenFile(configSettingsPath()+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	path, err := configSettingsPath()
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return fmt.Errorf("locking configuration: %w", err)
 	}
@@ -44,7 +48,10 @@ func withConfigLock(ctx context.Context, fn func() error) error {
 // writeConfigJSON replaces a complete file atomically, so readers never see half
 // of a rotated token pair. The caller holds the configuration lock.
 func writeConfigJSON(contents []byte) error {
-	path := configSettingsPath()
+	path, err := configSettingsPath()
+	if err != nil {
+		return err
+	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".config-*")
 	if err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
