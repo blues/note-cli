@@ -445,7 +445,10 @@ func defaultConfig() *ConfigSettings {
 // returns (nil, non-nil) if there was some any other error
 func readConfigFromFile() (*ConfigSettings, error) {
 	// Read the config file
-	configPath := configSettingsPath()
+	configPath, err := configSettingsPath()
+	if err != nil {
+		return nil, err
+	}
 	contents, err := os.ReadFile(configPath)
 
 	if os.IsNotExist(err) {
