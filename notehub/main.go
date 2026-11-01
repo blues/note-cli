@@ -75,6 +75,14 @@ func main() {
 		fail(err)
 	}
 
+	// Check verbosity when reporting: modes also parse switches after positional
+	// arguments, so --verbose may still change after this callback is installed.
+	lib.ConfigRateLimitNotify = func(wait time.Duration, retry int, retries int) {
+		if flagVerbose {
+			fmt.Fprintf(os.Stderr, "the hub is limiting requests: waiting %s, then retry %d of %d\n", wait.Round(100*time.Millisecond), retry, retries)
+		}
+	}
+
 	// Run the mode, unless the login command has already reported what went wrong
 	if err = mode.Run(config); err != nil {
 		if agentSignIn && errors.Is(err, errAgentReported) {

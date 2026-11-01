@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blues/note-cli/lib"
 	"github.com/blues/note-go/note"
@@ -52,8 +54,59 @@ func hubTransactionRequest(request notehub.HubRequest, verbose bool) (rsp notehu
 	return
 }
 
-// All Notehub data requests use the shared OAuth request handling.
+// All Notehub data requests use the shared OAuth request handling, which also waits out
+// the hub's rate limiting and sends again before a 429 is ever seen here.
 var authenticatedDo = lib.ConfigDoAuthenticated
+
+// rateLimitedError is the error for a 429 the hub kept answering after every retry, saying
+// what the refusal's headers say about the limit
+func rateLimitedError(hub string, header http.Header) error {
+	if detail := rateLimitDetail(header); detail != "" {
+		return fmt.Errorf("%s is limiting requests: %s", hub, detail)
+	}
+	return fmt.Errorf("%s is limiting requests right now - wait a minute and try again", hub)
+}
+
+// rateLimitDetail says what the X-RateLimit headers of the hub's refusal say about the
+// limit it applies, as "the hub allows 7 requests a minute for your account, whole again
+// in 49s", or "" when the refusal says nothing readable.  The hub writes the durations
+// as Go does, such as 1m0s.
+func rateLimitDetail(header http.Header) string {
+	allows := ""
+	limit, limitErr := strconv.Atoi(strings.TrimSpace(header.Get("X-RateLimit-Limit")))
+	period, periodErr := time.ParseDuration(strings.TrimSpace(header.Get("X-RateLimit-Period")))
+	if limitErr == nil && periodErr == nil && limit > 0 && period > 0 {
+		allows = fmt.Sprintf("the hub allows %d requests %s for your account", limit, rateLimitPeriodText(period))
+	}
+	reset, resetErr := time.ParseDuration(strings.TrimSpace(header.Get("X-RateLimit-Reset")))
+	if resetErr != nil || reset <= 0 {
+		return allows
+	}
+	when := reset.Round(time.Second).String()
+	if reset < time.Second {
+		when = "under a second"
+	}
+	if allows == "" {
+		return "the hub's allowance for your account is whole again in " + when
+	}
+	return allows + ", whole again in " + when
+}
+
+// rateLimitPeriodText is a period as "a minute", "every 5 minutes", "an hour", and so on
+func rateLimitPeriodText(period time.Duration) string {
+	for _, unit := range []struct {
+		length    time.Duration
+		one, many string
+	}{{time.Hour, "an hour", "hours"}, {time.Minute, "a minute", "minutes"}, {time.Second, "a second", "seconds"}} {
+		if period%unit.length == 0 {
+			if n := period / unit.length; n == 1 {
+				return unit.one
+			}
+			return fmt.Sprintf("every %d %s", period/unit.length, unit.many)
+		}
+	}
+	return "every " + period.String()
+}
 
 // Process a V0 HTTPS request and unmarshal into an object
 func reqHubV0(verbose bool, hub string, request []byte, requestFile string, filetype string, filetags string, filenotes string, overwrite bool, dropNonJSON bool, outq chan string, object interface{}) (err error) {
@@ -139,6 +192,9 @@ func reqHubV0JSON(verbose bool, hub string, request []byte, requestFile string, 
 	defer httpRsp.Body.Close()
 	if httpRsp.StatusCode == http.StatusUnauthorized {
 		return nil, authUnauthorizedError(hub)
+	}
+	if httpRsp.StatusCode == http.StatusTooManyRequests {
+		return nil, rateLimitedError(hub, httpRsp.Header)
 	}
 
 	// Note that we must do this with no timeout specified on
@@ -246,6 +302,10 @@ func reqHubV1JSON(verbose bool, hub string, verb string, url string, body []byte
 	defer httpRsp.Body.Close()
 	if httpRsp.StatusCode == http.StatusUnauthorized {
 		err = authUnauthorizedError(hub)
+		return
+	}
+	if httpRsp.StatusCode == http.StatusTooManyRequests {
+		err = rateLimitedError(hub, httpRsp.Header)
 		return
 	}
 

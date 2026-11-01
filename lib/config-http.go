@@ -12,8 +12,9 @@ import (
 )
 
 // ConfigDoAuthenticated is the common request path for Notehub operations.
-// It renews expiring credentials before sending and retries a 401 once when a
-// refresh succeeds and the request body can be replayed.
+// It renews expiring credentials before sending, retries a 401 once when a
+// refresh succeeds and the request body can be replayed, and when the hub
+// answers 429 Too Many Requests waits and sends again, as config-retry.go says.
 func ConfigDoAuthenticated(client *http.Client, req *http.Request) (*http.Response, error) {
 	config, err := GetConfig()
 	if err != nil {
@@ -23,7 +24,7 @@ func ConfigDoAuthenticated(client *http.Client, req *http.Request) (*http.Respon
 }
 
 func (config *ConfigSettings) doAuthenticated(client *http.Client, req *http.Request, hub string) (*http.Response, error) {
-	return notehub.DoAuthenticatedRequest(client, req, func(ctx context.Context, rejectedToken string) (string, error) {
+	provider := func(ctx context.Context, rejectedToken string) (string, error) {
 		if _, err := config.RefreshCredentialsForHub(ctx, hub, rejectedToken); err != nil {
 			return "", err
 		}
@@ -32,6 +33,9 @@ func (config *ConfigSettings) doAuthenticated(client *http.Client, req *http.Req
 			return "", fmt.Errorf("not logged in to %s: set %s, or run 'notehub login'", hub, ConfigTokenEnvVar)
 		}
 		return credentials.Token, nil
+	}
+	return doRetryingRateLimited(req, func(req *http.Request) (*http.Response, error) {
+		return notehub.DoAuthenticatedRequest(client, req, provider)
 	})
 }
 

@@ -559,7 +559,8 @@ func apiWrite(out io.Writer, rsp *apiResponse) {
 }
 
 // apiFailure is the error for a response whose status says the request failed, with the
-// reason the hub gave in its JSON body, if any
+// reason the hub gave in its JSON body, if any.  A 429 that is still being answered after
+// the shared request path's retries has no body, so its headers explain the limit.
 func apiFailure(rsp *apiResponse) error {
 	if rsp.StatusCode < 400 {
 		return nil
@@ -572,6 +573,11 @@ func apiFailure(rsp *apiResponse) error {
 				reason = ": " + text
 				break
 			}
+		}
+	}
+	if reason == "" && rsp.StatusCode == http.StatusTooManyRequests {
+		if detail := rateLimitDetail(rsp.Header); detail != "" {
+			reason = ": " + detail
 		}
 	}
 	return fmt.Errorf("HTTP %s%s", rsp.Status, reason)
