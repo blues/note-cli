@@ -401,7 +401,7 @@ func TestApiPaginateStops(t *testing.T) {
 	}{
 		{name: "empty terminal page", bodies: []string{`{"events":[],"next_cursor":"0","has_more":false}`}},
 		{name: "cursor cycle", bodies: []string{`{"next_cursor":"1.2","has_more":true}`, `{"next_cursor":"1.3","has_more":true}`, `{"next_cursor":"1.2","has_more":true}`}, want: "repeated a modification cursor"},
-		{name: "HTTP error on next page", bodies: []string{`{"next_cursor":"1.2","has_more":true}`, `{"err":"rate limit"}`}, status: http.StatusTooManyRequests, want: "HTTP 429 Too Many Requests: rate limit"},
+		{name: "HTTP error on next page", bodies: []string{`{"next_cursor":"1.2","has_more":true}`, `{"err":"not yours"}`}, status: http.StatusForbidden, want: "HTTP 403 Forbidden: not yours"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			apiTestReset(t)
@@ -427,6 +427,50 @@ func TestApiPaginateStops(t *testing.T) {
 				t.Errorf("response bodies lost: %q", out)
 			}
 		})
+	}
+}
+
+// A request the hub rate-limits is quietly sent again, so the user sees the answer that
+// follows and never the 429. The hub's refusal has no body, only Retry-After,
+// and the real wait is made.
+func TestApiRetriesRateLimiting(t *testing.T) {
+	apiTestReset(t)
+	calls := 0
+	newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= 2 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		io.WriteString(w, `{"projects":[]}`)
+	})
+	out, err := apiTestRun(t, []string{"/v1/projects"}, "")
+	if err != nil || calls != 3 || out != `{"projects":[]}`+"\n" {
+		t.Fatalf("calls=%d out=%q err=%v", calls, out, err)
+	}
+}
+
+// A hub that keeps refusing after every retry is reported with what its headers say about
+// the limit, since the refusal itself has no body; a reason in a body is kept over that
+func TestApiRateLimitExhausted(t *testing.T) {
+	apiTestReset(t)
+	calls := 0
+	newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("X-RateLimit-Limit", "7")
+		w.Header().Set("X-RateLimit-Period", "70ms")
+		w.Header().Set("X-RateLimit-Reset", "60ms")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	out, err := apiTestRun(t, []string{"/v1/projects"}, "")
+	want := "HTTP 429 Too Many Requests: the hub allows 7 requests every 70ms for your account, whole again in under a second"
+	if err == nil || err.Error() != want || calls != 7 || out != "" {
+		t.Fatalf("calls=%d out=%q err=%v", calls, out, err)
+	}
+	withBody := &apiResponse{Status: "429 Too Many Requests", StatusCode: 429, Header: headerOf("X-RateLimit-Limit", "7", "X-RateLimit-Period", "1m0s"), Body: []byte(`{"err":"slow down"}`)}
+	if err := apiFailure(withBody); err == nil || err.Error() != "HTTP 429 Too Many Requests: slow down" {
+		t.Fatalf("with a body: err=%v", err)
 	}
 }
 
