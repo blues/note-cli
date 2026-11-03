@@ -35,7 +35,7 @@ func TestMainRateLimitLogging(t *testing.T) {
 			if calls == 1 {
 				return &http.Response{
 					StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests",
-					Header: headerOf("X-RateLimit-Limit", "1", "X-RateLimit-Period", "1ms"), Body: http.NoBody,
+					Header: http.Header{"Retry-After": {"1"}}, Body: http.NoBody,
 				}, nil
 			}
 			return &http.Response{

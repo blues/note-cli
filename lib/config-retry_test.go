@@ -56,8 +56,8 @@ func rateLimitTestTransport(t *testing.T, header http.Header, statuses ...int) (
 	return calls, bodies
 }
 
-// A rate-limited request is sent again with the same body, after waits that double
-// each time, until the hub accepts it; the body of the refusal is never seen
+// A rate-limited request is sent again with the same body, after one-second waits
+// when Retry-After is absent, until the hub accepts it; the refusal body is never seen
 func TestRateLimitedRequestIsRetried(t *testing.T) {
 	settings := refreshTestConfig(t, time.Now().Add(time.Hour))
 	sleeps := rateLimitTestSleeps(t)
@@ -80,9 +80,8 @@ func TestRateLimitedRequestIsRetried(t *testing.T) {
 		t.Fatalf("sleeps=%v", *sleeps)
 	}
 	for i, wait := range *sleeps {
-		full := rateLimitFirstDelay << i
-		if wait < full/2 || wait > full {
-			t.Errorf("wait %d was %s, not between %s and %s", i+1, wait, full/2, full)
+		if wait != time.Second {
+			t.Errorf("wait %d was %s, want 1s", i+1, wait)
 		}
 	}
 }
@@ -103,13 +102,9 @@ func TestRateLimitedRequestWithoutBodyIsRetried(t *testing.T) {
 	}
 }
 
-// The hub's headers say how long to wait: a Retry-After exactly, or one request's share
-// of the allowance that X-RateLimit-Limit and X-RateLimit-Period describe, with up to a
-// quarter again, or the X-RateLimit-Reset until the whole allowance is back; and the delay
-// when the hub says nothing readable
+// Only Retry-After controls the wait; without a usable positive delay, wait one second.
 func TestRateLimitedRequestHonorsHeaders(t *testing.T) {
-	hubHeaders := headerOf("X-RateLimit-Limit", "7", "X-RateLimit-Period", "1m0s", "X-RateLimit-Reset", "48.571428571s", "X-RateLimit-Remaining", "0")
-	share := time.Minute / 7
+	hubHeaders := headerOf("X-RateLimit-Limit", "1", "X-RateLimit-Period", "2m0s", "X-RateLimit-Reset", "5m0s", "X-RateLimit-Remaining", "0")
 	for _, test := range []struct {
 		name   string
 		header func() http.Header
@@ -120,14 +115,16 @@ func TestRateLimitedRequestHonorsHeaders(t *testing.T) {
 		{"Retry-After date", func() http.Header {
 			return http.Header{"Retry-After": {time.Now().Add(5 * time.Second).UTC().Format(http.TimeFormat)}}
 		}, 3 * time.Second, 5 * time.Second},
-		{"Retry-After zero falls back to the delay", func() http.Header { return http.Header{"Retry-After": {"0"}} }, rateLimitFirstDelay / 2, rateLimitFirstDelay},
-		{"Retry-After unreadable falls back to the delay", func() http.Header { return http.Header{"Retry-After": {"soon"}} }, rateLimitFirstDelay / 2, rateLimitFirstDelay},
-		{"the hub's X-RateLimit headers", func() http.Header { return hubHeaders.Clone() }, share, share + share/4},
-		{"X-RateLimit-Reset alone", func() http.Header { return headerOf("X-RateLimit-Reset", "12.5s") }, 12500 * time.Millisecond, 12500*time.Millisecond + 12500*time.Millisecond/4},
+		{"Retry-After missing", func() http.Header { return nil }, time.Second, time.Second},
+		{"Retry-After zero", func() http.Header { return http.Header{"Retry-After": {"0"}} }, time.Second, time.Second},
+		{"Retry-After negative", func() http.Header { return http.Header{"Retry-After": {"-1"}} }, time.Second, time.Second},
+		{"Retry-After unreadable", func() http.Header { return http.Header{"Retry-After": {"soon"}} }, time.Second, time.Second},
+		{"Retry-After past date", func() http.Header {
+			return http.Header{"Retry-After": {time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)}}
+		}, time.Second, time.Second},
+		{"X-RateLimit ignored", func() http.Header { return hubHeaders.Clone() }, time.Second, time.Second},
 		{"Retry-After over X-RateLimit", func() http.Header { h := hubHeaders.Clone(); h.Set("Retry-After", "3"); return h }, 3 * time.Second, 3 * time.Second},
-		{"unreadable X-RateLimit falls back to the delay", func() http.Header {
-			return headerOf("X-RateLimit-Limit", "many", "X-RateLimit-Period", "a while", "X-RateLimit-Reset", "soon")
-		}, rateLimitFirstDelay / 2, rateLimitFirstDelay},
+		{"Retry-After zero ignores X-RateLimit", func() http.Header { h := hubHeaders.Clone(); h.Set("Retry-After", "0"); return h }, time.Second, time.Second},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			settings := refreshTestConfig(t, time.Now().Add(time.Hour))
@@ -149,34 +146,6 @@ func TestRateLimitedRequestHonorsHeaders(t *testing.T) {
 	}
 }
 
-// A hub that asks for a longer wait than the CLI is willing to make isn't retried, and
-// its answer is returned for the caller to explain
-func TestRateLimitedRequestWaitTooLong(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		header http.Header
-	}{
-		{"Retry-After", http.Header{"Retry-After": {"600"}}},
-		{"X-RateLimit-Reset", headerOf("X-RateLimit-Reset", "5m0s")},
-		{"X-RateLimit share", headerOf("X-RateLimit-Limit", "1", "X-RateLimit-Period", "2m0s")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			settings := refreshTestConfig(t, time.Now().Add(time.Hour))
-			sleeps := rateLimitTestSleeps(t)
-			calls, _ := rateLimitTestTransport(t, test.header, 429, 200)
-			req, _ := http.NewRequest("GET", "https://"+settings.Hub+"/v1/projects", nil)
-			rsp, err := settings.doAuthenticated(http.DefaultClient, req, settings.Hub)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer rsp.Body.Close()
-			if rsp.StatusCode != 429 || *calls != 1 || len(*sleeps) != 0 {
-				t.Fatalf("status=%d calls=%d sleeps=%v", rsp.StatusCode, *calls, *sleeps)
-			}
-		})
-	}
-}
-
 // The retry budget includes time spent sending requests and waiting. A delay that
 // won't fit is never shortened, and the final refusal is left intact for the caller.
 func TestRateLimitedRequestRetryBudget(t *testing.T) {
@@ -189,11 +158,12 @@ func TestRateLimitedRequestRetryBudget(t *testing.T) {
 		wantElapsed time.Duration
 		wantWait    time.Duration
 	}{
+		{"wait exceeds budget", headerOf("Retry-After", "600"), 0, 429, 1, 0, 0},
 		{"repeated minute waits", headerOf("Retry-After", "60"), 0, 429, 2, time.Minute, time.Minute},
 		{"do not shorten Retry-After", headerOf("Retry-After", "40"), 0, 429, 2, 40 * time.Second, 40 * time.Second},
 		{"request time counts", headerOf("Retry-After", "25"), 10 * time.Second, 429, 2, 45 * time.Second, 25 * time.Second},
 		{"request exhausts budget", headerOf("Retry-After", "1"), time.Minute, 429, 1, time.Minute, 0},
-		{"X-RateLimit waits", headerOf("X-RateLimit-Limit", "1", "X-RateLimit-Period", "1m"), 0, 429, 2, time.Minute, time.Minute},
+		{"fallback exceeds remaining budget", nil, time.Minute - 500*time.Millisecond, 429, 1, time.Minute - 500*time.Millisecond, 0},
 		{"successful retry", headerOf("Retry-After", "10"), time.Second, 200, 2, 12 * time.Second, 10 * time.Second},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -254,8 +224,10 @@ func TestRateLimitedRequestGivesUp(t *testing.T) {
 	if rsp.StatusCode != 429 || *calls != 1+rateLimitRetries || len(*sleeps) != rateLimitRetries || string(body) != `{"err":"status 429"}` {
 		t.Fatalf("status=%d calls=%d sleeps=%d body=%q", rsp.StatusCode, *calls, len(*sleeps), body)
 	}
-	if last := (*sleeps)[len(*sleeps)-1]; last > rateLimitMaxDelay {
-		t.Fatalf("waited %s, longer than %s", last, rateLimitMaxDelay)
+	for _, wait := range *sleeps {
+		if wait != time.Second {
+			t.Fatalf("waited %s, want 1s", wait)
+		}
 	}
 }
 
@@ -339,8 +311,8 @@ func TestRateLimitedRequestCancelled(t *testing.T) {
 	}
 }
 
-// The waits are read from Retry-After as the HTTP spec writes it, and otherwise grow
-func TestRateLimitWait(t *testing.T) {
+// Retry-After accepts either seconds or an HTTP date.
+func TestRetryAfter(t *testing.T) {
 	now := time.Now()
 	for _, test := range []struct {
 		value string
@@ -358,39 +330,6 @@ func TestRateLimitWait(t *testing.T) {
 		wait, given := retryAfter(http.Header{"Retry-After": {test.value}}, now)
 		if given != test.given || (given && (wait < test.wait-time.Second || wait > test.wait)) {
 			t.Errorf("Retry-After %q: wait=%s given=%v", test.value, wait, given)
-		}
-	}
-	for retry := 1; retry <= rateLimitRetries+5; retry++ {
-		wait, willing := rateLimitWait(http.Header{}, retry)
-		full := min(rateLimitFirstDelay<<(retry-1), rateLimitMaxDelay)
-		if !willing || wait < full/2 || wait > full {
-			t.Errorf("retry %d: wait=%s willing=%v, expected between %s and %s", retry, wait, willing, full/2, full)
-		}
-	}
-	if _, willing := rateLimitWait(http.Header{"Retry-After": {"61"}}, 1); willing {
-		t.Error("willing to wait longer than the most allowed")
-	}
-	if wait, willing := rateLimitWait(http.Header{"Retry-After": {"60"}}, 1); !willing || wait != 60*time.Second {
-		t.Errorf("the most allowed: wait=%s willing=%v", wait, willing)
-	}
-	for _, test := range []struct {
-		limit, period, reset string
-		share                time.Duration
-		given                bool
-	}{
-		{"7", "1m0s", "48.5s", time.Minute / 7, true},
-		{"1000", "1m0s", "", 60 * time.Millisecond, true},
-		{"", "", "48.5s", 48500 * time.Millisecond, true},
-		{"7", "", "48.5s", 48500 * time.Millisecond, true},
-		{"many", "1m0s", "soon", 0, false},
-		{"0", "1m0s", "", 0, false},
-		{"7", "0s", "", 0, false},
-		{"7", "-1m0s", "-5s", 0, false},
-		{"", "", "", 0, false},
-	} {
-		header := headerOf("X-RateLimit-Limit", test.limit, "X-RateLimit-Period", test.period, "X-RateLimit-Reset", test.reset)
-		if share, given := rateLimitShare(header); given != test.given || share != test.share {
-			t.Errorf("X-RateLimit %q/%q/%q: share=%s given=%v", test.limit, test.period, test.reset, share, given)
 		}
 	}
 }

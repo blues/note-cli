@@ -431,19 +431,15 @@ func TestApiPaginateStops(t *testing.T) {
 }
 
 // A request the hub rate-limits is quietly sent again, so the user sees the answer that
-// follows and never the 429.  The hub's refusal has no body, only X-RateLimit headers,
-// which say how long one request's share of the allowance takes to come back: here, with
-// a short period, a few milliseconds, so the real wait is made.
+// follows and never the 429. The hub's refusal has no body, only Retry-After,
+// and the real wait is made.
 func TestApiRetriesRateLimiting(t *testing.T) {
 	apiTestReset(t)
 	calls := 0
 	newApiTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls <= 2 {
-			w.Header().Set("X-RateLimit-Limit", "7")
-			w.Header().Set("X-RateLimit-Period", "70ms")
-			w.Header().Set("X-RateLimit-Reset", "60ms")
-			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}

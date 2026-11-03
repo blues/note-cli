@@ -198,12 +198,11 @@ The response body goes to stdout and diagnostics to stderr. JSON responses need 
 successful responses may be empty. Check the exit code before treating a request as
 successful. After an uncertain write result, inspect the resource before retrying.
 
-Rate limiting is handled for you. The hub allows a number of API requests a minute for
-each billing account, and when it answers `429 Too Many Requests`, every command waits
-for one request's share of that allowance to come back, as the hub's `X-RateLimit`
-headers describe it, or as long as a `Retry-After` header asks, and sends the request
-again, up to six times within a one-minute retry budget. If the next wait would exceed
-that budget, or all retries are refused, the final 429 reaches you with any limit details
+Rate limiting is handled for you. When the hub answers `429 Too Many Requests`, every
+command waits as long as `Retry-After` asks before sending the request again. A missing,
+invalid, zero, or past `Retry-After` falls back to a one-second wait. Requests are retried
+up to six times within a one-minute retry budget. If the next wait would exceed that
+budget, or all retries are refused, the final 429 reaches you with any limit details
 from the hub.
 
 `--include` adds the HTTP status and headers. `--pretty` formats JSON but buffers the
